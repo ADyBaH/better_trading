@@ -1,0 +1,5 @@
+pandas
+pandas_ta
+apimoex
+apscheduler
+requests
