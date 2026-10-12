@@ -11,6 +11,7 @@ from core.logger import setup_logging, get_logger
 from data.api_facade import get_candles_tf
 from indicators.calc import add_indicators, interpret_indicators, get_atr
 from strategy.levels import find_fractals, build_levels
+from strategy.references import build_references
 
 
 def print_header(text: str, width: int = 70) -> None:
@@ -117,6 +118,32 @@ def main() -> None:
         )
         confirmed_count = sum(1 for lv in levels if lv["confirmed"])
         print(f"Подтверждённых (на 2+ ТФ): {confirmed_count}")
+
+    # ============================================================
+    # 5. Референсные уровни (слой C)
+    # ============================================================
+    print_section("Референсные уровни (round / PDH-PDL / PWH-PWL)")
+
+    df_h1 = get_candles_tf("H1", count=200)
+    references = build_references(
+        current_price=current_price,
+        atr=atr,
+        df_intraday=df,  # M5 — для PDH/PDL, точнее экстремум
+        df_h1=df_h1,  # H1 — для PWH/PWL
+    )
+
+    if not references:
+        print("Референсных уровней нет.")
+    else:
+        print(f"{'Цена':>8} | {'Тип':>6} | {'Метка':>8} | {'Вес':>4} | Позиция")
+        print("-" * 55)
+        for r in references:
+            marker = "↑" if r["price"] > current_price else "↓"
+            print(
+                f"{r['price']:>8.3f} | {r['type']:>6} | "
+                f"{r['label']:>8} | {r['weight']:>4} | {marker}"
+            )
+        print(f"\nВсего референсных уровней: {len(references)}")
 
 
 if __name__ == "__main__":
