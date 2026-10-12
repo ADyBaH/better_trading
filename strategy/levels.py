@@ -1,15 +1,10 @@
 """
 Поиск уровней на свечах.
 
-Начинаем с простого: фракталы (Bill Williams).
-Фрактал вверх — свеча, у которой high выше, чем у N свечей слева и справа.
-Фрактал вниз  — свеча, у которой low ниже, чем у N свечей слева и справа.
-
-Позже добавим:
-- кластеризацию близких фракталов в уровни,
-- ATR-нормализацию,
-- мульти-ТФ и веса,
-- референсные уровни (round numbers, PDH/PDL).
+Текущая реализация:
+  - find_fractals       — поиск фракталов (Bill Williams)
+  - cluster_levels      — кластеризация фракталов в уровни
+  - _merge_nearby_clusters — вспомогательная склейка близких кластеров
 """
 
 import pandas as pd
@@ -18,6 +13,11 @@ from core.logger import get_logger
 import config
 
 log = get_logger(__name__)
+
+
+# ============================================================
+# Фракталы
+# ============================================================
 
 
 def find_fractals(df: pd.DataFrame, period: int = None) -> list[dict]:
@@ -32,7 +32,7 @@ def find_fractals(df: pd.DataFrame, period: int = None) -> list[dict]:
             "begin":  Timestamp,
             "price":  float,
             "type":   "up" | "down",
-            "index":  int,       # индекс свечи в исходном df
+            "index":  int,
         }
     """
     period = period or config.FRACTAL_PERIOD
@@ -49,8 +49,6 @@ def find_fractals(df: pd.DataFrame, period: int = None) -> list[dict]:
     highs = df["high"].values
     lows = df["low"].values
 
-    # Начинаем с period и заканчиваем на len(df) - period - 1,
-    # потому что для фрактала нужны соседи слева и справа.
     for i in range(period, len(df) - period):
         # --- Фрактал вверх ---
         window_high = highs[i - period : i + period + 1]
@@ -76,7 +74,118 @@ def find_fractals(df: pd.DataFrame, period: int = None) -> list[dict]:
                 }
             )
 
-    # Сортируем по времени
     fractals.sort(key=lambda f: f["begin"])
     log.info("Найдено фракталов: %d (period=%d)", len(fractals), period)
     return fractals
+
+
+# ============================================================
+# Кластеризация
+# ============================================================
+
+
+def _merge_nearby_clusters(
+    clusters: list[list[dict]],
+    tolerance: float,
+) -> list[list[dict]]:
+    """
+    Склеивает соседние кластеры, центры которых ближе, чем tolerance.
+    Вход — список кластеров (каждый = список фракталов), отсортированных по цене.
+    """
+    if not clusters:
+        return []
+
+    def center(cluster: list[dict]) -> float:
+        return sum(f["price"] for f in cluster) / len(cluster)
+
+    merged = [clusters[0]]
+    for cluster in clusters[1:]:
+        prev = merged[-1]
+        if abs(center(cluster) - center(prev)) <= tolerance:
+            prev.extend(cluster)
+        else:
+            merged.append(cluster)
+
+    return merged
+
+
+def cluster_levels(
+    fractals: list[dict],
+    tolerance: float,
+    type_filter: str = None,
+    min_weight: int = 1,
+    merge_tolerance: float = None,
+) -> list[dict]:
+    """
+    Кластеризует фракталы в уровни.
+
+    tolerance — абсолютный допуск для первой кластеризации.
+    type_filter — None (все) / "up" / "down".
+    min_weight — минимальный вес уровня, чтобы попасть в результат.
+    merge_tolerance — допуск для склейки близких кластеров между собой.
+                      Если None — используется tolerance.
+
+    Возвращает список уровней, отсортированных по цене.
+    """
+    if not fractals:
+        return []
+
+    items = [f for f in fractals if type_filter is None or f["type"] == type_filter]
+    if not items:
+        return []
+
+    items.sort(key=lambda f: f["price"])
+
+    # --- Первый проход: кластеризация по tolerance ---
+    clusters = []
+    current = [items[0]]
+    for f in items[1:]:
+        if f["price"] - current[0]["price"] <= tolerance:
+            current.append(f)
+        else:
+            clusters.append(current)
+            current = [f]
+    clusters.append(current)
+
+    # --- Второй проход: склейка близких кластеров ---
+    if merge_tolerance is None:
+        merge_tolerance = tolerance
+    clusters = _merge_nearby_clusters(clusters, merge_tolerance)
+
+    # --- Формируем результат ---
+    result = []
+    for cluster in clusters:
+        if len(cluster) < min_weight:
+            continue
+
+        prices = [f["price"] for f in cluster]
+        types = set(f["type"] for f in cluster)
+        begins = [f["begin"] for f in cluster]
+
+        if types == {"up"}:
+            ctype = "up"
+        elif types == {"down"}:
+            ctype = "down"
+        else:
+            ctype = "mixed"
+
+        result.append(
+            {
+                "price": sum(prices) / len(prices),
+                "weight": len(cluster),
+                "type": ctype,
+                "last_seen": max(begins),
+                "first_seen": min(begins),
+            }
+        )
+
+    log.info(
+        "Кластеризация: %d фракталов → %d уровней "
+        "(tolerance=%.5f, merge=%.5f, min_weight=%d)",
+        len(items),
+        len(result),
+        tolerance,
+        merge_tolerance,
+        min_weight,
+    )
+    return result
