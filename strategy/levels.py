@@ -2,9 +2,9 @@
 Поиск уровней на свечах.
 
 Текущая реализация:
-  - find_fractals       — поиск фракталов (Bill Williams)
-  - cluster_levels      — кластеризация фракталов в уровни
-  - _merge_nearby_clusters — вспомогательная склейка близких кластеров
+- find_fractals       — поиск фракталов (Bill Williams)
+- cluster_levels      — кластеризация фракталов в уровни
+- _merge_nearby_clusters — вспомогательная склейка близких кластеров
 """
 
 import pandas as pd
@@ -123,7 +123,7 @@ def cluster_levels(
     type_filter — None (все) / "up" / "down".
     min_weight — минимальный вес уровня, чтобы попасть в результат.
     merge_tolerance — допуск для склейки близких кластеров между собой.
-                      Если None — используется tolerance.
+                    Если None — используется tolerance.
 
     Возвращает список уровней, отсортированных по цене.
     """
@@ -189,3 +189,83 @@ def cluster_levels(
         min_weight,
     )
     return result
+
+
+def build_levels(
+    symbol: str,
+    tolerance: float,
+    current_price: float,
+    atr: float,
+    min_weight: int = None,
+) -> list[dict]:
+    """
+    Строит карту уровней по нескольким ТФ (config.LEVEL_TIMEFRAMES).
+    Фильтрует по диапазону ±LEVELS_RANGE_ATR * atr вокруг current_price
+    и ограничивает LEVELS_MAX_SHOW самыми весомыми.
+
+    Возвращает список уровней, отсортированных по цене (сверху вниз).
+    """
+    from data.api_facade import get_candles_tf
+
+    all_fractals = []
+    for tf in config.LEVEL_TIMEFRAMES:
+        df_tf = get_candles_tf(tf, count=300)
+        if df_tf.empty:
+            log.warning("Нет данных для ТФ %s", tf)
+            continue
+        fr = find_fractals(df_tf)
+        weight = config.LEVEL_TF_WEIGHTS.get(tf, 1)
+        for f in fr:
+            f_copy = dict(f)
+            f_copy["tf"] = tf
+            f_copy["weight"] = weight
+            all_fractals.append(f_copy)
+        log.info("%s: %d фракталов (вес=%d)", tf, len(fr), weight)
+
+    if not all_fractals:
+        log.warning("Не найдено фракталов ни на одном ТФ")
+        return []
+
+    # Кластеризация общего пула
+    levels = cluster_levels(all_fractals, tolerance=tolerance, min_weight=1)
+
+    # Пересчёт весов и tf_source
+    for lv in levels:
+        cluster_fractals = [
+            f for f in all_fractals if abs(f["price"] - lv["price"]) <= tolerance
+        ]
+        tfs = set(f["tf"] for f in cluster_fractals)
+        lv["tf_source"] = tfs
+        lv["confirmed"] = len(tfs) >= 2
+
+        total_weight = sum(f["weight"] for f in cluster_fractals)
+        if lv["confirmed"]:
+            total_weight = int(total_weight * 1.3)
+        lv["weight"] = total_weight
+
+    # Фильтр по минимальному весу
+    if min_weight is None:
+        min_weight = config.LEVELS_MIN_WEIGHT
+    levels = [lv for lv in levels if lv["weight"] >= min_weight]
+
+    # Фильтр по диапазону вокруг текущей цены
+    price_range = config.LEVELS_RANGE_ATR * atr
+    before = len(levels)
+    levels = [lv for lv in levels if abs(lv["price"] - current_price) <= price_range]
+    log.info(
+        "Фильтр по диапазону ±%.5f (%.5f ± %.5f): %d → %d уровней",
+        price_range,
+        current_price,
+        price_range,
+        before,
+        len(levels),
+    )
+
+    # Жёсткий кап
+    if len(levels) > config.LEVELS_MAX_SHOW:
+        levels = sorted(levels, key=lambda lv: lv["weight"], reverse=True)
+        levels = levels[: config.LEVELS_MAX_SHOW]
+        log.info("Кап LEVELS_MAX_SHOW=%d применён", config.LEVELS_MAX_SHOW)
+
+    levels.sort(key=lambda lv: lv["price"], reverse=True)
+    return levels
