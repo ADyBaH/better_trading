@@ -1,5 +1,10 @@
 """
 Расчёт технических индикаторов через pandas_ta.
+
+Функции:
+    add_indicators(df)          — добавляет EMA, RSI, ADX, DMP, DMN
+    interpret_indicators(df)    — человекочитаемая сводка
+    get_atr(df, period)         — последнее значение ATR
 """
 
 import pandas as pd
@@ -94,3 +99,33 @@ def interpret_indicators(df: pd.DataFrame, timeframe: str = "") -> str:
         rsi_text = f"RSI = {rsi:.1f} (нейтрально)"
 
     return f"{tf_prefix}{trend_text}. {adx_text}. {rsi_text}."
+
+
+def get_atr(df: pd.DataFrame, period: int = None) -> float | None:
+    """
+    Возвращает последнее значение ATR для переданного DataFrame.
+    Если данных мало или ATR не рассчитан — возвращает None.
+    """
+    period = period or config.ATR_PERIOD
+
+    if df.empty or len(df) < period + 1:
+        log.warning(
+            "Мало данных для ATR: %d свечей, нужно ≥%d",
+            len(df),
+            period + 1,
+        )
+        return None
+
+    atr_series = ta.atr(
+        high=df["high"],
+        low=df["low"],
+        close=df["close"],
+        length=period,
+    )
+    if atr_series is None or atr_series.dropna().empty:
+        log.warning("ATR не рассчитан (pandas_ta вернул None или всё NaN)")
+        return None
+
+    value = float(atr_series.dropna().iloc[-1])
+    log.debug("ATR(%d) = %.5f", period, value)
+    return value
