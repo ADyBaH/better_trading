@@ -75,7 +75,9 @@ def get_candles_range(
         current += timedelta(days=1)
 
     if not frames:
-        log.warning("Свечей не получено: %s interval=%s %s→%s", symbol, interval, start, end)
+        log.warning(
+            "Свечей не получено: %s interval=%s %s→%s", symbol, interval, start, end
+        )
         return pd.DataFrame(columns=["begin", "open", "high", "low", "close", "volume"])
 
     df = pd.concat(frames, ignore_index=True)
@@ -93,7 +95,12 @@ def get_candles_range(
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df = df.sort_values("begin").drop_duplicates("begin").reset_index(drop=True)
-    log.info("Получено свечей: %d (период %s → %s)", len(df), df["begin"].min(), df["begin"].max())
+    log.info(
+        "Получено свечей: %d (период %s → %s)",
+        len(df),
+        df["begin"].min(),
+        df["begin"].max(),
+    )
     return df
 
 
@@ -101,7 +108,7 @@ def get_candles(
     symbol: str,
     interval: int,
     count: int = 500,
-    tail: bool = True,   # <-- новый параметр
+    tail: bool = True,  # <-- новый параметр
 ) -> pd.DataFrame:
     days_back = max(3, (count // 400) + 5)
     end = datetime.now().strftime("%Y-%m-%d")

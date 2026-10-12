@@ -62,7 +62,11 @@ def save_candles(symbol: str, interval: int, df: pd.DataFrame) -> int:
         (
             symbol,
             interval,
-            row["begin"].isoformat() if hasattr(row["begin"], "isoformat") else str(row["begin"]),
+            (
+                row["begin"].isoformat()
+                if hasattr(row["begin"], "isoformat")
+                else str(row["begin"])
+            ),
             float(row["open"]),
             float(row["high"]),
             float(row["low"]),
@@ -73,11 +77,14 @@ def save_candles(symbol: str, interval: int, df: pd.DataFrame) -> int:
     ]
 
     with _connect() as conn:
-        conn.executemany("""
+        conn.executemany(
+            """
             INSERT OR REPLACE INTO candles
             (symbol, interval, begin, open, high, low, close, volume)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, rows)
+        """,
+            rows,
+        )
 
     log.info("Сохранено свечей: %d (%s interval=%s)", len(rows), symbol, interval)
     return len(rows)
@@ -93,13 +100,17 @@ def load_candles(
     Возвращает DataFrame с колонками begin, open, high, low, close, volume.
     """
     with _connect() as conn:
-        df = pd.read_sql_query("""
+        df = pd.read_sql_query(
+            """
             SELECT begin, open, high, low, close, volume
             FROM candles
             WHERE symbol = ? AND interval = ?
             ORDER BY begin DESC
             LIMIT ?
-        """, conn, params=(symbol, interval, count))
+        """,
+            conn,
+            params=(symbol, interval, count),
+        )
 
     if df.empty:
         return df
@@ -112,9 +123,12 @@ def load_candles(
 def get_last_begin(symbol: str, interval: int) -> str | None:
     """Возвращает время последней свечи в БД (ISO-строку) или None."""
     with _connect() as conn:
-        cur = conn.execute("""
+        cur = conn.execute(
+            """
             SELECT MAX(begin) FROM candles
             WHERE symbol = ? AND interval = ?
-        """, (symbol, interval))
+        """,
+            (symbol, interval),
+        )
         result = cur.fetchone()[0]
     return result

@@ -11,7 +11,7 @@ class Statistics:
 
     def get_report(self):
         return {
-            'total_trades': self.total_trades,
-            'total_profit': self.total_profit,
-            'win_rate': self.win_rate
+            "total_trades": self.total_trades,
+            "total_profit": self.total_profit,
+            "win_rate": self.win_rate,
         }
