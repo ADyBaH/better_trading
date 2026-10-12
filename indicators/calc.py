@@ -1,21 +1,96 @@
-import numpy as np
+"""
+Расчёт технических индикаторов через pandas_ta.
+"""
+
+import pandas as pd
+import pandas_ta as ta
+
+import config
+from core.logger import get_logger
+
+log = get_logger(__name__)
 
 
-def calculate_ema(data: list, period: int) -> list:
-    # TODO: Implement EMA calculation
-    return data
+def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """Добавляет EMA, RSI, ADX к DataFrame со свечами."""
+    if df.empty:
+        log.warning("Пустой DataFrame, индикаторы не считаем")
+        return df
+
+    df = df.copy()
+
+    df["ema_fast"] = ta.ema(df["close"], length=config.EMA_FAST)
+    df["ema_slow"] = ta.ema(df["close"], length=config.EMA_SLOW)
+    df["rsi"] = ta.rsi(df["close"], length=config.RSI_PERIOD)
+
+    adx_result = ta.adx(
+        high=df["high"],
+        low=df["low"],
+        close=df["close"],
+        length=config.ADX_PERIOD,
+    )
+    if adx_result is not None:
+        df["adx"] = adx_result[f"ADX_{config.ADX_PERIOD}"]
+        df["dmp"] = adx_result[f"DMP_{config.ADX_PERIOD}"]
+        df["dmn"] = adx_result[f"DMN_{config.ADX_PERIOD}"]
+    else:
+        log.warning("ADX не рассчитан (недостаточно данных)")
+        df["adx"] = None
+        df["dmp"] = None
+        df["dmn"] = None
+
+    log.debug(
+        "Индикаторы добавлены: EMA(%d/%d), RSI(%d), ADX(%d)",
+        config.EMA_FAST,
+        config.EMA_SLOW,
+        config.RSI_PERIOD,
+        config.ADX_PERIOD,
+    )
+    return df
 
 
-def calculate_rsi(data: list, period: int) -> list:
-    # TODO: Implement RSI calculation
-    return data
+def interpret_indicators(df: pd.DataFrame, timeframe: str = "") -> str:
+    """Человекочитаемая интерпретация последних значений индикаторов."""
+    if df.empty:
+        return "Нет данных для интерпретации."
 
+    last = df.iloc[-1]
+    tf_prefix = f"[{timeframe}] " if timeframe else ""
 
-def calculate_adx(data: list, period: int) -> list:
-    # TODO: Implement ADX calculation
-    return data
+    # --- Тренд ---
+    ema_fast = last.get("ema_fast")
+    ema_slow = last.get("ema_slow")
+    if pd.isna(ema_fast) or pd.isna(ema_slow):
+        trend_text = f"Тренд: недостаточно данных (нужно ≥{config.EMA_SLOW} свечей)"
+    elif ema_fast > ema_slow:
+        trend_text = f"Тренд: ВВЕРХ (EMA{config.EMA_FAST} > EMA{config.EMA_SLOW})"
+    else:
+        trend_text = f"Тренд: ВНИЗ (EMA{config.EMA_FAST} < EMA{config.EMA_SLOW})"
 
+    # --- ADX ---
+    adx = last.get("adx")
+    if pd.isna(adx):
+        adx_text = "ADX: нет данных"
+    elif adx > config.ADX_STRONG:
+        adx_text = f"ADX = {adx:.1f} (сильный тренд)"
+    elif adx > config.ADX_THRESHOLD:
+        adx_text = f"ADX = {adx:.1f} (тренд есть)"
+    else:
+        adx_text = f"ADX = {adx:.1f} (боковик, тренда нет)"
 
-def detect_fractals(data: list, period: int) -> list:
-    # TODO: Implement fractal detection
-    return data
+    # --- RSI ---
+    rsi = last.get("rsi")
+    if pd.isna(rsi):
+        rsi_text = "RSI: нет данных"
+    elif rsi > config.RSI_OVERBOUGHT:
+        rsi_text = f"RSI = {rsi:.1f} (перекупленность)"
+    elif rsi < config.RSI_OVERSOLD:
+        rsi_text = f"RSI = {rsi:.1f} (перепроданность)"
+    elif rsi > config.RSI_NEAR_OVERBOUGHT:
+        rsi_text = f"RSI = {rsi:.1f} (близко к перекупленности)"
+    elif rsi < config.RSI_NEAR_OVERSOLD:
+        rsi_text = f"RSI = {rsi:.1f} (близко к перепроданности)"
+    else:
+        rsi_text = f"RSI = {rsi:.1f} (нейтрально)"
+
+    return f"{tf_prefix}{trend_text}. {adx_text}. {rsi_text}."

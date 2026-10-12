@@ -3,14 +3,20 @@
 __version__ = "0.1.0"
 
 # === ИНСТРУМЕНТ ===
-SYMBOL = "CNYRUBF"  # фьючерс на юань к рублю
+SYMBOL = "CNYRUBF"
 SYMBOL_NAME = "CNYRUBF"
-MARKET = "forts"  # срочный рынок
-ENGINE = "futures"  # движок — фьючерсы
+MARKET = "forts"
+ENGINE = "futures"
 
 # Базовый интервал, который тянем с биржи (минуты).
 # MOEX ISS поддерживает: 1, 10, 60, 24.
 BASE_INTERVAL = 1
+
+# Таймфреймы, которые строим из базового ресемплингом.
+TIMEFRAMES = ["M1", "M5", "M15"]
+
+# Таймфрейм по умолчанию для анализа.
+DEFAULT_TIMEFRAME = "M5"
 
 # Таймфреймы, которые строим из базового (ресемплингом).
 TIMEFRAMES = ["M5", "M15"]
@@ -38,10 +44,15 @@ PAUSE_AFTER_LOSS_MIN = 10  # пауза после убытка
 EMA_FAST = 50
 EMA_SLOW = 200
 RSI_PERIOD = 14
+RSI_OVERBOUGHT = 70
+RSI_OVERSOLD = 30
+RSI_NEAR_OVERBOUGHT = 60
+RSI_NEAR_OVERSOLD = 40
 ADX_PERIOD = 14
 ADX_THRESHOLD = 20
-FRACTAL_PERIOD = 100  # сколько свечей смотреть для уровней
-LEVEL_TOLERANCE = 10  # допуск для кластеризации уровней
+ADX_STRONG = 25
+FRACTAL_PERIOD = 100
+LEVEL_TOLERANCE = 10
 
 # === ДАННЫЕ ===
 DB_PATH = "data/market.db"
