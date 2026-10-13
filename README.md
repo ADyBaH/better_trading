@@ -2,7 +2,7 @@
 
 Консольный аналитический помощник по фьючерсу **CNYRUBF** (MOEX).
 Анализирует структуру рынка, находит уровни, детектирует сигналы,
-ведёт журнал сделок и считает статистику.
+ведёт журнал сделок с учётом комиссий и считает статистику.
 
 **Не торгует автоматически.** Ручной вход, помощник для принятия решений.
 
@@ -13,8 +13,9 @@
 - **Строит карту уровней**:
   - Структурные (A+B): фракталы + кластеризация, мульти-ТФ (H1 + M15), веса.
   - Референсные (C): round numbers, PDH/PDL, PWH/PWL.
-- **Детектирует сигналы**: bounce, breakout, trend_level с системой критериев.
-- **Ведёт журнал сделок**: добавление, закрытие, статистика.
+- **Детектирует сигналы**: bounce, breakout, trend_level с системой критериев (A/B/D).
+- **Ведёт журнал сделок** с учётом комиссий биржи и брокера.
+- **Мульти-инструмент**: спецификации инструментов в `core/instruments.py`.
 - **Экспортирует** результат: консольный дашборд, JSON (flat / nested / full).
 
 ## Установка
@@ -39,10 +40,13 @@ pip install -r requirements.txt
 # 1. Посмотреть анализ рынка
 python main.py
 
-# 2. Записать сделку в журнал
+# 2. Записать сделку
 python journal_cli.py add
 
-# 3. Посмотреть статистику
+# 3. Закрыть сделку
+python journal_cli.py close <id> <price>
+
+# 4. Посмотреть статистику
 python journal_cli.py stats
 ```
 
@@ -50,31 +54,47 @@ python journal_cli.py stats
 
 ### Анализ рынка: `main.py`
 
-| Команда                           | Описание                                        |
-| --------------------------------- | ----------------------------------------------- |
-| `python main.py`                  | Консольный дашборд (по умолчанию)               |
-| `python main.py --json`           | JSON, формат nested (по умолчанию)              |
-| `python main.py --json=flat`      | Плоский JSON — все уровни одним списком         |
-| `python main.py --json=full`      | JSON с метаданными и конфигом                   |
-| `python main.py --console --json` | Оба вывода сразу                                |
-| `python main.py --log`            | Сохранить технический лог в `logs/run_<ts>.log` |
-| `python main.py --save`           | Сохранить вывод в `logs/analysis_<ts>.<ext>`    |
-| `python main.py --log --save`     | Полный слепок запуска                           |
-| `python main.py --symbol=<тикер>` | Другой инструмент (по умолчанию CNYRUBF)        |
-| `python main.py --timeframe=M15`  | Другой таймфрейм анализа (M5 / M15 / H1)        |
+| Команда                           | Описание                                     |
+| --------------------------------- | -------------------------------------------- |
+| `python main.py`                  | Консольный дашборд (по умолчанию)            |
+| `python main.py --json`           | JSON, формат nested (по умолчанию)           |
+| `python main.py --json=flat`      | Плоский JSON — все уровни одним списком      |
+| `python main.py --json=full`      | JSON с метаданными и конфигом                |
+| `python main.py --console --json` | Оба вывода сразу                             |
+| `python main.py --log`            | Технический лог в `logs/run_<ts>.log`        |
+| `python main.py --save`           | Сохранить вывод в `logs/analysis_<ts>.<ext>` |
+| `python main.py --log --save`     | Полный слепок запуска                        |
+| `python main.py --symbol=<тикер>` | Другой инструмент (по умолчанию CNYRUBF)     |
+| `python main.py --timeframe=M15`  | Другой таймфрейм (M5 / M15 / H1)             |
 
 ### Журнал сделок: `journal_cli.py`
 
-| Команда                                    | Описание                       |
-| ------------------------------------------ | ------------------------------ |
-| `python journal_cli.py add`                | Добавить сделку (интерактивно) |
-| `python journal_cli.py list`               | Показать последние 20 сделок   |
-| `python journal_cli.py list --open`        | Только открытые сделки         |
-| `python journal_cli.py list --wide`        | Не обрезать комментарии        |
-| `python journal_cli.py list --limit=N`     | Показать N сделок              |
-| `python journal_cli.py close <id> <price>` | Закрыть сделку по цене         |
-| `python journal_cli.py delete <id>`        | Удалить сделку                 |
-| `python journal_cli.py stats`              | Статистика по всем сделкам     |
+| Команда                                                     | Описание                               |
+| ----------------------------------------------------------- | -------------------------------------- |
+| `python journal_cli.py add`                                 | Добавить сделку (интерактивно)         |
+| `python journal_cli.py list`                                | Последние 20 сделок                    |
+| `python journal_cli.py list --open`                         | Только открытые                        |
+| `python journal_cli.py list --wide`                         | Не обрезать комментарии                |
+| `python journal_cli.py list --limit=N`                      | Показать N сделок                      |
+| `python journal_cli.py close <id> <price>`                  | Закрыть сделку по цене                 |
+| `python journal_cli.py close <id> --result=+25`             | Закрыть с override результата (пункты) |
+| `python journal_cli.py close <id> <price> --commission=1.5` | Переопределить комиссию                |
+| `python journal_cli.py delete <id>`                         | Удалить сделку                         |
+| `python journal_cli.py stats`                               | Статистика по всем сделкам             |
+
+### Интерактивный ввод в `add`
+
+- **Символ**: `CNYRUBF` (Enter — по умолчанию).
+- **Направление**: `l` (long) или `s` (short). Также принимает `long` / `short`.
+- **Цена входа**: с точкой — `12.513`.
+- **Размер**: количество контрактов.
+- **Стоп / Тейк**: цены или Enter (пропустить).
+- **Комментарий**: свободный текст — что видел, почему вошёл.
+- **Теги**: через запятую — `setup,from_signal`.
+- **Тип сигнала**: `bounce` / `breakout` / `trend_level` или Enter (manual).
+- **Сила сигнала**: `weak` / `medium` / `strong`.
+- **Score сигнала**: число.
+- **Комиссия**: Enter — из спецификации инструмента, или число для переопределения.
 
 ## Пример вывода
 
@@ -97,9 +117,9 @@ ATR(H1) = 0.02574
 ╭─────────┬───────┬───────┬────────┬─────────┬─────────┬─────┬────────────────┬───────╮
 │    Цена │   Вес │ Тип   │ ТФ     │ Живёт   │   Score │ ★   │ Теги           │ Поз   │
 ├─────────┼───────┼───────┼────────┼─────────┼─────────┼─────┼────────────────┼───────┤
-│ 12.5702 │    10 │ down  │ H1,M15 │ 1д      │    26   │ ★★  │                │ ↑    │
-│ 12.5151 │    19 │ mixed │ H1,M15 │ 1ч      │    49.4 │ ★★★ │ + PWL          │ ↑    │
-│ 12.4999 │    16 │ mixed │ H1,M15 │ 58м     │    41.6 │ ★★★ │ + PDL + 12.500 │ ↓    │
+│ 12.5702 │    10 │ down  │ H1,M15 │ 1д      │    26   │ ★★  │                │ ↑     │
+│ 12.5151 │    19 │ mixed │ H1,M15 │ 1ч      │    49.4 │ ★★★ │ + PWL          │ ↑     │
+│ 12.4999 │    16 │ mixed │ H1,M15 │ 58м     │    41.6 │ ★★★ │ + PDL + 12.500 │ ↓     │
 ╰─────────┴───────┴───────┴────────┴─────────┴─────────┴─────┴────────────────┴───────╯
 ```
 
@@ -109,10 +129,11 @@ ATR(H1) = 0.02574
 better_trading/
 ├── main.py                     # точка входа анализа
 ├── journal_cli.py              # CLI журнала сделок
-├── config.py                   # все параметры
+├── config.py                   # параметры приложения
 ├── core/
 │   ├── logger.py               # логирование
 │   ├── models.py               # dataclass-ы: Level, Signal, AnalysisResult
+│   ├── instruments.py          # спецификации инструментов (CNYRUBF и др.)
 │   └── analyzer.py             # ядро анализа
 ├── data/
 │   ├── api_moex.py             # запросы к MOEX ISS
@@ -136,6 +157,24 @@ better_trading/
 └── tests/                      # тесты (пока пусто)
 ```
 
+## Инструменты и комиссии
+
+Спецификации инструментов — в `core/instruments.py`. Для каждого инструмента заданы:
+
+- `price_step` — шаг цены.
+- `step_cost` — стоимость шага в рублях.
+- `lot_size` — размер контракта.
+- `commission_exchange` — биржевой сбор.
+- `commission_broker` — брокерская комиссия.
+
+**Текущие инструменты:**
+
+| Тикер   | Шаг цены | Стоимость шага | Лот  | Биржа  | Брокер | Круг   |
+| ------- | -------- | -------------- | ---- | ------ | ------ | ------ |
+| CNYRUBF | 0.001    | 1.0 ₽          | 1000 | 0.58 ₽ | 0.45 ₽ | 2.06 ₽ |
+
+**Добавить новый инструмент:** дополнить словарь `INSTRUMENTS` в `core/instruments.py` и (опционально) поменять `DEFAULT_INSTRUMENT` в `config.py`.
+
 ## Стек
 
 - Python 3.10+
@@ -153,26 +192,26 @@ better_trading/
    - Референсные (round, PDH/PDL, PWH/PWL) — отдельным слоем.
    - Фильтр по `±2.5 × ATR(H1)` вокруг цены.
 4. **Сигналы**: bounce, breakout, trend_level. Каждый получает score (A/B/D) и уровень силы.
-5. **Журнал**: SQLite-таблица `trades` с полями: вход, выход, стоп, тейк, теги, тип сигнала, результат.
+5. **Журнал**: SQLite-таблица `trades`. Учитывает `symbol`, комиссию из спецификации, override результата.
 
 ## Параметры (config.py)
 
-Все ключевые параметры — в `config.py`:
-
-- Инструмент: `SYMBOL`, `MARKET`, `ENGINE`.
-- Таймфреймы: `TIMEFRAMES`, `DEFAULT_TIMEFRAME`.
-- Индикаторы: `EMA_FAST`, `EMA_SLOW`, `RSI_PERIOD`, `ADX_PERIOD`.
-- Уровни: `FRACTAL_PERIOD`, `ATR_PERIOD`, `ATR_TF`, `LEVEL_TOLERANCE_ATR`, `LEVELS_RANGE_ATR`.
-- Сигналы: `BOUNCE_TOLERANCE_ATR`, `RSI_BOUNCE_LONG`, `ADX_BREAKOUT_THRESHOLD`, `VOLUME_MULTIPLIER`.
-- Торговые правила: `STOP_POINTS`, `TAKE_POINTS`.
+- **Инструмент**: `DEFAULT_INSTRUMENT` (ссылается на `instruments.py`).
+- **Таймфреймы**: `TIMEFRAMES`, `DEFAULT_TIMEFRAME`.
+- **Индикаторы**: `EMA_FAST`, `EMA_SLOW`, `RSI_PERIOD`, `ADX_PERIOD`.
+- **Уровни**: `FRACTAL_PERIOD`, `ATR_PERIOD`, `ATR_TF`, `LEVEL_TOLERANCE_ATR`, `LEVELS_RANGE_ATR`.
+- **Сигналы**: `BOUNCE_TOLERANCE_ATR`, `RSI_BOUNCE_LONG`, `ADX_BREAKOUT_THRESHOLD`, `VOLUME_MULTIPLIER`.
+- **Торговые правила**: `STOP_POINTS`, `TAKE_POINTS`.
+- **Кэш**: `CACHE_TTL_MINUTES`.
 
 ## Что в планах
 
 - [ ] Telegram-уведомления (когда/если заработает).
 - [ ] Автозапись сигналов в журнал.
 - [ ] Failed breakout, retest.
-- [ ] MACD, мульти-ТФ подтверждение (C), тесты уровня (E).
+- [ ] MACD, мульти-ТФ подтверждение сигналов (C), тесты уровня (E).
 - [ ] Scheduler + VPS для автономной работы.
+- [ ] Экспорт журнала в CSV / Excel.
 - [ ] Тесты на ключевые модули.
 
 ## Дисклеймер
