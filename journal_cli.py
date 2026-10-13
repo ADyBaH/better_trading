@@ -44,18 +44,32 @@ def _print_trades(trades: list[journal.Trade], wide: bool = False) -> None:
         print("Сделок нет.")
         return
 
+    from core.instruments import get_instrument
+
     comment_limit = 100 if wide else 30
 
     rows = []
     for t in trades:
+        try:
+            inst = get_instrument(t.symbol)
+            commission_default = inst.commission_round * t.size
+        except ValueError:
+            commission_default = 0.0
+
+        commission = (
+            t.commission_rub if t.commission_rub is not None else commission_default
+        )
+
         rows.append(
             [
                 t.id,
+                t.symbol,
                 _fmt_dt(t.datetime_open),
                 t.direction.upper(),
                 f"{t.entry_price:.3f}",
                 f"{t.exit_price:.3f}" if t.exit_price else "—",
                 _fmt_result(t.result_points, t.result_rub),
+                f"{commission:.2f}",
                 t.signal_kind or "manual",
                 t.signal_strength or "",
                 t.comment[:comment_limit],
@@ -64,11 +78,13 @@ def _print_trades(trades: list[journal.Trade], wide: bool = False) -> None:
 
     headers = [
         "ID",
+        "Символ",
         "Открыта",
         "Напр",
         "Вход",
         "Выход",
         "Результат",
+        "Комис",
         "Сигнал",
         "Сила",
         "Коммент",
@@ -196,10 +212,29 @@ def _ask(prompt: str, default: str = "") -> str:
 
 def cmd_add(args) -> int:
     """Интерактивно добавляет сделку."""
+    from core.instruments import get_instrument, list_instruments
+
     print("── Новая сделка ──")
-    direction = _ask("Направление (long/short)").lower()
-    if direction not in ("long", "short"):
-        print(f"Ошибка: направление должно быть long или short, получено: {direction}")
+
+    # Символ
+    available = list_instruments()
+    default_symbol = config.DEFAULT_INSTRUMENT
+    symbol = _ask(f"Символ ({'/'.join(available)})", default_symbol).upper()
+    try:
+        inst = get_instrument(symbol)
+    except ValueError as e:
+        print(f"Ошибка: {e}")
+        return 1
+
+    direction_raw = _ask("Направление (long(l)/short(s))").lower().strip()
+    if direction_raw in ("l", "long"):
+        direction = "long"
+    elif direction_raw in ("s", "short"):
+        direction = "short"
+    else:
+        print(
+            f"Ошибка: направление должно быть l или s (или long/short), получено: {direction_raw}"
+        )
         return 1
 
     try:
@@ -228,7 +263,16 @@ def cmd_add(args) -> int:
     except ValueError:
         signal_score = 0.0
 
+    # Комиссия по умолчанию — из инструмента
+    default_comm = inst.commission_round * size
+    print(
+        f"\nКомиссия за круг: {inst.commission_round:.2f} ₽ × {size} = {default_comm:.2f} ₽"
+    )
+    comm_str = _ask("Переопределить комиссию (Enter — оставить)", "")
+    commission_rub = float(comm_str) if comm_str else None
+
     trade = journal.Trade(
+        symbol=symbol,
         direction=direction,
         entry_price=entry,
         datetime_open=datetime.now(),
@@ -240,6 +284,7 @@ def cmd_add(args) -> int:
         signal_kind=signal_kind,
         signal_strength=signal_strength,
         signal_score=signal_score,
+        commission_rub=commission_rub,
     )
 
     tid = journal.add_trade(trade)
@@ -264,13 +309,43 @@ def cmd_close(args) -> int:
         return 1
 
     comment = _ask("Комментарий к закрытию (Enter — пропустить)")
-    journal.close_trade(args.id, exit_price=args.price, comment=comment)
+
+    # Комиссия: переопределение
+    comm_str = _ask("Переопределить комиссию (Enter — из инструмента)", "")
+    commission = float(comm_str) if comm_str else None
+
+    # Результат: override или из цены
+    override_str = _ask("Override результата в пунктах (Enter — считать из цены)", "")
+    override = float(override_str) if override_str else None
+
+    note = _ask("Заметка о результате (Enter — пропустить)")
+
+    if override is None:
+        # Обычный путь: exit_price обязателен
+        if args.price is None:
+            print("Ошибка: без override нужно указать цену выхода.")
+            return 1
+        journal.close_trade(
+            args.id,
+            exit_price=args.price,
+            comment=comment,
+            commission=commission,
+            result_note=note,
+        )
+    else:
+        journal.close_trade(
+            args.id,
+            exit_price=args.price,  # может быть None
+            comment=comment,
+            commission=commission,
+            result_override_points=override,
+            result_note=note,
+        )
 
     t = journal.get_trade(args.id)
-    print(
-        f"✓ Сделка #{args.id} закрыта. "
-        f"Результат: {t.result_points:+.1f} pts / {t.result_rub:+.2f} ₽"
-    )
+    print(f"✓ Сделка #{args.id} закрыта.")
+    print(f"   Пункты: {t.result_points:+.1f}")
+    print(f"   Рубли (с учётом комиссии): {t.result_rub:+.2f} ₽")
     return 0
 
 
@@ -309,7 +384,22 @@ def main() -> int:
     # close
     p_close = sub.add_parser("close", help="Закрыть сделку")
     p_close.add_argument("id", type=int, help="ID сделки")
-    p_close.add_argument("price", type=float, help="Цена выхода")
+    p_close.add_argument(
+        "price",
+        type=float,
+        nargs="?",
+        default=None,
+        help="Цена выхода (опционально, если используется --result)",
+    )
+    p_close.add_argument(
+        "--result",
+        type=float,
+        dest="result_override",
+        help="Override результата в пунктах",
+    )
+    p_close.add_argument(
+        "--commission", type=float, help="Переопределить комиссию (руб)"
+    )
     p_close.set_defaults(func=cmd_close)
 
     # stats
@@ -317,7 +407,7 @@ def main() -> int:
     p_stats.add_argument("--limit", type=int, default=1000)
     p_stats.set_defaults(func=cmd_stats)
 
-    # delete  ← НОВЫЙ БЛОК
+    # delete
     p_del = sub.add_parser("delete", help="Удалить сделку")
     p_del.add_argument("id", type=int, help="ID сделки")
     p_del.set_defaults(func=cmd_delete)
