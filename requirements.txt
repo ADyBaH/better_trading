@@ -3,3 +3,4 @@ pandas_ta
 apimoex
 apscheduler
 requests
+tabulate

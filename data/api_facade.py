@@ -1,7 +1,11 @@
 """
 Фасад над источниками данных.
-Логика: сначала смотрим в БД, если там мало — докачиваем с биржи и сохраняем.
+Логика:
+  1. Если БД свежая (последняя свеча < CACHE_TTL_MINUTES назад) — берём из БД.
+  2. Иначе — докачиваем только новые свечи с биржи, дописываем в БД, берём из БД.
 """
+
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -14,6 +18,54 @@ import config
 log = get_logger(__name__)
 
 
+def _is_cache_fresh(symbol: str, interval: int) -> bool:
+    """Проверяет, свежая ли БД: последняя свеча не старше CACHE_TTL_MINUTES."""
+    last_begin_str = storage_sqlite.get_last_begin(symbol, interval)
+    if last_begin_str is None:
+        return False
+
+    try:
+        last_begin = pd.Timestamp(last_begin_str)
+    except Exception:
+        return False
+
+    age_minutes = (datetime.now() - last_begin).total_seconds() / 60
+    return age_minutes < config.CACHE_TTL_MINUTES
+
+
+def _fetch_incremental(symbol: str, interval: int, count: int) -> pd.DataFrame:
+    """
+    Докачивает только свечи новее, чем последняя в БД.
+    Если БД пуста — тянет count свечей.
+    """
+    last_begin_str = storage_sqlite.get_last_begin(symbol, interval)
+
+    if last_begin_str is None:
+        # БД пуста — тянем обычным способом
+        log.info("БД пуста, тянем %d свечей с биржи", count)
+        return api_moex.get_candles(symbol, interval, count, tail=False)
+
+    # Есть последняя свеча — тянем свечи после неё
+    last_begin = pd.Timestamp(last_begin_str)
+    # Отступаем на одну минуту назад, чтобы не пропустить пограничную свечу
+    start = (last_begin + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
+    end = datetime.now().strftime("%Y-%m-%d")
+
+    log.info("Докачка с %s → %s", start, end)
+
+    # get_candles_range принимает только даты, но с 2026-10-13 у нас start уже дата
+    # Проще: тянем по датам, потом фильтруем по времени
+    start_date = last_begin.strftime("%Y-%m-%d")
+    df = api_moex.get_candles_range(symbol, interval, start_date, end)
+
+    if df.empty:
+        return df
+
+    # Фильтруем только свечи новее last_begin
+    df = df[df["begin"] > last_begin].reset_index(drop=True)
+    return df
+
+
 def get_candles(
     symbol: str = None,
     interval: int = None,
@@ -22,23 +74,27 @@ def get_candles(
 ) -> pd.DataFrame:
     """
     Возвращает последние `count` минутных свечей.
-    (Это базовая функция; для других ТФ используй get_candles_tf.)
+    - Если БД свежая — из БД.
+    - Иначе — докачиваем новые свечи с биржи.
+    - force_refresh=True — игнорируем свежесть, докачиваем всегда.
     """
     symbol = symbol or config.SYMBOL
     interval = interval or config.BASE_INTERVAL
 
     storage_sqlite.init_db()
 
-    if not force_refresh:
+    # --- Проверка свежести ---
+    if not force_refresh and _is_cache_fresh(symbol, interval):
         df = storage_sqlite.load_candles(symbol, interval, count)
-        if len(df) >= count:
-            log.debug("Взято из БД: %d свечей", len(df))
-            return df.tail(count).reset_index(drop=True)
+        log.debug("БД свежая, взято %d свечей", len(df))
+        return df.tail(count).reset_index(drop=True)
 
-    df_new = api_moex.get_candles(symbol, interval, count, tail=False)
+    # --- Докачка ---
+    df_new = _fetch_incremental(symbol, interval, count)
     if not df_new.empty:
         storage_sqlite.save_candles(symbol, interval, df_new)
 
+    # --- Возврат из БД (там теперь актуально) ---
     df = storage_sqlite.load_candles(symbol, interval, count)
     return df.tail(count).reset_index(drop=True)
 
@@ -52,13 +108,9 @@ def get_candles_tf(
     """
     Возвращает последние `count` свечей указанного таймфрейма.
     Внутри тянет M1 и ресемплит.
-
-    Важно: чтобы получить `count` свечей M5, нужно ~count * 5 минутных свечей,
-    поэтому берём с запасом.
     """
     symbol = symbol or config.SYMBOL
 
-    # Сколько минутных свечей нужно для `count` свечей данного ТФ + запас на прогрев EMA200
     tf_minutes = {
         "M1": 1,
         "M5": 5,
@@ -72,9 +124,7 @@ def get_candles_tf(
     if tf_minutes is None:
         raise ValueError(f"Неизвестный таймфрейм: {timeframe}")
 
-    # Нужно count свечей ТФ + EMA_SLOW свечей на прогрев, помноженные на минуты
     need_m1 = (count + config.EMA_SLOW) * tf_minutes
-    # Плюс запас на выходные/ночь — берём с коэффициентом
     need_m1_with_reserve = int(need_m1 * 1.5)
 
     log.info(

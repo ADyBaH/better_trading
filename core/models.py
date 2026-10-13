@@ -12,20 +12,8 @@ from typing import Optional
 class Level:
     """
     Один уровень (структурный или референсный).
-
-    Для структурных (A+B):
-        - type: "up" / "down" / "mixed"
-        - tf_source: {'H1', 'M15'}
-        - confirmed: True, если на 2+ ТФ
-        - first_seen / last_seen: время фракталов
-
-    Для референсных (C):
-        - type: "round" / "pdh" / "pdl" / "pwh" / "pwl"
-        - tf_source: пустое множество
-        - confirmed: False
-        - first_seen / last_seen: None
-        - label: "12.550" / "PDH" / "PWL" и т.п.
     """
+
     price: float
     type: str
     weight: int
@@ -34,10 +22,14 @@ class Level:
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
     label: str = ""
-    tags: list[str] = field(default_factory=list)   # ["+ round", "+ PDL"]
+    tags: list[str] = field(default_factory=list)
+
+    # --- Вычисляемые поля (заполняет analyzer) ---
+    distance_atr: Optional[float] = None  # |price - current| / atr
+    strength_score: Optional[float] = None  # weight × confirmed × tf_count × age_factor
+    age_days: Optional[float] = None  # сколько дней с last_seen
 
     def to_dict(self) -> dict:
-        """Сериализация для JSON. set → list, datetime → isoformat."""
         d = asdict(self)
         d["tf_source"] = sorted(self.tf_source)
         if self.first_seen:
@@ -50,14 +42,36 @@ class Level:
 @dataclass
 class IndicatorSnapshot:
     """Снимок индикаторов на момент анализа."""
+
     ema_fast: Optional[float]
     ema_slow: Optional[float]
     rsi: Optional[float]
     adx: Optional[float]
 
-    trend: str          # "up" / "down" / "none"
-    adx_state: str      # "strong" / "trend" / "flat"
-    rsi_state: str      # "overbought" / "oversold" / "near_overbought" / ...
+    trend: str  # "up" / "down" / "none"
+    adx_state: str  # "strong" / "trend" / "flat" / "none"
+    rsi_state: str  # "overbought" / "oversold" / "near_overbought" / ...
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class Signal:
+    """
+    Торговый сигнал. Возвращается детектором signals.py.
+    """
+
+    direction: str  # "long" / "short"
+    kind: str  # "bounce" / "breakout" / "trend_level"
+    strength: str  # "weak" / "medium" / "strong"
+    strength_score: float  # числовой score (1.0, 2.0, 3.0+)
+    entry_price: float
+    stop_price: float
+    take_price: float
+    matched_criteria: list[str] = field(default_factory=list)  # ["A1", "B1", ...]
+    reasons: list[str] = field(default_factory=list)
+    level_price: Optional[float] = None  # цена уровня, на котором сигнал
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -65,15 +79,17 @@ class IndicatorSnapshot:
 
 @dataclass
 class AnalysisResult:
-    """Полный результат анализа. Возвращается ядром, потребляется рендерерами."""
+    """Полный результат анализа."""
+
     symbol: str
     timestamp: datetime
     current_price: float
     atr: float
-    timeframe: str                    # базовый ТФ анализа (M5)
+    timeframe: str
     indicators: IndicatorSnapshot
-    levels: list[Level]               # структурные (A+B)
-    references: list[Level]           # референсные (C)
+    levels: list[Level]  # структурные (A+B)
+    references: list[Level]  # референсные (C)
+    signals: list[Signal] = field(default_factory=list)  # сигналы
 
     def to_dict(self) -> dict:
         return {
@@ -85,4 +101,5 @@ class AnalysisResult:
             "indicators": self.indicators.to_dict(),
             "levels": [lv.to_dict() for lv in self.levels],
             "references": [r.to_dict() for r in self.references],
+            "signals": [s.to_dict() for s in self.signals],
         }

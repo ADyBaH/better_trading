@@ -1,100 +1,168 @@
 # ui/render_console.py
 """Консольный рендерер AnalysisResult."""
 
-from core.models import AnalysisResult, Level
+from datetime import datetime
+
+from tabulate import tabulate
+
+from core.models import AnalysisResult, Level, Signal
 
 import config
 
+# ============================================================
+# Вспомогательные
+# ============================================================
 
-def _stars(weight: int, max_weight: int) -> str:
-    """Визуальная сила уровня по весу — 1..3 звезды."""
-    if max_weight <= 0:
+
+def _stars(score: float | None, max_score: float) -> str:
+    """Визуальная сила уровня по strength_score."""
+    if not score or max_score <= 0:
         return ""
-    ratio = weight / max_weight
+    ratio = score / max_score
     if ratio >= 0.75:
         return "★★★"
     elif ratio >= 0.4:
         return "★★"
-    else:
-        return "★"
+    return "★"
 
 
-def _fmt_ago(dt) -> str:
-    """'2ч назад' вместо полной даты."""
-    from datetime import datetime
-
+def _fmt_ago(dt: datetime | None) -> str:
+    """'2ч' / '15м' / '3д' вместо полной даты."""
     if dt is None:
         return ""
-    delta = datetime.now() - dt
-    sec = int(delta.total_seconds())
+    sec = int((datetime.now() - dt).total_seconds())
     if sec < 3600:
         return f"{sec // 60}м"
     elif sec < 86400:
         return f"{sec // 3600}ч"
-    else:
-        return f"{sec // 86400}д"
+    return f"{sec // 86400}д"
 
 
-def _render_indicator_state(ind) -> str:
-    """Текстовая строка про индикаторы."""
+def _indicators_line(ind) -> str:
     parts = []
-
     if ind.trend == "up":
-        parts.append(f"Тренд: ВВЕРХ (EMA{config.EMA_FAST} > EMA{config.EMA_SLOW})")
+        parts.append(f"Тренд ВВЕРХ (EMA{config.EMA_FAST}>EMA{config.EMA_SLOW})")
     elif ind.trend == "down":
-        parts.append(f"Тренд: ВНИЗ (EMA{config.EMA_FAST} < EMA{config.EMA_SLOW})")
+        parts.append(f"Тренд ВНИЗ (EMA{config.EMA_FAST}<EMA{config.EMA_SLOW})")
     else:
-        parts.append("Тренд: недостаточно данных")
+        parts.append("Тренд: нет данных")
 
-    adx_map = {
-        "strong": "сильный тренд",
-        "trend": "тренд есть",
-        "flat": "боковик",
-        "none": "нет данных",
-    }
+    adx_map = {"strong": "сильный", "trend": "есть", "flat": "боковик", "none": "?"}
     if ind.adx is not None:
-        parts.append(f"ADX = {ind.adx:.1f} ({adx_map.get(ind.adx_state, '')})")
-    else:
-        parts.append("ADX: нет данных")
+        parts.append(f"ADX {ind.adx:.1f} ({adx_map.get(ind.adx_state, '')})")
 
     rsi_map = {
-        "overbought": "перекупленность",
-        "oversold": "перепроданность",
-        "near_overbought": "близко к перекупленности",
-        "near_oversold": "близко к перепроданности",
+        "overbought": "перекуплен",
+        "oversold": "перепродан",
+        "near_overbought": "близко к перекуп.",
+        "near_oversold": "близко к перепрод.",
         "neutral": "нейтрально",
-        "none": "нет данных",
+        "none": "?",
     }
     if ind.rsi is not None:
-        parts.append(f"RSI = {ind.rsi:.1f} ({rsi_map.get(ind.rsi_state, '')})")
-    else:
-        parts.append("RSI: нет данных")
+        parts.append(f"RSI {ind.rsi:.1f} ({rsi_map.get(ind.rsi_state, '')})")
 
     return " | ".join(parts)
 
 
-def _render_level_line(
-    lv: Level, current_price: float, max_weight: int, is_reference: bool = False
-) -> str:
-    """Одна строка для уровня."""
-    marker = "↑" if lv.price > current_price else "↓"
+# ============================================================
+# Таблицы уровней
+# ============================================================
+
+
+def _levels_table(levels: list[Level], current_price: float, is_reference: bool) -> str:
+    """Строит таблицу уровней через tabulate."""
+    if not levels:
+        return "  (нет)\n"
+
+    max_score = max((lv.strength_score or 0) for lv in levels)
+
+    rows = []
+    for lv in levels:
+        pos = "↑" if lv.price > current_price else "↓"
+        if is_reference:
+            rows.append(
+                [
+                    f"{lv.price:.3f}",
+                    lv.label or lv.type,
+                    f"{(lv.distance_atr or 0):.2f}",
+                    pos,
+                ]
+            )
+        else:
+            tfs = ",".join(sorted(lv.tf_source)) if lv.tf_source else ""
+            tags = " ".join(lv.tags) if lv.tags else ""
+            stars = _stars(lv.strength_score, max_score)
+            rows.append(
+                [
+                    f"{lv.price:.5f}",
+                    lv.weight,
+                    lv.type,
+                    tfs,
+                    _fmt_ago(lv.last_seen),
+                    f"{lv.strength_score:.1f}" if lv.strength_score else "",
+                    stars,
+                    tags,
+                    pos,
+                ]
+            )
 
     if is_reference:
-        label = lv.label or lv.type
-        return f"  {lv.price:>8.3f}  {label:<10}  {marker}"
-
-    stars = _stars(lv.weight, max_weight)
-    ago = _fmt_ago(lv.last_seen)
-    tfs = ",".join(sorted(lv.tf_source)) if lv.tf_source else ""
-    tags = " ".join(lv.tags) if lv.tags else ""
-
-    line = f"  {lv.price:>8.3f}  вес {lv.weight:>3}  {stars:<5}  {tfs:<8}  {ago:>4}"
-    if tags:
-        line += f"  {tags}"
-    return line + f"  {marker}"
+        headers = ["Цена", "Метка", "ΔATR", "Поз"]
+        return tabulate(rows, headers=headers, tablefmt="rounded_outline")
+    else:
+        headers = ["Цена", "Вес", "Тип", "ТФ", "Живёт", "Score", "★", "Теги", "Поз"]
+        return tabulate(rows, headers=headers, tablefmt="rounded_outline")
 
 
-def render_console(result: AnalysisResult, width: int = 74) -> None:
+# ============================================================
+# Таблица сигналов
+# ============================================================
+
+
+def _signals_table(signals: list[Signal]) -> str:
+    if not signals:
+        return "  Сигналов нет.\n"
+
+    rows = []
+    for s in signals:
+        reason_short = s.reasons[0] if s.reasons else ""
+        rows.append(
+            [
+                s.direction.upper(),
+                s.kind,
+                s.strength,
+                f"{s.strength_score:.1f}",
+                f"{s.entry_price:.3f}",
+                f"{s.stop_price:.3f}",
+                f"{s.take_price:.3f}",
+                ",".join(s.matched_criteria),
+            ]
+        )
+    headers = ["Напр", "Тип", "Сила", "Score", "Вход", "Стоп", "Тейк", "Критерии"]
+    return tabulate(rows, headers=headers, tablefmt="rounded_outline")
+
+
+def _signals_detail(signals: list[Signal]) -> str:
+    """Подробное описание каждого сигнала (причины)."""
+    if not signals:
+        return ""
+    lines = []
+    for i, s in enumerate(signals, 1):
+        lines.append(
+            f"  [{i}] {s.direction.upper()} {s.kind} ({s.strength}, score={s.strength_score:.1f})"
+        )
+        for reason in s.reasons:
+            lines.append(f"      • {reason}")
+    return "\n".join(lines) + "\n"
+
+
+# ============================================================
+# Главный рендер
+# ============================================================
+
+
+def render_console(result: AnalysisResult, width: int = 78) -> None:
     """Печатает дашборд в stdout."""
     print()
     print("═" * width)
@@ -106,42 +174,38 @@ def render_console(result: AnalysisResult, width: int = 74) -> None:
 
     # --- Индикаторы ---
     print()
-    print(_render_indicator_state(result.indicators))
+    print(_indicators_line(result.indicators))
     print(f"ATR(H1) = {result.atr:.5f}")
+
+    # --- Сигналы (сверху — это самое важное) ---
+    print()
+    print("── СИГНАЛЫ " + "─" * (width - 11))
+    print(_signals_table(result.signals))
+    detail = _signals_detail(result.signals)
+    if detail:
+        print()
+        print(detail)
 
     # --- Структурные уровни ---
     if result.levels:
-        max_w = max(lv.weight for lv in result.levels)
-        print()
-        print("─ Структурные уровни " + "─" * (width - 22))
-        for lv in result.levels:
-            print(_render_level_line(lv, result.current_price, max_w))
+        print("── Структурные уровни " + "─" * (width - 22))
+        print(_levels_table(result.levels, result.current_price, is_reference=False))
 
     # --- Референсные уровни ---
     if result.references:
         print()
-        print("─ Референсные уровни " + "─" * (width - 23))
-        for r in result.references:
-            print(_render_level_line(r, result.current_price, 1, is_reference=True))
+        print("── Референсные уровни " + "─" * (width - 22))
+        print(_levels_table(result.references, result.current_price, is_reference=True))
 
     print()
     print("═" * width)
 
 
-def render_console_legacy(result: AnalysisResult) -> None:
-    """Старый подробный вывод — для отладки. Включается флагом --verbose."""
-    render_console(result)
-    # Тут можно добавить более детальный вывод: фракталы, веса и т.п.
+def render_console_to_string(result: AnalysisResult) -> str:
+    """Возвращает тот же дашборд строкой."""
+    import io
+    from contextlib import redirect_stdout
 
-import io
-from contextlib import redirect_stdout
-
-
-def render_console_to_string(result) -> str:
-    """
-    Возвращает тот же дашборд, что и render_console, но строкой.
-    Использует redirect_stdout, чтобы не дублировать логику форматирования.
-    """
     buf = io.StringIO()
     with redirect_stdout(buf):
         render_console(result)
