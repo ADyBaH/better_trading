@@ -39,10 +39,12 @@ def _fmt_result(pts: float | None, rub: float | None) -> str:
     return f"{sign}{pts:.1f} pts / {rub_sign}{rub or 0:.2f} ₽"
 
 
-def _print_trades(trades: list[journal.Trade]) -> None:
+def _print_trades(trades: list[journal.Trade], wide: bool = False) -> None:
     if not trades:
         print("Сделок нет.")
         return
+
+    comment_limit = 100 if wide else 30
 
     rows = []
     for t in trades:
@@ -56,7 +58,7 @@ def _print_trades(trades: list[journal.Trade]) -> None:
                 _fmt_result(t.result_points, t.result_rub),
                 t.signal_kind or "manual",
                 t.signal_strength or "",
-                t.comment[:30],
+                t.comment[:comment_limit],
             ]
         )
 
@@ -247,7 +249,7 @@ def cmd_add(args) -> int:
 
 def cmd_list(args) -> int:
     trades = journal.list_trades(limit=args.limit, only_open=args.open)
-    _print_trades(trades)
+    _print_trades(trades, wide=args.wide)
     return 0
 
 
@@ -301,6 +303,7 @@ def main() -> int:
     p_list = sub.add_parser("list", help="Показать последние сделки")
     p_list.add_argument("--limit", type=int, default=20)
     p_list.add_argument("--open", action="store_true", help="Только открытые")
+    p_list.add_argument("--wide", action="store_true", help="Не обрезать комментарии")
     p_list.set_defaults(func=cmd_list)
 
     # close
