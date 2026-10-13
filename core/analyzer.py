@@ -1,3 +1,4 @@
+# core/analyzer.py
 """
 Ядро анализа. Собирает AnalysisResult из модулей данных, индикаторов и уровней.
 Никакого вывода — только модель данных.
@@ -6,15 +7,21 @@
 from datetime import datetime
 
 from core.logger import get_logger
-from core.models import AnalysisResult, IndicatorSnapshot, Level
+from core.models import AnalysisResult, IndicatorSnapshot, Level, Signal
 from data.api_facade import get_candles_tf
 from indicators.calc import add_indicators, get_atr
 from strategy.levels import build_levels, find_fractals
 from strategy.references import build_references
+from strategy.signals import detect_signals
 
 import config
 
 log = get_logger(__name__)
+
+
+# ============================================================
+# Индикаторы
+# ============================================================
 
 
 def _build_indicator_snapshot(df) -> IndicatorSnapshot:
@@ -71,8 +78,12 @@ def _build_indicator_snapshot(df) -> IndicatorSnapshot:
     )
 
 
+# ============================================================
+# Конвертеры dict → Level
+# ============================================================
+
+
 def _dict_to_level(d: dict, source: str = "structural") -> Level:
-    """Преобразует dict из build_levels/build_references в Level."""
     if source == "structural":
         return Level(
             price=float(d["price"]),
@@ -83,7 +94,7 @@ def _dict_to_level(d: dict, source: str = "structural") -> Level:
             first_seen=d.get("first_seen"),
             last_seen=d.get("last_seen"),
         )
-    else:  # references
+    else:
         return Level(
             price=float(d["price"]),
             type=str(d["type"]),
@@ -92,13 +103,55 @@ def _dict_to_level(d: dict, source: str = "structural") -> Level:
         )
 
 
+# ============================================================
+# Обогащение уровней: distance_atr, strength_score, age_days
+# ============================================================
+
+
+def _enrich_levels(levels: list[Level], current_price: float, atr: float) -> None:
+    """
+    Заполняет вычисляемые поля уровней:
+        distance_atr   — |price - current| / atr
+        age_days       — сколько дней с last_seen
+        strength_score — weight × confirmed × tf_count × age_factor
+    """
+    now = datetime.now()
+
+    for lv in levels:
+        # distance_atr
+        lv.distance_atr = (
+            round(abs(lv.price - current_price) / atr, 2) if atr > 0 else None
+        )
+
+        # age_days
+        if lv.last_seen is not None:
+            delta = now - lv.last_seen
+            lv.age_days = round(delta.total_seconds() / 86400, 1)
+        else:
+            lv.age_days = None
+
+        # strength_score
+        # Формула: weight × (1.3 если confirmed, иначе 1.0) × tf_count × age_factor
+        tf_count = len(lv.tf_source) if lv.tf_source else 1
+        confirmed_mult = 1.3 if lv.confirmed else 1.0
+
+        # age_factor: 1.0 если свежий (<3д), 0.7 если <14д, 0.4 если старый
+        if lv.age_days is None:
+            age_factor = 1.0
+        elif lv.age_days <= 3:
+            age_factor = 1.0
+        elif lv.age_days <= 14:
+            age_factor = 0.7
+        else:
+            age_factor = 0.4
+
+        lv.strength_score = round(lv.weight * confirmed_mult * tf_count * age_factor, 1)
+
+
 def _attach_tags(
     structural: list[Level], references: list[Level], tolerance: float
 ) -> None:
-    """
-    Помечает структурные уровни тегами, если рядом есть референсный уровень.
-    Пишет в Level.tags, мутирует список.
-    """
+    """Помечает структурные уровни тегами, если рядом есть референсный."""
     for lv in structural:
         for ref in references:
             if abs(lv.price - ref.price) <= tolerance:
@@ -107,10 +160,13 @@ def _attach_tags(
                     lv.tags.append(tag)
 
 
+# ============================================================
+# Главная функция
+# ============================================================
+
+
 def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
-    """
-    Главная функция. Возвращает AnalysisResult или None, если данных нет.
-    """
+    """Главная функция. Возвращает AnalysisResult или None, если данных нет."""
     symbol = symbol or config.SYMBOL
     timeframe = timeframe or config.DEFAULT_TIMEFRAME
 
@@ -151,13 +207,18 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
     )
     references = [_dict_to_level(r, "reference") for r in raw_refs]
 
-    # 5. Пересечения слоёв — пишем в tags
+    # 5. Пересечения слоёв
     _attach_tags(structural, references, tolerance)
 
-    # 6. Снимок индикаторов
+    # 6. Обогащение уровней (distance_atr, strength_score, age_days)
+    _enrich_levels(structural, current_price, atr)
+    _enrich_levels(references, current_price, atr)
+
+    # 7. Снимок индикаторов
     indicators = _build_indicator_snapshot(df)
 
-    return AnalysisResult(
+    # 8. Сигналы
+    result = AnalysisResult(
         symbol=symbol,
         timestamp=datetime.now(),
         current_price=current_price,
@@ -166,4 +227,9 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
         indicators=indicators,
         levels=structural,
         references=references,
+        signals=[],  # пока пусто — заполним ниже
     )
+    signals = detect_signals(result, df)
+    result.signals = signals
+
+    return result
