@@ -22,8 +22,7 @@ log = get_logger(__name__)
 
 @dataclass
 class Trade:
-    """Одна сделка в журнале."""
-
+    symbol: str  # NEW — тикер инструмента
     direction: str  # "long" / "short"
     entry_price: float
     datetime_open: datetime
@@ -39,6 +38,10 @@ class Trade:
     signal_score: float = 0.0
     result_points: Optional[float] = None
     result_rub: Optional[float] = None
+    # --- NEW ---
+    commission_rub: Optional[float] = None  # если None — берём из инструмента
+    result_override_points: Optional[float] = None
+    result_note: str = ""
     id: Optional[int] = None
 
     @property
@@ -46,19 +49,45 @@ class Trade:
         return self.exit_price is not None and self.datetime_close is not None
 
     def compute_result(self) -> None:
-        """Считает result_points и result_rub на основе exit_price."""
-        if self.exit_price is None:
+        """
+        Считает result_points и result_rub.
+
+        Пункты:
+        - если result_override_points задан — берём его,
+        - иначе — из exit_price через price_step инструмента.
+
+        Рубли:
+        - gross = points × step_cost × size,
+        - commission = commission_rub (если задан) ИЛИ commission_round инструмента × size,
+        - result_rub = gross − commission.
+        """
+        from core.instruments import get_instrument
+
+        inst = get_instrument(self.symbol)
+
+        # --- Пункты ---
+        if self.result_override_points is not None:
+            self.result_points = round(self.result_override_points, 1)
+        elif self.exit_price is not None:
+            if self.direction == "long":
+                points = (self.exit_price - self.entry_price) / inst.price_step
+            else:
+                points = (self.entry_price - self.exit_price) / inst.price_step
+            self.result_points = round(points, 1)
+        else:
             self.result_points = None
             self.result_rub = None
             return
 
-        if self.direction == "long":
-            points = (self.exit_price - self.entry_price) / config.PRICE_STEP
-        else:
-            points = (self.entry_price - self.exit_price) / config.PRICE_STEP
+        # --- Рубли ---
+        gross_rub = self.result_points * inst.step_cost * self.size
 
-        self.result_points = round(points, 1)
-        self.result_rub = round(points * config.STEP_COST * self.size, 2)
+        if self.commission_rub is not None:
+            commission = self.commission_rub
+        else:
+            commission = inst.commission_round * self.size
+
+        self.result_rub = round(gross_rub - commission, 2)
 
 
 # ============================================================
@@ -89,22 +118,26 @@ def init_db() -> None:
     with _connect() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS trades (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                datetime_open   TEXT NOT NULL,
-                datetime_close  TEXT,
-                direction       TEXT NOT NULL,
-                entry_price     REAL NOT NULL,
-                exit_price      REAL,
-                size            INTEGER DEFAULT 1,
-                stop_price      REAL,
-                take_price      REAL,
-                comment         TEXT DEFAULT '',
-                tags            TEXT DEFAULT '',
-                signal_kind     TEXT DEFAULT '',
-                signal_strength TEXT DEFAULT '',
-                signal_score    REAL DEFAULT 0,
-                result_points   REAL,
-                result_rub      REAL
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol                  TEXT NOT NULL DEFAULT 'CNYRUBF',
+                datetime_open           TEXT NOT NULL,
+                datetime_close          TEXT,
+                direction               TEXT NOT NULL,
+                entry_price             REAL NOT NULL,
+                exit_price              REAL,
+                size                    INTEGER DEFAULT 1,
+                stop_price              REAL,
+                take_price              REAL,
+                comment                 TEXT DEFAULT '',
+                tags                    TEXT DEFAULT '',
+                signal_kind             TEXT DEFAULT '',
+                signal_strength         TEXT DEFAULT '',
+                signal_score            REAL DEFAULT 0,
+                result_points           REAL,
+                result_rub              REAL,
+                commission_rub          REAL,
+                result_override_points  REAL,
+                result_note             TEXT DEFAULT ''
             )
         """)
         conn.execute("""
@@ -129,13 +162,15 @@ def add_trade(trade: Trade) -> int:
         cur = conn.execute(
             """
             INSERT INTO trades (
-                datetime_open, datetime_close, direction, entry_price, exit_price,
-                size, stop_price, take_price, comment, tags,
-                signal_kind, signal_strength, signal_score,
-                result_points, result_rub
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                symbol, datetime_open, datetime_close, direction,
+                entry_price, exit_price, size, stop_price, take_price,
+                comment, tags, signal_kind, signal_strength, signal_score,
+                result_points, result_rub,
+                commission_rub, result_override_points, result_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
+                trade.symbol,
                 trade.datetime_open.isoformat(),
                 trade.datetime_close.isoformat() if trade.datetime_close else None,
                 trade.direction,
@@ -151,6 +186,9 @@ def add_trade(trade: Trade) -> int:
                 trade.signal_score,
                 trade.result_points,
                 trade.result_rub,
+                trade.commission_rub,
+                trade.result_override_points,
+                trade.result_note,
             ),
         )
         trade_id = cur.lastrowid
@@ -158,15 +196,28 @@ def add_trade(trade: Trade) -> int:
     log.info(
         "Сделка #%d добавлена: %s %s @ %.3f",
         trade_id,
+        trade.symbol,
         trade.direction,
-        trade.signal_kind or "manual",
         trade.entry_price,
     )
     return trade_id
 
 
-def close_trade(trade_id: int, exit_price: float, comment: str = "") -> None:
-    """Закрывает сделку: устанавливает exit_price и пересчитывает результат."""
+def close_trade(
+    trade_id: int,
+    exit_price: float | None = None,
+    comment: str = "",
+    commission: float | None = None,
+    result_override_points: float | None = None,
+    result_note: str = "",
+) -> None:
+    """
+    Закрывает сделку.
+    - exit_price: цена выхода (или None, если задаёшь result_override_points).
+    - commission: переопределить комиссию вручную (по умолчанию — из инструмента).
+    - result_override_points: явно указать результат в пунктах.
+    - result_note: заметка о результате.
+    """
     with _connect() as conn:
         row = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,)).fetchone()
         if row is None:
@@ -178,13 +229,20 @@ def close_trade(trade_id: int, exit_price: float, comment: str = "") -> None:
         trade.datetime_close = datetime.now()
         if comment:
             trade.comment = (trade.comment + " | " + comment).strip(" |")
+        if commission is not None:
+            trade.commission_rub = commission
+        if result_override_points is not None:
+            trade.result_override_points = result_override_points
+        if result_note:
+            trade.result_note = result_note
         trade.compute_result()
 
         conn.execute(
             """
             UPDATE trades
             SET exit_price = ?, datetime_close = ?, comment = ?,
-                result_points = ?, result_rub = ?
+                result_points = ?, result_rub = ?,
+                commission_rub = ?, result_override_points = ?, result_note = ?
             WHERE id = ?
         """,
             (
@@ -193,15 +251,19 @@ def close_trade(trade_id: int, exit_price: float, comment: str = "") -> None:
                 trade.comment,
                 trade.result_points,
                 trade.result_rub,
+                trade.commission_rub,
+                trade.result_override_points,
+                trade.result_note,
                 trade_id,
             ),
         )
 
     log.info(
-        "Сделка #%d закрыта @ %.3f → %.1f пунктов",
+        "Сделка #%d закрыта @ %s → %.1f пунктов / %.2f руб",
         trade_id,
-        exit_price,
+        exit_price if exit_price else "override",
         trade.result_points or 0,
+        trade.result_rub or 0,
     )
 
 
@@ -238,6 +300,7 @@ def _row_to_trade(row: sqlite3.Row) -> Trade:
 
     return Trade(
         id=row["id"],
+        symbol=row["symbol"] or "CNYRUBF",
         datetime_open=_parse_dt(row["datetime_open"]),
         datetime_close=_parse_dt(row["datetime_close"]),
         direction=row["direction"],
@@ -253,4 +316,7 @@ def _row_to_trade(row: sqlite3.Row) -> Trade:
         signal_score=row["signal_score"] or 0.0,
         result_points=row["result_points"],
         result_rub=row["result_rub"],
+        commission_rub=row["commission_rub"],
+        result_override_points=row["result_override_points"],
+        result_note=row["result_note"] or "",
     )
