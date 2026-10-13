@@ -1,14 +1,27 @@
 # trade-assistant
 
-Console-based trading assistant for CNYRUBF futures on MOEX.
-Analyzes market structure (trend, levels, candlestick patterns),
-alerts on signals, logs trades with comments and tags, and tracks
-performance stats. Does NOT execute trades — manual entry only.
-Built with Python, pandas_ta, SQLite, APScheduler.
+Консольный аналитический помощник по фьючерсу **CNYRUBF** (MOEX).
+Анализирует структуру рынка, находит уровни, детектирует сигналы,
+ведёт журнал сделок и считает статистику.
 
-## Installation
+**Не торгует автоматически.** Ручной вход, помощник для принятия решений.
+
+## Что умеет
+
+- **Тянет свечи** с MOEX ISS (минутные, агрегирует в M5 / M15 / H1).
+- **Считает индикаторы**: EMA(50/200), RSI(14), ADX(14), ATR(14).
+- **Строит карту уровней**:
+  - Структурные (A+B): фракталы + кластеризация, мульти-ТФ (H1 + M15), веса.
+  - Референсные (C): round numbers, PDH/PDL, PWH/PWL.
+- **Детектирует сигналы**: bounce, breakout, trend_level с системой критериев.
+- **Ведёт журнал сделок**: добавление, закрытие, статистика.
+- **Экспортирует** результат: консольный дашборд, JSON (flat / nested / full).
+
+## Установка
 
 ```bash
+git clone <repo>
+cd better_trading
 python -m venv venv
 
 # Linux / macOS
@@ -18,3 +31,155 @@ source venv/bin/activate
 .\venv\Scripts\Activate.ps1
 
 pip install -r requirements.txt
+```
+
+## Быстрый старт
+
+```bash
+# 1. Посмотреть анализ рынка
+python main.py
+
+# 2. Записать сделку в журнал
+python journal_cli.py add
+
+# 3. Посмотреть статистику
+python journal_cli.py stats
+```
+
+## CLI Reference
+
+### Анализ рынка: `main.py`
+
+| Команда                           | Описание                                        |
+| --------------------------------- | ----------------------------------------------- |
+| `python main.py`                  | Консольный дашборд (по умолчанию)               |
+| `python main.py --json`           | JSON, формат nested (по умолчанию)              |
+| `python main.py --json=flat`      | Плоский JSON — все уровни одним списком         |
+| `python main.py --json=full`      | JSON с метаданными и конфигом                   |
+| `python main.py --console --json` | Оба вывода сразу                                |
+| `python main.py --log`            | Сохранить технический лог в `logs/run_<ts>.log` |
+| `python main.py --save`           | Сохранить вывод в `logs/analysis_<ts>.<ext>`    |
+| `python main.py --log --save`     | Полный слепок запуска                           |
+| `python main.py --symbol=<тикер>` | Другой инструмент (по умолчанию CNYRUBF)        |
+| `python main.py --timeframe=M15`  | Другой таймфрейм анализа (M5 / M15 / H1)        |
+
+### Журнал сделок: `journal_cli.py`
+
+| Команда                                    | Описание                       |
+| ------------------------------------------ | ------------------------------ |
+| `python journal_cli.py add`                | Добавить сделку (интерактивно) |
+| `python journal_cli.py list`               | Показать последние 20 сделок   |
+| `python journal_cli.py list --open`        | Только открытые сделки         |
+| `python journal_cli.py list --wide`        | Не обрезать комментарии        |
+| `python journal_cli.py list --limit=N`     | Показать N сделок              |
+| `python journal_cli.py close <id> <price>` | Закрыть сделку по цене         |
+| `python journal_cli.py delete <id>`        | Удалить сделку                 |
+| `python journal_cli.py stats`              | Статистика по всем сделкам     |
+
+## Пример вывода
+
+```
+══════════════════════════════════════════════════════════════════════════════
+  CNYRUBF | 2026-10-13 09:13 | Цена: 12.513
+══════════════════════════════════════════════════════════════════════════════
+
+Тренд ВНИЗ (EMA50<EMA200) | ADX 26.7 (сильный) | RSI 46.1 (нейтрально)
+ATR(H1) = 0.02574
+
+── СИГНАЛЫ ───────────────────────────────────────────────────────────────
+╭────────┬─────────────┬────────┬───────┬────────┬────────┬────────┬──────────╮
+│ Напр   │ Тип         │ Сила   │ Score │ Вход   │ Стоп   │ Тейк   │ Критерии │
+├────────┼─────────────┼────────┼───────┼────────┼────────┼────────┼──────────┤
+│ SHORT  │ trend_level │ medium │     3 │ 12.513 │ 12.543 │ 12.453 │ A1,A2,A3 │
+╰────────┴─────────────┴────────┴───────┴────────┴────────┴────────┴──────────╯
+
+── Структурные уровни ────────────────────────────────────────────────────
+╭─────────┬───────┬───────┬────────┬─────────┬─────────┬─────┬────────────────┬───────╮
+│    Цена │   Вес │ Тип   │ ТФ     │ Живёт   │   Score │ ★   │ Теги           │ Поз   │
+├─────────┼───────┼───────┼────────┼─────────┼─────────┼─────┼────────────────┼───────┤
+│ 12.5702 │    10 │ down  │ H1,M15 │ 1д      │    26   │ ★★  │                │ ↑    │
+│ 12.5151 │    19 │ mixed │ H1,M15 │ 1ч      │    49.4 │ ★★★ │ + PWL          │ ↑    │
+│ 12.4999 │    16 │ mixed │ H1,M15 │ 58м     │    41.6 │ ★★★ │ + PDL + 12.500 │ ↓    │
+╰─────────┴───────┴───────┴────────┴─────────┴─────────┴─────┴────────────────┴───────╯
+```
+
+## Структура проекта
+
+```
+better_trading/
+├── main.py                     # точка входа анализа
+├── journal_cli.py              # CLI журнала сделок
+├── config.py                   # все параметры
+├── core/
+│   ├── logger.py               # логирование
+│   ├── models.py               # dataclass-ы: Level, Signal, AnalysisResult
+│   └── analyzer.py             # ядро анализа
+├── data/
+│   ├── api_moex.py             # запросы к MOEX ISS
+│   ├── api_facade.py           # кэш + докачка
+│   ├── storage_sqlite.py       # хранение свечей
+│   └── resample.py             # M1 → M5/M15/H1
+├── indicators/
+│   └── calc.py                 # EMA, RSI, ADX, ATR
+├── strategy/
+│   ├── levels.py               # фракталы + кластеризация
+│   ├── references.py           # round, PDH/PDL, PWH/PWL
+│   └── signals.py              # bounce, breakout, trend_level
+├── trader/
+│   ├── journal.py              # журнал сделок (SQLite)
+│   └── stats.py                # статистика
+├── ui/
+│   ├── render_console.py       # дашборд
+│   └── render_json.py          # JSON-рендеры
+├── logs/                       # логи
+├── data/                       # БД (market.db, journal.db)
+└── tests/                      # тесты (пока пусто)
+```
+
+## Стек
+
+- Python 3.10+
+- `pandas`, `pandas_ta` — данные и индикаторы
+- `requests` — запросы к MOEX ISS
+- `tabulate` — таблицы в консоли
+- SQLite — хранение свечей и журнала
+
+## Как это работает
+
+1. **Данные**: свечи тянутся с MOEX ISS, кэшируются в `data/market.db`. Если последняя свеча старше `CACHE_TTL_MINUTES` — докачка новых.
+2. **Индикаторы**: EMA, RSI, ADX, ATR через `pandas_ta`.
+3. **Уровни**:
+   - Фракталы на M15 и H1 → кластеризация по `0.25 × ATR(H1)` → веса по ТФ.
+   - Референсные (round, PDH/PDL, PWH/PWL) — отдельным слоем.
+   - Фильтр по `±2.5 × ATR(H1)` вокруг цены.
+4. **Сигналы**: bounce, breakout, trend_level. Каждый получает score (A/B/D) и уровень силы.
+5. **Журнал**: SQLite-таблица `trades` с полями: вход, выход, стоп, тейк, теги, тип сигнала, результат.
+
+## Параметры (config.py)
+
+Все ключевые параметры — в `config.py`:
+
+- Инструмент: `SYMBOL`, `MARKET`, `ENGINE`.
+- Таймфреймы: `TIMEFRAMES`, `DEFAULT_TIMEFRAME`.
+- Индикаторы: `EMA_FAST`, `EMA_SLOW`, `RSI_PERIOD`, `ADX_PERIOD`.
+- Уровни: `FRACTAL_PERIOD`, `ATR_PERIOD`, `ATR_TF`, `LEVEL_TOLERANCE_ATR`, `LEVELS_RANGE_ATR`.
+- Сигналы: `BOUNCE_TOLERANCE_ATR`, `RSI_BOUNCE_LONG`, `ADX_BREAKOUT_THRESHOLD`, `VOLUME_MULTIPLIER`.
+- Торговые правила: `STOP_POINTS`, `TAKE_POINTS`.
+
+## Что в планах
+
+- [ ] Telegram-уведомления (когда/если заработает).
+- [ ] Автозапись сигналов в журнал.
+- [ ] Failed breakout, retest.
+- [ ] MACD, мульти-ТФ подтверждение (C), тесты уровня (E).
+- [ ] Scheduler + VPS для автономной работы.
+- [ ] Тесты на ключевые модули.
+
+## Дисклеймер
+
+Это **инструмент для анализа**, не торговая система. Сигналы — не рекомендации.
+Все решения принимает пользователь. Автор не несёт ответственности за торговые результаты.
+
+## Лицензия
+
+См. `LICENSE`.
