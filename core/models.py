@@ -31,7 +31,14 @@ class Level:
 
     def to_dict(self) -> dict:
         d = asdict(self)
+        d["price"] = round(self.price, 5)
         d["tf_source"] = sorted(self.tf_source)
+        if self.distance_atr is not None:
+            d["distance_atr"] = round(self.distance_atr, 2)
+        if self.strength_score is not None:
+            d["strength_score"] = round(self.strength_score, 1)
+        if self.age_days is not None:
+            d["age_days"] = round(self.age_days, 1)
         if self.first_seen:
             d["first_seen"] = self.first_seen.isoformat()
         if self.last_seen:
@@ -53,7 +60,12 @@ class IndicatorSnapshot:
     rsi_state: str  # "overbought" / "oversold" / "near_overbought" / ...
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        # Округление индикаторов до 5 знаков — достаточно для цен CNYRUBF
+        for key in ("ema_fast", "ema_slow", "rsi", "adx"):
+            if d.get(key) is not None:
+                d[key] = round(d[key], 5)
+        return d
 
 
 @dataclass
@@ -74,7 +86,14 @@ class Signal:
     level_price: Optional[float] = None  # цена уровня, на котором сигнал
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["entry_price"] = round(self.entry_price, 5)
+        d["stop_price"] = round(self.stop_price, 5)
+        d["take_price"] = round(self.take_price, 5)
+        d["strength_score"] = round(self.strength_score, 1)
+        if self.level_price is not None:
+            d["level_price"] = round(self.level_price, 5)
+        return d
 
 
 @dataclass
@@ -95,8 +114,8 @@ class AnalysisResult:
         return {
             "symbol": self.symbol,
             "timestamp": self.timestamp.isoformat(),
-            "current_price": self.current_price,
-            "atr": self.atr,
+            "current_price": round(self.current_price, 5),
+            "atr": round(self.atr, 5),
             "timeframe": self.timeframe,
             "indicators": self.indicators.to_dict(),
             "levels": [lv.to_dict() for lv in self.levels],
