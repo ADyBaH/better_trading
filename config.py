@@ -1,33 +1,31 @@
+__version__ = "0.4.0"
+
+# ============================================================
+# ИНСТРУМЕНТ
+# ============================================================
 from core.instruments import get_instrument, list_instruments
 
-__version__ = "0.3.0"
-
-# ============================================================
-# АКТИВНЫЙ ИНСТРУМЕНТ
-# ============================================================
 DEFAULT_INSTRUMENT = "CNYRUBF"
 _ACTIVE = get_instrument(DEFAULT_INSTRUMENT)
 
-# Прокси-константы для обратной совместимости со старым кодом.
-# Постепенно код должен использовать get_instrument() напрямую.
+# Базовый интервал, который тянем с биржи (в минутах).
+# MOEX ISS поддерживает: 1, 10, 60, 24.
+BASE_INTERVAL = 1
+
+# Прокси-константы для обратной совместимости.
 SYMBOL = _ACTIVE.symbol
 SYMBOL_NAME = _ACTIVE.name
 MARKET = _ACTIVE.market
 ENGINE = _ACTIVE.engine
-
 PRICE_STEP = _ACTIVE.price_step
 STEP_COST = _ACTIVE.step_cost
 
+# Таймфрейм для генерации сигналов (НЕ для ручного анализа).
+# M15 — компромисс: задержка ISS ~15 мин = 1 свеча M15 назад.
+DEFAULT_TIMEFRAME = "M15"
 
-# Базовый интервал, который тянем с биржи (минуты).
-# MOEX ISS поддерживает: 1, 10, 60, 24.
-BASE_INTERVAL = 1
-
-# Таймфреймы, которые строим из базового ресемплингом.
-TIMEFRAMES = ["M1", "M5", "M15"]
-
-# Таймфрейм по умолчанию для анализа.
-DEFAULT_TIMEFRAME = "M5"
+# Таймфреймы для отображения в дашборде (не для сигналов).
+TIMEFRAMES = ["M5", "M15", "H1"]
 
 # ============================================================
 # ТОРГОВЫЕ ЧАСЫ
@@ -42,10 +40,10 @@ TRADING_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 # ============================================================
 # ПРАВИЛА ВХОДА
 # ============================================================
-STOP_POINTS = 30  # стоп в пунктах
-TAKE_POINTS = 60  # тейк в пунктах
-MAX_TRADES_PER_DAY = 3  # лимит сделок
-PAUSE_AFTER_LOSS_MIN = 10  # пауза после убытка
+STOP_POINTS = 30  # fallback, если USE_ATR_STOPS = False
+TAKE_POINTS = 60  # fallback, если USE_ATR_STOPS = False
+MAX_TRADES_PER_DAY = 3
+PAUSE_AFTER_LOSS_MIN = 10
 
 # ============================================================
 # ИНДИКАТОРЫ
@@ -54,68 +52,65 @@ EMA_FAST = 50
 EMA_SLOW = 200
 
 RSI_PERIOD = 14
-RSI_OVERBOUGHT = 70  # RSI выше — перекупленность
-RSI_OVERSOLD = 30  # RSI ниже — перепроданность
-RSI_NEAR_OVERBOUGHT = 60  # RSI выше — близко к перекупленности
-RSI_NEAR_OVERSOLD = 40  # RSI ниже — близко к перепроданности
+RSI_OVERBOUGHT = 70
+RSI_OVERSOLD = 30
+RSI_NEAR_OVERBOUGHT = 60
+RSI_NEAR_OVERSOLD = 40
 
 ADX_PERIOD = 14
-ADX_THRESHOLD = 20  # ADX выше — тренд есть
-ADX_STRONG = 25  # ADX выше — сильный тренд
+ADX_THRESHOLD = 20
+ADX_STRONG = 25
 
 # ============================================================
 # УРОВНИ
 # ============================================================
-# --- Структурные (A+B): фракталы + кластеризация ---
-FRACTAL_PERIOD = 2  # классика Bill Williams: 2 слева / 2 справа
+FRACTAL_PERIOD = 2
 
-# Нормализация допуска через ATR (а не в пунктах — иначе на разных
-# инструментах поведение будет разным).
 ATR_PERIOD = 14
-ATR_TF = "H1"  # ТФ, на котором считаем ATR для нормализации
-LEVEL_TOLERANCE_ATR = 0.25  # допуск кластеризации в ATR(ATR_TF)
+ATR_TF = "H1"
+LEVEL_TOLERANCE_ATR = 0.25
 
-# Рабочий диапазон вокруг текущей цены — за его пределами уровни
-# неактуальны для интрадея.
-LEVELS_RANGE_ATR = 2.5  # ±LEVELS_RANGE_ATR * ATR(ATR_TF) от цены
-LEVELS_MAX_SHOW = 7  # максимум активных линий в выводе
-LEVELS_MIN_WEIGHT = 2  # уровни с весом меньше — отбрасываем
+LEVELS_RANGE_ATR = 2.5
+LEVELS_MAX_SHOW = 7
+LEVELS_MIN_WEIGHT = 2
 
-# ТФ, на которых строим карту уровней.
-# M5 — только для уточнения входа, не для построения карты.
-LEVEL_TIMEFRAMES = ["H1", "M15"]
+# H4 — стабильность (weight 3), H1 — свежесть (2), M15 — уточнение (1).
+LEVEL_TIMEFRAMES = ["H4", "H1", "M15"]
 LEVEL_TF_WEIGHTS = {"H4": 3, "H1": 2, "M15": 1}
 
-# Веса уровней по таймфреймам.
-LEVEL_TF_WEIGHTS = {"H4": 3, "H1": 2, "M15": 1}
-
-# --- Референсные (C): раунды + PDH/PDL + PWH/PWL ---
-ROUND_STEP = 0.05  # шаг round numbers для CNYRUBF
-SHOW_PDH_PDL = True  # Previous Day High/Low
-SHOW_PWH_PWL = True  # Previous Week High/Low
+# Референсные уровни
+ROUND_STEP = 0.05
+SHOW_PDH_PDL = True
+SHOW_PWH_PWL = True
 
 # ============================================================
 # СИГНАЛЫ
 # ============================================================
 # --- Bounce ---
-BOUNCE_TOLERANCE_ATR = 0.3  # насколько близко к уровню считать «у уровня» (в ATR)
-RSI_BOUNCE_LONG = 35  # RSI ниже — подтверждение лонга при отбое
-RSI_BOUNCE_SHORT = 65  # RSI выше — подтверждение шорта при отбое
+BOUNCE_TOLERANCE_ATR = 0.3
+RSI_BOUNCE_LONG = 35
+RSI_BOUNCE_SHORT = 65
 
 # --- Breakout ---
-ADX_BREAKOUT_THRESHOLD = 25  # ADX выше — подтверждение пробоя
-BREAKOUT_BUFFER_ATR = 0.15  # насколько цена должна быть за уровнем (в ATR)
+ADX_BREAKOUT_THRESHOLD = 25
+BREAKOUT_BUFFER_ATR = 0.15
 
 # --- Trend + Level ---
-TREND_LEVEL_TOLERANCE_ATR = 0.4  # допуск близости к уровню для trend_level
+TREND_LEVEL_TOLERANCE_ATR = 0.4
 
 # --- Объём ---
-VOLUME_LOOKBACK = 20  # свечей для расчёта среднего объёма
-VOLUME_MULTIPLIER = 1.5  # объём > ×средний = подтверждение (D3)
+VOLUME_LOOKBACK = 20
+VOLUME_MULTIPLIER = 1.5
 
-# --- Стопы / тейки (пока фиксированные пункты) ---
-# TODO: ATR-режим (Stop = X × ATR) — добавить в будущем
-USE_FIXED_STOPS = True
+# --- Стопы / тейки ---
+# От ATR(H1) — адаптируется к волатильности.
+# Если USE_ATR_STOPS = False — берутся STOP_POINTS / TAKE_POINTS.
+USE_ATR_STOPS = True
+STOP_ATR_MULT = 1.0  # стоп = 1.0 × ATR(H1)
+TAKE_ATR_MULT = 2.0  # тейк = 2.0 × ATR(H1)
+
+# --- Свежесть данных ---
+DATA_MAX_AGE_MIN = 20  # если последняя свеча старше — warning в сигнале
 
 # ============================================================
 # ДАННЫЕ
@@ -125,10 +120,14 @@ LOG_PATH = "logs/bot.log"
 BACKUP_DIR = "backups"
 NOTIFY_FILE = "logs/notifications.txt"
 
+# Сколько минут считать кэш свежим.
+# ISS обновляет данные с лагом ~15 мин — TTL 15 уменьшает «слепоту».
+CACHE_TTL_MINUTES = 15
+
 # ============================================================
 # РАСПИСАНИЕ
 # ============================================================
-CHECK_INTERVAL_MIN = 5  # проверка каждые 5 минут (закрытие M5)
+CHECK_INTERVAL_MIN = 5
 
 # ============================================================
 # ЛОГИРОВАНИЕ
@@ -136,7 +135,3 @@ CHECK_INTERVAL_MIN = 5  # проверка каждые 5 минут (закры
 LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-# Сколько минут считать кэш свежим. Если последняя свеча в БД старше —
-# докачиваем с биржи.
-CACHE_TTL_MINUTES = 30
