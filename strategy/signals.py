@@ -153,6 +153,20 @@ def _build_context(
     if level is not None and result.atr > 0:
         distance_to_level_atr = round(abs(price - level.price) / result.atr, 2)
 
+    # Свежесть данных
+    data_age_minutes = None
+    last_candle_time = None
+    if len(df) > 0:
+        try:
+            last_candle_time = df["begin"].iloc[-1]
+            if hasattr(last_candle_time, "to_pydatetime"):
+                last_candle_time = last_candle_time.to_pydatetime()
+            data_age_minutes = int(
+                (datetime.now() - last_candle_time).total_seconds() / 60
+            )
+        except Exception:
+            pass
+
     # Время
     now = datetime.now()
     hour_utc = now.utctimetuple().tm_hour
@@ -185,6 +199,8 @@ def _build_context(
         "recent_signal_age_min": recent_age,
         "session": session,
         "hour_utc": hour_utc,
+        "data_age_minutes": data_age_minutes,
+        "last_candle_time": last_candle_time.isoformat() if last_candle_time else None,
     }
 
 
@@ -193,6 +209,7 @@ def _build_warnings(
     result: AnalysisResult,
     level: Level | None,
     recent_signal: dict | None,
+    df: pd.DataFrame,
 ) -> list[str]:
     """
     Предупреждения о рисках. НЕ меняют score.
@@ -244,6 +261,18 @@ def _build_warnings(
         if recent_dir and recent_dir != direction and age is not None and age < 120:
             warnings.append(f"{age} мин назад был {recent_dir.upper()} — риск пилы")
 
+    # Свежесть данных
+    if len(df) > 0:
+        try:
+            last = df["begin"].iloc[-1]
+            if hasattr(last, "to_pydatetime"):
+                last = last.to_pydatetime()
+            age_min = int((datetime.now() - last).total_seconds() / 60)
+            if age_min > config.DATA_MAX_AGE_MIN:
+                warnings.append(f"Данные устарели на {age_min} мин (лаг биржи)")
+        except Exception:
+            pass
+
     # Время суток
     now = datetime.now()
     hour_msk = (now.utctimetuple().tm_hour + 3) % 24
@@ -264,6 +293,25 @@ def _commission_in_price(symbol: str) -> float:
     return commission_points * inst.price_step
 
 
+def _compute_stops(entry: float, direction: str, atr: float) -> tuple[float, float]:
+    """
+    Считает stop и take.
+    Если USE_ATR_STOPS = True — от ATR(H1).
+    Иначе — фиксированные пункты из config.
+    """
+    if config.USE_ATR_STOPS:
+        stop_dist = config.STOP_ATR_MULT * atr
+        take_dist = config.TAKE_ATR_MULT * atr
+    else:
+        stop_dist = config.STOP_POINTS * config.PRICE_STEP
+        take_dist = config.TAKE_POINTS * config.PRICE_STEP
+
+    if direction == "long":
+        return entry - stop_dist, entry + take_dist
+    else:
+        return entry + stop_dist, entry - take_dist
+
+
 def _finalize_signal(
     signal: Signal,
     result: AnalysisResult,
@@ -274,7 +322,9 @@ def _finalize_signal(
 ) -> Signal:
     """Заполняет context, warnings, R:R."""
     signal.context = _build_context(result, df, level, recent_signal)
-    signal.warnings = _build_warnings(signal.direction, result, level, recent_signal)
+    signal.warnings = _build_warnings(
+        signal.direction, result, level, recent_signal, df
+    )
     signal.compute_rr(commission_round=_commission_in_price(symbol))
     return signal
 
@@ -326,12 +376,7 @@ def detect_bounce(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
             continue
 
         entry = price
-        if direction == "long":
-            stop = entry - config.STOP_POINTS * config.PRICE_STEP
-            take = entry + config.TAKE_POINTS * config.PRICE_STEP
-        else:
-            stop = entry + config.STOP_POINTS * config.PRICE_STEP
-            take = entry - config.TAKE_POINTS * config.PRICE_STEP
+        stop, take = _compute_stops(entry, direction, result.atr)
 
         signal = Signal(
             direction=direction,
@@ -399,12 +444,7 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
             continue
 
         entry = price
-        if direction == "long":
-            stop = entry - config.STOP_POINTS * config.PRICE_STEP
-            take = entry + config.TAKE_POINTS * config.PRICE_STEP
-        else:
-            stop = entry + config.STOP_POINTS * config.PRICE_STEP
-            take = entry - config.TAKE_POINTS * config.PRICE_STEP
+        stop, take = _compute_stops(entry, direction, result.atr)
 
         signal = Signal(
             direction=direction,
@@ -472,12 +512,7 @@ def detect_trend_level(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]
             continue
 
         entry = price
-        if direction == "long":
-            stop = entry - config.STOP_POINTS * config.PRICE_STEP
-            take = entry + config.TAKE_POINTS * config.PRICE_STEP
-        else:
-            stop = entry + config.STOP_POINTS * config.PRICE_STEP
-            take = entry - config.TAKE_POINTS * config.PRICE_STEP
+        stop, take = _compute_stops(entry, direction, result.atr)
 
         signal = Signal(
             direction=direction,

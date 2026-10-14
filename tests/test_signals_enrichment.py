@@ -108,6 +108,8 @@ def test_context():
         "recent_signal_age_min",
         "session",
         "hour_utc",
+        "data_age_minutes",
+        "last_candle_time",
     }
     actual_keys = set(ctx.keys())
 
@@ -137,7 +139,7 @@ def test_warnings():
     level = result.levels[0]
 
     # Сценарий: SHORT при тренде down, RSI 36 (near_oversold), уровень сильный
-    warnings = _build_warnings("short", result, level, recent_signal=None)
+    warnings = _build_warnings("short", result, level, recent_signal=None, df=df)
 
     print(f"  Всего warnings: {len(warnings)}")
     for w in warnings:
@@ -176,7 +178,7 @@ def test_cooldown_warning():
     recent = {"direction": "long", "kind": "bounce", "age_min": 98}
 
     # SHORT при недавнем LONG — должно быть предупреждение
-    warnings = _build_warnings("short", result, level, recent_signal=recent)
+    warnings = _build_warnings("short", result, level, recent_signal=recent, df=df)
     has_cooldown = any("мин назад был LONG" in w for w in warnings)
 
     if has_cooldown:
@@ -185,7 +187,7 @@ def test_cooldown_warning():
         print("  ❌ Cooldown-предупреждение не сработало")
 
     # Тот же direction — не должно быть
-    warnings2 = _build_warnings("long", result, level, recent_signal=recent)
+    warnings2 = _build_warnings("long", result, level, recent_signal=recent, df=df)
     has_wrong_cooldown = any("мин назад был LONG" in w for w in warnings2)
     if not has_wrong_cooldown:
         print("  ✓ При совпадении direction — нет ложного предупреждения")
@@ -278,6 +280,7 @@ def main():
     results.append(("cooldown", test_cooldown_warning()))
     results.append(("R:R", test_rr()))
     results.append(("finalize", test_finalize()))
+    results.append(("ATR-стопы", test_atr_stops()))
 
     print("\n" + "=" * 60)
     print("ИТОГ")
@@ -295,6 +298,39 @@ def main():
     else:
         print("\n❌ Есть провалы — смотри выше.")
         return 1
+
+
+def test_atr_stops():
+    print("\n=== Тест 6: ATR-стопы ===")
+    import config
+    from strategy.signals import _compute_stops
+
+    entry = 12.500
+    atr = 0.0300
+
+    # Long
+    stop, take = _compute_stops(entry, "long", atr)
+    expected_stop = entry - config.STOP_ATR_MULT * atr
+    expected_take = entry + config.TAKE_ATR_MULT * atr
+
+    ok_long = abs(stop - expected_stop) < 0.0001 and abs(take - expected_take) < 0.0001
+
+    # Short
+    stop_s, take_s = _compute_stops(entry, "short", atr)
+    expected_stop_s = entry + config.STOP_ATR_MULT * atr
+    expected_take_s = entry - config.TAKE_ATR_MULT * atr
+
+    ok_short = (
+        abs(stop_s - expected_stop_s) < 0.0001
+        and abs(take_s - expected_take_s) < 0.0001
+    )
+
+    print(f"  LONG:  entry={entry}, stop={stop:.5f}, take={take:.5f}")
+    print(f"  SHORT: entry={entry}, stop={stop_s:.5f}, take={take_s:.5f}")
+    print(f"  {'✓' if ok_long else '❌'} LONG (стоп ниже, тейк выше)")
+    print(f"  {'✓' if ok_short else '❌'} SHORT (стоп выше, тейк ниже)")
+
+    return ok_long and ok_short
 
 
 if __name__ == "__main__":
