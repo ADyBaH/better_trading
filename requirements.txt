@@ -4,3 +4,4 @@ apimoex
 apscheduler
 requests
 tabulate
+aiomoex
