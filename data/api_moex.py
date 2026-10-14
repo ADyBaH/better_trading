@@ -19,31 +19,70 @@ ISS_MAX_CANDLES_PER_REQUEST = 500  # лимит ISS на один запрос
 
 
 def _fetch_one_day(symbol: str, interval: int, day: str) -> pd.DataFrame:
-    """Тянет свечи за один день (внутренняя функция)."""
+    """
+    Тянет свечи за один день с пагинацией.
+
+    ISS отдаёт максимум 500 свечей за запрос. Если нужно больше —
+    используем параметр `start` и идём по страницам, пока не закончатся.
+    """
     url = (
         f"{ISS_BASE_URL}/engines/{config.ENGINE}/markets/{config.MARKET}"
         f"/securities/{symbol}/candles.json"
     )
-    params = {
-        "from": day,
-        "till": day,
-        "interval": interval,
-        "iss.meta": "off",
-    }
 
-    response = requests.get(url, params=params, timeout=30)
-    response.raise_for_status()
-    data = response.json()
+    all_rows = []
+    columns = None
+    start = 0
+    page_size = 500
+    page_num = 0
 
-    candles = data.get("candles", {})
-    columns = candles.get("columns", [])
-    rows = candles.get("data", [])
+    while True:
+        params = {
+            "from": day,
+            "till": day,
+            "interval": interval,
+            "start": start,
+            "iss.meta": "off",
+        }
 
-    if not rows:
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+        except Exception as e:
+            log.warning("Ошибка запроса ISS (страница %d): %s", page_num, e)
+            break
+
+        data = response.json()
+        candles = data.get("candles", {})
+        rows = candles.get("data", [])
+        if columns is None:
+            columns = candles.get("columns", [])
+
+        if not rows:
+            break
+
+        all_rows.extend(rows)
+        page_num += 1
+
+        # Если получили меньше, чем размер страницы — это последняя
+        if len(rows) < page_size:
+            break
+
+        start += page_size
+
+        # Защита от бесконечного цикла
+        if page_num > 20:
+            log.warning("Пагинация превысила 20 страниц, прерываем")
+            break
+
+    if not all_rows:
         return pd.DataFrame()
 
-    df = pd.DataFrame(rows, columns=columns)
-    return df
+    if columns is None:
+        columns = []
+
+    log.debug("Свечей за %s: %d (страниц: %d)", day, len(all_rows), page_num + 1)
+    return pd.DataFrame(all_rows, columns=columns)
 
 
 def get_candles_range(
