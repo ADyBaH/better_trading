@@ -8,10 +8,6 @@ from core.instruments import get_instrument, list_instruments
 DEFAULT_INSTRUMENT = "CNYRUBF"
 _ACTIVE = get_instrument(DEFAULT_INSTRUMENT)
 
-# Базовый интервал, который тянем с биржи (в минутах).
-# MOEX ISS поддерживает: 1, 10, 60, 24.
-BASE_INTERVAL = 1
-
 # Прокси-константы для обратной совместимости.
 SYMBOL = _ACTIVE.symbol
 SYMBOL_NAME = _ACTIVE.name
@@ -23,6 +19,10 @@ STEP_COST = _ACTIVE.step_cost
 # Таймфрейм для генерации сигналов (НЕ для ручного анализа).
 # M15 — компромисс: задержка ISS ~15 мин = 1 свеча M15 назад.
 DEFAULT_TIMEFRAME = "M15"
+
+# Базовый интервал, который тянем с биржи (в минутах).
+# MOEX ISS поддерживает: 1, 10, 60, 24.
+BASE_INTERVAL = 1
 
 # Таймфреймы для отображения в дашборде (не для сигналов).
 TIMEFRAMES = ["M5", "M15", "H1"]
