@@ -126,7 +126,12 @@ def _signals_table(signals: list[Signal]) -> str:
 
     rows = []
     for s in signals:
-        reason_short = s.reasons[0] if s.reasons else ""
+        warn_count = len(s.warnings)
+        warn_marker = f"⚠{warn_count}" if warn_count else ""
+
+        rr = f"{s.risk_reward:.2f}" if s.risk_reward is not None else "—"
+        net_rr = f"{s.net_rr:.2f}" if s.net_rr is not None else "—"
+
         rows.append(
             [
                 s.direction.upper(),
@@ -136,24 +141,44 @@ def _signals_table(signals: list[Signal]) -> str:
                 f"{s.entry_price:.3f}",
                 f"{s.stop_price:.3f}",
                 f"{s.take_price:.3f}",
+                rr,
+                net_rr,
+                warn_marker,
                 ",".join(s.matched_criteria),
             ]
         )
-    headers = ["Напр", "Тип", "Сила", "Score", "Вход", "Стоп", "Тейк", "Критерии"]
+
+    headers = [
+        "Напр",
+        "Тип",
+        "Сила",
+        "Score",
+        "Вход",
+        "Стоп",
+        "Тейк",
+        "R:R",
+        "Net",
+        "⚠",
+        "Критерии",
+    ]
     return tabulate(rows, headers=headers, tablefmt="rounded_outline")
 
 
 def _signals_detail(signals: list[Signal]) -> str:
-    """Подробное описание каждого сигнала (причины)."""
     if not signals:
         return ""
     lines = []
     for i, s in enumerate(signals, 1):
         lines.append(
-            f"  [{i}] {s.direction.upper()} {s.kind} ({s.strength}, score={s.strength_score:.1f})"
+            f"  [{i}] {s.direction.upper()} {s.kind} "
+            f"({s.strength}, score={s.strength_score:.1f})"
         )
         for reason in s.reasons:
             lines.append(f"      • {reason}")
+        if s.warnings:
+            lines.append("      Предупреждения:")
+            for w in s.warnings:
+                lines.append(f"      ⚠ {w}")
     return "\n".join(lines) + "\n"
 
 

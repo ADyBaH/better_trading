@@ -10,9 +10,7 @@ from typing import Optional
 
 @dataclass
 class Level:
-    """
-    Один уровень (структурный или референсный).
-    """
+    """Один уровень (структурный или референсный)."""
 
     price: float
     type: str
@@ -24,10 +22,9 @@ class Level:
     label: str = ""
     tags: list[str] = field(default_factory=list)
 
-    # --- Вычисляемые поля (заполняет analyzer) ---
-    distance_atr: Optional[float] = None  # |price - current| / atr
-    strength_score: Optional[float] = None  # weight × confirmed × tf_count × age_factor
-    age_days: Optional[float] = None  # сколько дней с last_seen
+    distance_atr: Optional[float] = None
+    strength_score: Optional[float] = None
+    age_days: Optional[float] = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -55,13 +52,12 @@ class IndicatorSnapshot:
     rsi: Optional[float]
     adx: Optional[float]
 
-    trend: str  # "up" / "down" / "none"
-    adx_state: str  # "strong" / "trend" / "flat" / "none"
-    rsi_state: str  # "overbought" / "oversold" / "near_overbought" / ...
+    trend: str
+    adx_state: str
+    rsi_state: str
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        # Округление индикаторов до 5 знаков — достаточно для цен CNYRUBF
         for key in ("ema_fast", "ema_slow", "rsi", "adx"):
             if d.get(key) is not None:
                 d[key] = round(d[key], 5)
@@ -71,28 +67,56 @@ class IndicatorSnapshot:
 @dataclass
 class Signal:
     """
-    Торговый сигнал. Возвращается детектором signals.py.
+    Торговый сигнал.
+    Обогащён context (снимок окружения), warnings (сомнения),
+    risk_reward и net_rr (с учётом комиссии).
     """
 
     direction: str  # "long" / "short"
     kind: str  # "bounce" / "breakout" / "trend_level"
     strength: str  # "weak" / "medium" / "strong"
-    strength_score: float  # числовой score (1.0, 2.0, 3.0+)
+    strength_score: float
     entry_price: float
     stop_price: float
     take_price: float
-    matched_criteria: list[str] = field(default_factory=list)  # ["A1", "B1", ...]
+    matched_criteria: list[str] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
-    level_price: Optional[float] = None  # цена уровня, на котором сигнал
+    level_price: Optional[float] = None
+
+    # --- Обогащение (Шаг 1) ---
+    risk_reward: Optional[float] = None  # gross R:R без комиссии
+    net_rr: Optional[float] = None  # R:R с учётом комиссии
+    warnings: list[str] = field(default_factory=list)
+    context: dict = field(default_factory=dict)
+
+    def compute_rr(self, commission_round: float = 0.0) -> None:
+        """
+        Считает risk_reward и net_rr.
+        commission_round — комиссия за круг в тех же единицах, что entry/stop/take.
+        """
+        gross_risk = abs(self.entry_price - self.stop_price)
+        gross_reward = abs(self.take_price - self.entry_price)
+
+        if gross_risk > 0:
+            self.risk_reward = round(gross_reward / gross_risk, 2)
+
+        net_risk = gross_risk + commission_round
+        net_reward = gross_reward - commission_round
+        if net_risk > 0:
+            self.net_rr = round(net_reward / net_risk, 2)
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d["entry_price"] = round(self.entry_price, 5)
         d["stop_price"] = round(self.stop_price, 5)
         d["take_price"] = round(self.take_price, 5)
-        d["strength_score"] = round(self.strength_score, 1)
+        d["strength_score"] = round(self.strength_score, 2)
         if self.level_price is not None:
             d["level_price"] = round(self.level_price, 5)
+        if self.risk_reward is not None:
+            d["risk_reward"] = round(self.risk_reward, 2)
+        if self.net_rr is not None:
+            d["net_rr"] = round(self.net_rr, 2)
         return d
 
 
@@ -106,9 +130,9 @@ class AnalysisResult:
     atr: float
     timeframe: str
     indicators: IndicatorSnapshot
-    levels: list[Level]  # структурные (A+B)
-    references: list[Level]  # референсные (C)
-    signals: list[Signal] = field(default_factory=list)  # сигналы
+    levels: list[Level]
+    references: list[Level]
+    signals: list[Signal] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {

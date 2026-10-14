@@ -229,7 +229,12 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
         references=references,
         signals=[],  # пока пусто — заполним ниже
     )
+    from strategy.signal_history import append_signals
+
     signals = detect_signals(result, df)
     result.signals = signals
+
+    # Сохраняем в историю для будущего cooldown-анализа
+    append_signals(signals, symbol)
 
     return result
