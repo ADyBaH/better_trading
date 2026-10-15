@@ -11,6 +11,7 @@ __pycache__/
 logs/
 backups/
 data/*.db
+data/signals_history.json
 *.db-journal
 
 # IDE

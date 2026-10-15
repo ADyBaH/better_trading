@@ -60,7 +60,14 @@ def append_signals(signals: list[Signal], symbol: str) -> None:
                 "strength": s.strength,
                 "strength_score": s.strength_score,
                 "entry_price": s.entry_price,
+                "stop_price": s.stop_price,
+                "take_price": s.take_price,
                 "level_price": s.level_price,
+                "risk_reward": s.risk_reward,
+                "net_rr": s.net_rr,
+                "matched_criteria": s.matched_criteria,
+                "warnings": s.warnings,
+                "context": s.context,
             }
         )
 

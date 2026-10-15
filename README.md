@@ -74,6 +74,7 @@ python journal_cli.py stats
 | `python journal_cli.py add`                                 | Добавить сделку (интерактивно)         |
 | `python journal_cli.py list`                                | Последние 20 сделок                    |
 | `python journal_cli.py list --open`                         | Только открытые                        |
+| `python journal_cli.py add --closed`                        | Добавить закрытую сделку               |
 | `python journal_cli.py list --wide`                         | Не обрезать комментарии                |
 | `python journal_cli.py list --limit=N`                      | Показать N сделок                      |
 | `python journal_cli.py close <id> <price>`                  | Закрыть сделку по цене                 |

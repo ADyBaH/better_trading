@@ -213,6 +213,7 @@ def _ask(prompt: str, default: str = "") -> str:
 def cmd_add(args) -> int:
     """Интерактивно добавляет сделку."""
     from core.instruments import get_instrument, list_instruments
+    from datetime import datetime as dt
 
     print("── Новая сделка ──")
 
@@ -226,31 +227,45 @@ def cmd_add(args) -> int:
         print(f"Ошибка: {e}")
         return 1
 
-    direction_raw = _ask("Направление (long(l)/short(s))").lower().strip()
+    # Направление
+    direction_raw = _ask("Направление (l/s)").lower().strip()
     if direction_raw in ("l", "long"):
         direction = "long"
     elif direction_raw in ("s", "short"):
         direction = "short"
     else:
-        print(
-            f"Ошибка: направление должно быть l или s (или long/short), получено: {direction_raw}"
-        )
+        print(f"Ошибка: направление должно быть l или s, получено: {direction_raw}")
         return 1
 
+    # Цена входа
     try:
         entry = float(_ask("Цена входа"))
     except ValueError:
         print("Ошибка: цена входа должна быть числом")
         return 1
 
+    # Цена выхода — только если --closed
+    exit_price = None
+    datetime_close = None
+    if getattr(args, "closed", False):
+        try:
+            exit_price = float(_ask("Цена выхода"))
+        except ValueError:
+            print("Ошибка: цена выхода должна быть числом")
+            return 1
+        datetime_close = dt.now()
+
+    # Размер
     size = int(_ask("Размер (контрактов)", "1") or "1")
 
+    # Стоп / Тейк
     stop_str = _ask("Стоп (Enter — пропустить)")
     stop = float(stop_str) if stop_str else None
 
     take_str = _ask("Тейк (Enter — пропустить)")
     take = float(take_str) if take_str else None
 
+    # Прочее
     comment = _ask("Комментарий")
     tags_str = _ask("Теги (через запятую)")
     tags = [t.strip() for t in tags_str.split(",") if t.strip()]
@@ -263,7 +278,7 @@ def cmd_add(args) -> int:
     except ValueError:
         signal_score = 0.0
 
-    # Комиссия по умолчанию — из инструмента
+    # Комиссия
     default_comm = inst.commission_round * size
     print(
         f"\nКомиссия за круг: {inst.commission_round:.2f} ₽ × {size} = {default_comm:.2f} ₽"
@@ -271,11 +286,12 @@ def cmd_add(args) -> int:
     comm_str = _ask("Переопределить комиссию (Enter — оставить)", "")
     commission_rub = float(comm_str) if comm_str else None
 
+    # Создаём сделку
     trade = journal.Trade(
         symbol=symbol,
         direction=direction,
         entry_price=entry,
-        datetime_open=datetime.now(),
+        datetime_open=dt.now(),
         size=size,
         stop_price=stop,
         take_price=take,
@@ -285,10 +301,20 @@ def cmd_add(args) -> int:
         signal_strength=signal_strength,
         signal_score=signal_score,
         commission_rub=commission_rub,
+        exit_price=exit_price,
+        datetime_close=datetime_close,
     )
 
     tid = journal.add_trade(trade)
-    print(f"\n✓ Сделка #{tid} добавлена.")
+
+    # Итог
+    if exit_price is not None:
+        t = journal.get_trade(tid)
+        print(f"\n✓ Сделка #{tid} добавлена и закрыта.")
+        print(f"   Результат: {t.result_points:+.1f} pts / {t.result_rub:+.2f} ₽")
+    else:
+        print(f"\n✓ Сделка #{tid} добавлена (открыта).")
+
     return 0
 
 
@@ -372,6 +398,11 @@ def main() -> int:
 
     # add
     p_add = sub.add_parser("add", help="Добавить сделку (интерактивно)")
+    p_add.add_argument(
+        "--closed",
+        action="store_true",
+        help="Сделка уже закрыта — спросить цену выхода сразу",
+    )
     p_add.set_defaults(func=cmd_add)
 
     # list
