@@ -268,7 +268,9 @@ def _build_warnings(
             if hasattr(last, "to_pydatetime"):
                 last = last.to_pydatetime()
             age_min = int((datetime.now() - last).total_seconds() / 60)
-            if age_min > config.DATA_MAX_AGE_MIN:
+            if age_min > config.DATA_MAX_AGE_BLOCK:
+                warnings.append(f"Данные устарели на {age_min} мин — блокировка")
+            elif age_min > config.DATA_MAX_AGE_MIN:
                 warnings.append(f"Данные устарели на {age_min} мин (лаг биржи)")
         except Exception:
             pass
@@ -575,6 +577,20 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
     дедуплицирует, сортирует.
     """
     from strategy.signal_history import get_recent_signal
+
+    # --- Блокировка по свежести данных ---
+    if len(df) > 0:
+        last = df["begin"].iloc[-1]
+        if hasattr(last, "to_pydatetime"):
+            last = last.to_pydatetime()
+        age_min = int((datetime.now() - last).total_seconds() / 60)
+        if age_min > config.DATA_MAX_AGE_BLOCK:
+            log.warning(
+                "Данные устарели на %d мин (> %d) — сигналы блокированы",
+                age_min,
+                config.DATA_MAX_AGE_BLOCK,
+            )
+            return []
 
     all_signals = []
     all_signals.extend(detect_bounce(result, df))
