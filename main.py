@@ -7,9 +7,9 @@
     python main.py --json=flat              # JSON flat
     python main.py --json=full              # JSON full (с метаданными)
     python main.py --console --json         # оба вывода
-    python main.py --log                    # + logs/run_<ts>.log (технический)
-    python main.py --save                   # + logs/analysis_<ts>.txt (дашборд)
-    python main.py --json --save            # + logs/analysis_<ts>.json
+    python main.py --log                    # + storage/logs/run_<ts>.log (технический)
+    python main.py --save                   # + storage/logs/analysis_<ts>.txt (дашборд)
+    python main.py --json --save            # + storage/logs/analysis_<ts>.json
     python main.py --log --save             # полный слепок запуска
 """
 
@@ -55,12 +55,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--log",
         action="store_true",
-        help="Сохранить технический лог запуска в logs/run_<timestamp>.log",
+        help="Сохранить технический лог запуска в storage/logs/run_<timestamp>.log",
     )
     parser.add_argument(
         "--save",
         action="store_true",
-        help="Сохранить вывод рендерера в logs/analysis_<timestamp>.{txt|json}",
+        help="Сохранить вывод рендерера в storage/logs/analysis_<timestamp>.{txt|json}",
     )
 
     # --- Параметры анализа ---
@@ -84,7 +84,7 @@ def parse_args() -> argparse.Namespace:
 
 def attach_run_logger() -> Path:
     """
-    Добавляет второй FileHandler, пишущий в logs/run_<timestamp>.log.
+    Добавляет второй FileHandler, пишущий в storage/logs/run_<timestamp>.log.
     Возвращает путь к созданному файлу.
     """
     logs_dir = Path(config.LOG_PATH).parent

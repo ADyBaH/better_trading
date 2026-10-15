@@ -8,10 +8,7 @@ __pycache__/
 *.egg-info/
 
 # Данные и логи
-logs/
-backups/
-data/*.db
-data/signals_history.json
+storage/
 *.db-journal
 
 # IDE
