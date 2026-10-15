@@ -52,15 +52,25 @@ class IndicatorSnapshot:
     rsi: Optional[float]
     adx: Optional[float]
 
-    trend: str
-    adx_state: str
-    rsi_state: str
+    trend: str  # up / down / strong_up / strong_down / transition / none
+    adx_state: str  # strong / trend / flat / none
+    rsi_state: str  # overbought / oversold / near_overbought / ...
+
+    # --- НОВОЕ: контекст тренда ---
+    day_trend: str = "unknown"  # bullish / bearish / neutral / unknown
+    day_change_atr: float = 0.0
+    structure: str = "mixed"  # bullish / bearish / mixed
+    price_direction: str = "unknown"  # up / down / unknown
+    vote_sum: int = 0
+    vote_breakdown: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         d = asdict(self)
         for key in ("ema_fast", "ema_slow", "rsi", "adx"):
             if d.get(key) is not None:
                 d[key] = round(d[key], 5)
+        if d.get("day_change_atr") is not None:
+            d["day_change_atr"] = round(d["day_change_atr"], 2)
         return d
 
 
@@ -146,3 +156,73 @@ class AnalysisResult:
             "references": [r.to_dict() for r in self.references],
             "signals": [s.to_dict() for s in self.signals],
         }
+
+
+def format_indicators(ind: "IndicatorSnapshot") -> str:
+    """
+    Человекочитаемая строка из IndicatorSnapshot.
+    Использует новый trend (голосование), а не только EMA.
+    """
+    parts = []
+
+    # --- Тренд (главный) ---
+    trend_map = {
+        "strong_up": "СИЛЬНЫЙ ВВЕРХ",
+        "up": "ВВЕРХ",
+        "down": "ВНИЗ",
+        "strong_down": "СИЛЬНЫЙ ВНИЗ",
+        "transition": "ПЕРЕХОД (transition)",
+        "none": "нет данных",
+    }
+    trend_text = trend_map.get(ind.trend, ind.trend)
+    parts.append(f"Тренд {trend_text} (голосов {ind.vote_sum:+d})")
+
+    # --- ADX ---
+    adx_map = {
+        "strong": "сильный",
+        "trend": "есть",
+        "flat": "боковик",
+        "none": "нет данных",
+    }
+    if ind.adx is not None:
+        parts.append(f"ADX {ind.adx:.1f} ({adx_map.get(ind.adx_state, '')})")
+
+    # --- RSI ---
+    rsi_map = {
+        "overbought": "перекупленность",
+        "oversold": "перепроданность",
+        "near_overbought": "близко к перекупленности",
+        "near_oversold": "близко к перепроданности",
+        "neutral": "нейтрально",
+        "none": "нет данных",
+    }
+    if ind.rsi is not None:
+        parts.append(f"RSI {ind.rsi:.1f} ({rsi_map.get(ind.rsi_state, '')})")
+
+    return " | ".join(parts)
+
+
+def format_trend_context(ind: "IndicatorSnapshot") -> str:
+    """
+    Дополнительная строка про контекст тренда:
+    day_trend, structure, price_direction.
+    """
+    parts = []
+
+    day_map = {
+        "bullish": "бычий",
+        "bearish": "медвежий",
+        "neutral": "нейтральный",
+        "unknown": "?",
+    }
+    parts.append(
+        f"День: {day_map.get(ind.day_trend, ind.day_trend)} ({ind.day_change_atr:+.1f} ATR)"
+    )
+
+    struct_map = {"bullish": "HH/HL", "bearish": "LH/LL", "mixed": "mixed"}
+    parts.append(f"Структура: {struct_map.get(ind.structure, ind.structure)}")
+
+    price_map = {"up": "растёт", "down": "падает", "unknown": "?"}
+    parts.append(f"Цена: {price_map.get(ind.price_direction, ind.price_direction)}")
+
+    return " | ".join(parts)

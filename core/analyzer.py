@@ -9,11 +9,10 @@ from datetime import datetime
 from core.logger import get_logger
 from core.models import AnalysisResult, IndicatorSnapshot, Level, Signal
 from data.api_facade import get_candles_tf
-from indicators.calc import add_indicators, get_atr
+from indicators.calc import add_indicators, get_atr, get_trend_context, get_main_trend
 from strategy.levels import build_levels, find_fractals
 from strategy.references import build_references
 from strategy.signals import detect_signals
-
 import config
 
 log = get_logger(__name__)
@@ -24,8 +23,13 @@ log = get_logger(__name__)
 # ============================================================
 
 
-def _build_indicator_snapshot(df) -> IndicatorSnapshot:
-    """Собирает IndicatorSnapshot из последней строки DataFrame."""
+def _build_indicator_snapshot(
+    df, current_price: float, atr: float
+) -> IndicatorSnapshot:
+    """
+    Собирает IndicatorSnapshot из последней строки DataFrame
+    + контекст тренда (day_trend, structure, price_direction).
+    """
     import pandas as pd
 
     last = df.iloc[-1]
@@ -35,46 +39,61 @@ def _build_indicator_snapshot(df) -> IndicatorSnapshot:
     rsi = last.get("rsi")
     adx = last.get("adx")
 
-    # Тренд
-    if pd.isna(ema_fast) or pd.isna(ema_slow):
-        trend = "none"
-    elif ema_fast > ema_slow:
-        trend = "up"
-    else:
-        trend = "down"
+    # Приводим к float или None
+    ema_fast_f = float(ema_fast) if not pd.isna(ema_fast) else None
+    ema_slow_f = float(ema_slow) if not pd.isna(ema_slow) else None
+    rsi_f = float(rsi) if not pd.isna(rsi) else None
+    adx_f = float(adx) if not pd.isna(adx) else None
 
-    # ADX
-    if pd.isna(adx):
+    # --- ADX state ---
+    if adx_f is None:
         adx_state = "none"
-    elif adx > config.ADX_STRONG:
+    elif adx_f > config.ADX_STRONG:
         adx_state = "strong"
-    elif adx > config.ADX_THRESHOLD:
+    elif adx_f > config.ADX_THRESHOLD:
         adx_state = "trend"
     else:
         adx_state = "flat"
 
-    # RSI
-    if pd.isna(rsi):
+    # --- RSI state ---
+    if rsi_f is None:
         rsi_state = "none"
-    elif rsi > config.RSI_OVERBOUGHT:
+    elif rsi_f > config.RSI_OVERBOUGHT:
         rsi_state = "overbought"
-    elif rsi < config.RSI_OVERSOLD:
+    elif rsi_f < config.RSI_OVERSOLD:
         rsi_state = "oversold"
-    elif rsi > config.RSI_NEAR_OVERBOUGHT:
+    elif rsi_f > config.RSI_NEAR_OVERBOUGHT:
         rsi_state = "near_overbought"
-    elif rsi < config.RSI_NEAR_OVERSOLD:
+    elif rsi_f < config.RSI_NEAR_OVERSOLD:
         rsi_state = "near_oversold"
     else:
         rsi_state = "neutral"
 
+    # --- Контекст тренда ---
+    trend_context = get_trend_context(
+        df=df,
+        current_price=current_price,
+        ema_fast=ema_fast_f,
+        ema_slow=ema_slow_f,
+        atr=atr,
+    )
+
+    main_trend_info = get_main_trend(trend_context)
+
     return IndicatorSnapshot(
-        ema_fast=float(ema_fast) if not pd.isna(ema_fast) else None,
-        ema_slow=float(ema_slow) if not pd.isna(ema_slow) else None,
-        rsi=float(rsi) if not pd.isna(rsi) else None,
-        adx=float(adx) if not pd.isna(adx) else None,
-        trend=trend,
+        ema_fast=ema_fast_f,
+        ema_slow=ema_slow_f,
+        rsi=rsi_f,
+        adx=adx_f,
+        trend=main_trend_info["trend"],
         adx_state=adx_state,
         rsi_state=rsi_state,
+        day_trend=trend_context["day_trend"],
+        day_change_atr=trend_context["day_change_atr"],
+        structure=trend_context["structure"],
+        price_direction=trend_context["price_direction"],
+        vote_sum=main_trend_info["vote_sum"],
+        vote_breakdown=main_trend_info["vote_breakdown"],
     )
 
 
@@ -215,7 +234,7 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
     _enrich_levels(references, current_price, atr)
 
     # 7. Снимок индикаторов
-    indicators = _build_indicator_snapshot(df)
+    indicators = _build_indicator_snapshot(df, current_price, atr)
 
     # 8. Сигналы
     result = AnalysisResult(
