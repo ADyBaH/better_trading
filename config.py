@@ -1,4 +1,4 @@
-__version__ = "0.4.0"
+__version__ = "0.6.0"
 
 # ============================================================
 # ИНСТРУМЕНТ
@@ -140,3 +140,4 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 # --- Штрафы за конфликты тренда ---
 PENALTY_TREND_TRANSITION = 1.5  # для trend_level при transition
 PENALTY_BREAKOUT_TRANSITION = 1.0  # для breakout при transition
+PENALTY_BOUNCE_TRANSITION = 0.5
