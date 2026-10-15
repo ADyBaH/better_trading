@@ -61,8 +61,8 @@ python journal_cli.py stats
 | `python main.py --json=flat`      | Плоский JSON — все уровни одним списком      |
 | `python main.py --json=full`      | JSON с метаданными и конфигом                |
 | `python main.py --console --json` | Оба вывода сразу                             |
-| `python main.py --log`            | Технический лог в `logs/run_<ts>.log`        |
-| `python main.py --save`           | Сохранить вывод в `logs/analysis_<ts>.<ext>` |
+| `python main.py --log`            | Технический лог в `storage/logs/run_<ts>.log`        |
+| `python main.py --save`           | Сохранить вывод в `storage/logs/analysis_<ts>.<ext>` |
 | `python main.py --log --save`     | Полный слепок запуска                        |
 | `python main.py --symbol=<тикер>` | Другой инструмент (по умолчанию CNYRUBF)     |
 | `python main.py --timeframe=M15`  | Другой таймфрейм (M5 / M15 / H1)             |

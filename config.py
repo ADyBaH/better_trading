@@ -116,10 +116,10 @@ DATA_MAX_AGE_BLOCK = 30  # блокировка — не создавать си
 # ============================================================
 # ДАННЫЕ
 # ============================================================
-DB_PATH = "data/market.db"
-LOG_PATH = "logs/bot.log"
-BACKUP_DIR = "backups"
-NOTIFY_FILE = "logs/notifications.txt"
+DB_PATH = "storage/market.db"
+LOG_PATH = "storage/logs/bot.log"
+BACKUP_DIR = "storage/backups"
+NOTIFY_FILE = "storage/logs/notifications.txt"
 
 # Сколько минут считать кэш свежим.
 # ISS обновляет данные с лагом ~15 мин — TTL 15 уменьшает «слепоту».
