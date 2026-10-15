@@ -3,11 +3,11 @@
 на новой логике тренда с виртуальным PnL.
 
 Для каждого снимка:
-  1. Извлекает timestamp из имени файла.
-  2. Обрезает свечи из БД до этого времени.
-  3. Считает: old_trend, new_trend, vote_sum, context.
-  4. Строит уровни и сигналы по новой логике.
-  5. Считает виртуальный PnL (50 M15 вперёд).
+    1. Извлекает timestamp из имени файла.
+    2. Обрезает свечи из БД до этого времени.
+    3. Считает: old_trend, new_trend, vote_sum, context.
+    4. Строит уровни и сигналы по новой логике.
+    5. Считает виртуальный PnL (50 M15 вперёд).
 """
 
 import sys
@@ -48,18 +48,26 @@ MIN_BARS_FOR_EMA = 250  # минимум свечей, чтобы EMA200 пос�
 # ============================================================
 
 
-def find_analysis_files() -> list[tuple[Path, pd.Timestamp]]:
+def find_analysis_files():
     """
-    Ищет все analysis_*.json и analysis_*.txt в logs/.
+    Ищет все analysis_*.json в logs/.
+    Поддерживает 2 формата:
+        1. Старый: logs/analysis_2026-10-13_09-10-15.json
+        2. Новый:  logs/2026-10-13/analysis_09-10-15.json
     Возвращает [(path, timestamp), ...], отфильтрованные и отсортированные.
     """
-    pattern = re.compile(
+    # Паттерн для старого формата (дата в имени)
+    pattern_old = re.compile(
         r"analysis_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})\.(json|txt)$"
     )
+    # Паттерн для нового формата (дата в папке)
+    pattern_new = re.compile(r"analysis_(\d{2})-(\d{2})-(\d{2})\.(json|txt)$")
 
     results = []
-    for p in LOGS_DIR.glob("analysis_*"):
-        m = pattern.match(p.name)
+
+    # Старый формат: файлы в корне logs/
+    for p in LOGS_DIR.glob("analysis_*.json"):
+        m = pattern_old.match(p.name)
         if not m:
             continue
         try:
@@ -72,6 +80,25 @@ def find_analysis_files() -> list[tuple[Path, pd.Timestamp]]:
         if ts < START_DATE:
             continue
         results.append((p, ts))
+
+    # Новый формат: файлы в logs/YYYY-MM-DD/
+    for date_dir in LOGS_DIR.glob("????-??-??"):
+        if not date_dir.is_dir():
+            continue
+        date_str = date_dir.name  # "2026-10-15"
+        for p in date_dir.glob("analysis_*.json"):
+            m = pattern_new.match(p.name)
+            if not m:
+                continue
+            try:
+                ts = pd.Timestamp(
+                    f"{date_str} " f"{m.group(1)}:{m.group(2)}:{m.group(3)}"
+                )
+            except Exception:
+                continue
+            if ts < START_DATE:
+                continue
+            results.append((p, ts))
 
     results.sort(key=lambda x: x[1])
     return results
@@ -267,7 +294,12 @@ def analyze_at(df_m15: pd.DataFrame, df_h1: pd.DataFrame, ts: pd.Timestamp) -> d
         references=references,
     )
 
-    signals = detect_signals(result, df_slice)
+    original_block = config.DATA_MAX_AGE_BLOCK
+    config.DATA_MAX_AGE_BLOCK = 999999
+    try:
+        signals = detect_signals(result, df_slice)
+    finally:
+        config.DATA_MAX_AGE_BLOCK = original_block
 
     # PnL для каждого сигнала
     df_future = df_m15[df_m15["begin"] > ts].head(PNL_FORWARD_BARS)
