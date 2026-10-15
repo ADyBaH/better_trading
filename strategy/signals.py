@@ -389,6 +389,27 @@ def _finalize_signal(
     return signal
 
 
+def _is_direction_allowed(direction: str, trend: str, kind: str) -> bool:
+    """
+    Проверяет, можно ли торговать в эту сторону при данном тренде.
+
+    Правило:
+    - trend_level — не трогаем (уже согласован).
+    - bounce/breakout при up/strong_up → нет SHORT.
+    - bounce/breakout при down/strong_down → нет LONG.
+    - при transition — разрешено (штраф применяется отдельно).
+    """
+    if kind == "trend_level":
+        return True
+
+    if trend in ("up", "strong_up") and direction == "short":
+        return False
+    if trend in ("down", "strong_down") and direction == "long":
+        return False
+
+    return True
+
+
 # ============================================================
 # Детектор: Bounce
 # ============================================================
@@ -402,13 +423,18 @@ def detect_bounce(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
 
     for lv in result.levels:
         dist = abs(lv.price - price)
+
         if dist > tol:
             continue
         direction = "long" if lv.price <= price else "short"
 
+        if not _is_direction_allowed(direction, result.indicators.trend, "bounce"):
+            continue
+
         has_candle = _is_rejection_candle(df.iloc[-1], direction) or _is_engulfing(
             df, direction
         )
+
         if not has_candle:
             continue
 
@@ -434,6 +460,24 @@ def detect_bounce(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
         score, strength = _compute_strength(matched)
         if strength == "none":
             continue
+
+        # --- Штраф за transition ---
+        if result.indicators.trend == "transition":
+            penalty = config.PENALTY_BOUNCE_TRANSITION
+            score = max(0.0, score - penalty)
+            reasons.append(f"штраф за transition: -{penalty}")
+
+            if score < 1.0:
+                strength = "none"
+            elif score < 2.0:
+                strength = "weak"
+            elif score < 3.0:
+                strength = "medium"
+            else:
+                strength = "strong"
+
+            if strength == "none":
+                continue
 
         entry = price
         stop, take = _compute_stops(entry, direction, result.atr)
@@ -479,7 +523,7 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
     ind = result.indicators
 
     for lv in result.levels:
-        # Определяем направление пробоя
+        # 1. Определение direction
         if (
             prev["close"] <= lv.price
             and last["close"] > lv.price + buffer
@@ -495,7 +539,11 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
         else:
             continue
 
-        # --- Блокировка двойного конфликта ---
+        # 2. НОВОЕ: фильтр против тренда  ← ВСТАВЬ ЭТО
+        if not _is_direction_allowed(direction, ind.trend, "breakout"):
+            continue
+
+        # 3. Блокировка двойного конфликта  ← ТВОЙ БЛОК, ОСТАВЛЯЙ
         if ind.trend == "transition":
             if ind.day_trend == "bullish" and direction == "short":
                 log.info("breakout SHORT заблокирован: transition + day bullish")
