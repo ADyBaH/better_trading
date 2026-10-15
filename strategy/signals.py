@@ -204,6 +204,32 @@ def _build_context(
     }
 
 
+def _trend_conflict(ind) -> dict:
+    """
+    Проверяет конфликты между источниками тренда.
+    Возвращает dict:
+        has_conflict: bool — есть ли конфликт
+        double_conflict: bool — двойной конфликт (transition + day против)
+    """
+    # Одиночный конфликт: EMA против day_trend
+    ema = (
+        "up"
+        if ind.ema_fast and ind.ema_slow and ind.ema_fast > ind.ema_slow
+        else "down"
+    )
+    conflict = (ema == "down" and ind.day_trend == "bullish") or (
+        ema == "up" and ind.day_trend == "bearish"
+    )
+
+    # Двойной: transition + day_trend против основного
+    double = ind.trend == "transition" and ind.day_trend in ("bullish", "bearish")
+
+    return {
+        "has_conflict": conflict,
+        "double_conflict": double,
+    }
+
+
 def _build_warnings(
     direction: str,
     result: AnalysisResult,
@@ -274,6 +300,38 @@ def _build_warnings(
                 warnings.append(f"Данные устарели на {age_min} мин (лаг биржи)")
         except Exception:
             pass
+
+    # --- Конфликты тренда ---
+    ind = result.indicators
+
+    if ind.day_trend == "bullish" and direction == "short":
+        warnings.append(f"⚠ День бычий ({ind.day_change_atr:+.1f} ATR) — не шорти")
+    elif ind.day_trend == "bearish" and direction == "long":
+        warnings.append(f"⚠ День медвежий ({ind.day_change_atr:+.1f} ATR) — не лонгуй")
+
+    if ind.structure == "bullish" and direction == "short":
+        warnings.append("⚠ Структура бычья (HH/HL) — не шорти")
+    elif ind.structure == "bearish" and direction == "long":
+        warnings.append("⚠ Структура медвежья (LH/LL) — не лонгуй")
+
+    ema_trend = (
+        "up"
+        if ind.ema_fast and ind.ema_slow and ind.ema_fast > ind.ema_slow
+        else "down"
+    )
+    if ema_trend == "down" and ind.day_trend == "bullish":
+        warnings.append(
+            f"⚠ Конфликт: EMA вниз, но день бычий ({ind.day_change_atr:+.1f} ATR)"
+        )
+    elif ema_trend == "up" and ind.day_trend == "bearish":
+        warnings.append(
+            f"⚠ Конфликт: EMA вверх, но день медвежий ({ind.day_change_atr:+.1f} ATR)"
+        )
+
+    if ind.trend == "transition":
+        warnings.append(
+            f"⚠ Тренд transition (голосов {ind.vote_sum:+d}) — сигнал ненадёжный"
+        )
 
     # Время суток
     now = datetime.now()
@@ -403,6 +461,12 @@ def detect_bounce(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
 
 
 def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
+    """
+    Пробой уровня.
+    A1: последняя свеча ЗАКРЫЛАСЬ за уровнем, предыдущая — нет.
+    B2: ADX > ADX_BREAKOUT_THRESHOLD.
+    D3: объём выше среднего.
+    """
     if len(df) < 2:
         return []
 
@@ -412,8 +476,10 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
     buffer = config.BREAKOUT_BUFFER_ATR * atr
     last = df.iloc[-1]
     prev = df.iloc[-2]
+    ind = result.indicators
 
     for lv in result.levels:
+        # Определяем направление пробоя
         if (
             prev["close"] <= lv.price
             and last["close"] > lv.price + buffer
@@ -429,10 +495,19 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
         else:
             continue
 
+        # --- Блокировка двойного конфликта ---
+        if ind.trend == "transition":
+            if ind.day_trend == "bullish" and direction == "short":
+                log.info("breakout SHORT заблокирован: transition + day bullish")
+                continue
+            if ind.day_trend == "bearish" and direction == "long":
+                log.info("breakout LONG заблокирован: transition + day bearish")
+                continue
+
         matched = ["A1"]
         reasons = [f"свежий пробой уровня {lv.price:.3f}"]
 
-        adx = result.indicators.adx
+        adx = ind.adx
         if adx is not None and adx > config.ADX_BREAKOUT_THRESHOLD:
             matched.append("B2")
             reasons.append(f"ADX {adx:.1f} > {config.ADX_BREAKOUT_THRESHOLD}")
@@ -444,6 +519,25 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
         score, strength = _compute_strength(matched)
         if strength == "none":
             continue
+
+        # --- Штраф за transition ---
+        if ind.trend == "transition":
+            penalty = config.PENALTY_BREAKOUT_TRANSITION
+            score = max(0.0, score - penalty)
+            reasons.append(f"штраф за transition: -{penalty}")
+
+            # Пересчёт strength
+            if score < 1.0:
+                strength = "none"
+            elif score < 2.0:
+                strength = "weak"
+            elif score < 3.0:
+                strength = "medium"
+            else:
+                strength = "strong"
+
+            if strength == "none":
+                continue
 
         entry = price
         stop, take = _compute_stops(entry, direction, result.atr)
@@ -471,18 +565,40 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
 
 
 def detect_trend_level(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
+    """
+    Тренд + отбой от уровня.
+    A1: цена у уровня.
+    A2: свеча-подтверждение.
+    A3: тренд по голосованию совпадает с направлением.
+    """
     signals = []
     price = result.current_price
     atr = result.atr
     tol = config.TREND_LEVEL_TOLERANCE_ATR * atr
-    trend = result.indicators.trend
+    ind = result.indicators
 
-    if trend == "none":
+    # --- Направление по главному тренду ---
+    if ind.trend in ("up", "strong_up"):
+        direction = "long"
+    elif ind.trend in ("down", "strong_down"):
+        direction = "short"
+    else:
+        # transition или none — не создаём trend_level
+        log.debug("trend_level пропущен: trend=%s", ind.trend)
         return []
 
-    direction = "long" if trend == "up" else "short"
+    # --- Двойной конфликт (transition + day_trend против направления) ---
+    # (сюда не попадём, если trend не transition, но на будущее — оставим)
+    if ind.trend == "transition":
+        if ind.day_trend == "bullish" and direction == "short":
+            log.info("trend_level SHORT заблокирован: transition + day bullish")
+            return []
+        if ind.day_trend == "bearish" and direction == "long":
+            log.info("trend_level LONG заблокирован: transition + day bearish")
+            return []
 
     for lv in result.levels:
+        # Для лонга — уровень ниже цены (поддержка), для шорта — выше (сопротивление)
         if direction == "long" and lv.price > price:
             continue
         if direction == "short" and lv.price < price:
@@ -500,7 +616,7 @@ def detect_trend_level(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]
 
         matched = ["A1", "A2", "A3"]
         reasons = [
-            f"тренд {trend.upper()} по EMA",
+            f"тренд {ind.trend} (голосов {ind.vote_sum:+d})",
             f"отбой от уровня {lv.price:.3f}",
             "свеча-разворот",
         ]
@@ -512,6 +628,25 @@ def detect_trend_level(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]
         score, strength = _compute_strength(matched)
         if strength == "none":
             continue
+
+        # --- Штраф за transition ---
+        if ind.trend == "transition":
+            penalty = config.PENALTY_TREND_TRANSITION
+            score = max(0.0, score - penalty)
+            reasons.append(f"штраф за transition: -{penalty}")
+
+            # Пересчёт strength
+            if score < 1.0:
+                strength = "none"
+            elif score < 2.0:
+                strength = "weak"
+            elif score < 3.0:
+                strength = "medium"
+            else:
+                strength = "strong"
+
+            if strength == "none":
+                continue
 
         entry = price
         stop, take = _compute_stops(entry, direction, result.atr)

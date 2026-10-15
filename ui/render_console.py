@@ -39,30 +39,9 @@ def _fmt_ago(dt: datetime | None) -> str:
 
 
 def _indicators_line(ind) -> str:
-    parts = []
-    if ind.trend == "up":
-        parts.append(f"Тренд ВВЕРХ (EMA{config.EMA_FAST}>EMA{config.EMA_SLOW})")
-    elif ind.trend == "down":
-        parts.append(f"Тренд ВНИЗ (EMA{config.EMA_FAST}<EMA{config.EMA_SLOW})")
-    else:
-        parts.append("Тренд: нет данных")
+    from core.models import format_indicators
 
-    adx_map = {"strong": "сильный", "trend": "есть", "flat": "боковик", "none": "?"}
-    if ind.adx is not None:
-        parts.append(f"ADX {ind.adx:.1f} ({adx_map.get(ind.adx_state, '')})")
-
-    rsi_map = {
-        "overbought": "перекуплен",
-        "oversold": "перепродан",
-        "near_overbought": "близко к перекуп.",
-        "near_oversold": "близко к перепрод.",
-        "neutral": "нейтрально",
-        "none": "?",
-    }
-    if ind.rsi is not None:
-        parts.append(f"RSI {ind.rsi:.1f} ({rsi_map.get(ind.rsi_state, '')})")
-
-    return " | ".join(parts)
+    return format_indicators(ind)
 
 
 # ============================================================
@@ -198,8 +177,11 @@ def render_console(result: AnalysisResult, width: int = 78) -> None:
     print("═" * width)
 
     # --- Индикаторы ---
+    from core.models import format_indicators, format_trend_context
+
     print()
-    print(_indicators_line(result.indicators))
+    print(format_indicators(result.indicators))
+    print(format_trend_context(result.indicators))
     print(f"ATR(H1) = {result.atr:.5f}")
 
     # --- Сигналы (сверху — это самое важное) ---

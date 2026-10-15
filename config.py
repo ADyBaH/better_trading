@@ -136,3 +136,7 @@ CHECK_INTERVAL_MIN = 5
 LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# --- Штрафы за конфликты тренда ---
+PENALTY_TREND_TRANSITION = 1.5  # для trend_level при transition
+PENALTY_BREAKOUT_TRANSITION = 1.0  # для breakout при transition
