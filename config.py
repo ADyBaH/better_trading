@@ -1,9 +1,10 @@
+from core.instruments import get_instrument
+
 __version__ = "0.6.0"
 
 # ============================================================
 # ИНСТРУМЕНТ
 # ============================================================
-from core.instruments import get_instrument, list_instruments
 
 DEFAULT_INSTRUMENT = "CNYRUBF"
 _ACTIVE = get_instrument(DEFAULT_INSTRUMENT)
@@ -103,11 +104,14 @@ VOLUME_LOOKBACK = 20
 VOLUME_MULTIPLIER = 1.5
 
 # --- Стопы / тейки ---
-# От ATR(H1) — адаптируется к волатильности.
-# Если USE_ATR_STOPS = False — берутся STOP_POINTS / TAKE_POINTS.
 USE_ATR_STOPS = True
 STOP_ATR_MULT = 1.0  # стоп = 1.0 × ATR(H1)
 TAKE_ATR_MULT = 2.0  # тейк = 2.0 × ATR(H1)
+
+# --- Штрафы за конфликты тренда ---
+PENALTY_TREND_TRANSITION = 1.5  # для trend_level при transition
+PENALTY_BREAKOUT_TRANSITION = 1.0  # для breakout при transition
+PENALTY_BOUNCE_TRANSITION = 0.5
 
 # --- Свежесть данных ---
 DATA_MAX_AGE_MIN = 15  # если последняя свеча старше — warning в сигнале
@@ -136,8 +140,3 @@ CHECK_INTERVAL_MIN = 5
 LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-# --- Штрафы за конфликты тренда ---
-PENALTY_TREND_TRANSITION = 1.5  # для trend_level при transition
-PENALTY_BREAKOUT_TRANSITION = 1.0  # для breakout при transition
-PENALTY_BOUNCE_TRANSITION = 0.5
