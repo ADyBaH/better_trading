@@ -381,6 +381,98 @@ def cmd_stats(args) -> int:
     return 0
 
 
+def cmd_paper_stats(args) -> int:
+    """Статистика по paper_trades."""
+    from trader.paper import paper_stats, init_paper_table
+
+    with journal.connect_journal() as conn:
+        init_paper_table(conn)
+        s = paper_stats(
+            conn,
+            since=args.since,
+            until=args.until,
+            symbol=args.symbol,
+        )
+
+    print()
+    print(f"Всего: {s['total']} (закрытых {s['closed']}, открытых {s['open']})")
+    print(f"  Win:      {s['win']}")
+    print(f"  Loss:     {s['loss']}")
+    print(f"  Timeout:  {s['timeout']}")
+    if s["winrate"] is not None:
+        print(f"  Winrate:  {s['winrate']}% (без timeout)")
+    else:
+        print("  Winrate:  —")
+    print(f"  Total PnL: {s['total_points']:+.1f} pts / {s['total_rub']:+.2f} ₽")
+    if s["avg_win_points"] is not None:
+        print(f"  Avg win:   {s['avg_win_points']:+.1f} pts")
+    if s["avg_loss_points"] is not None:
+        print(f"  Avg loss:  {s['avg_loss_points']:+.1f} pts")
+
+    def _print_group(title: str, group: dict, sort_key=None):
+        if not group:
+            return
+        print()
+        print(f"── {title} " + "─" * 40)
+        rows = []
+        items = (
+            sorted(group.items())
+            if sort_key is None
+            else sorted(group.items(), key=sort_key)
+        )
+        for key, b in items:
+            rows.append(
+                [
+                    key,
+                    b["total"],
+                    b["win"],
+                    b["loss"],
+                    b["timeout"],
+                    f"{b['points']:+.1f}",
+                    f"{b['rub']:+.2f}",
+                ]
+            )
+        print(
+            tabulate(
+                rows,
+                headers=["", "Всего", "W", "L", "T", "Pts", "Rub"],
+                tablefmt="rounded_outline",
+            )
+        )
+
+    _print_group("По типу сигнала", s["by_kind"])
+    _print_group("По тренду на входе", s["by_trend"])
+    _print_group("По дневному тренду", s["by_day_trend"])
+
+    # by_score — сортируем по возрастанию score
+    if s["by_score"]:
+        print()
+        print("── По score " + "─" * 40)
+        rows = []
+        for key in sorted(s["by_score"].keys()):
+            b = s["by_score"][key]
+            rows.append(
+                [
+                    key,
+                    b["total"],
+                    b["win"],
+                    b["loss"],
+                    b["timeout"],
+                    f"{b['points']:+.1f}",
+                    f"{b['rub']:+.2f}",
+                ]
+            )
+        print(
+            tabulate(
+                rows,
+                headers=["score", "Всего", "W", "L", "T", "Pts", "Rub"],
+                tablefmt="rounded_outline",
+            )
+        )
+
+    return 0
+
+
 # ============================================================
 # main
 # ============================================================
@@ -442,6 +534,15 @@ def main() -> int:
     p_del = sub.add_parser("delete", help="Удалить сделку")
     p_del.add_argument("id", type=int, help="ID сделки")
     p_del.set_defaults(func=cmd_delete)
+
+    # paper-stats
+    p_paper = sub.add_parser("paper-stats", help="Статистика paper-trading")
+    p_paper.add_argument(
+        "--since", default=None, help="С даты (ISO, например 2026-10-17)"
+    )
+    p_paper.add_argument("--until", default=None, help="До даты (ISO)")
+    p_paper.add_argument("--symbol", default=None, help="Фильтр по тикеру")
+    p_paper.set_defaults(func=cmd_paper_stats)
 
     args = parser.parse_args()
     journal.init_db()

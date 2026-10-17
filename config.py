@@ -1,6 +1,6 @@
 from core.instruments import get_instrument
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 # ============================================================
 # ИНСТРУМЕНТ
@@ -140,3 +140,26 @@ CHECK_INTERVAL_MIN = 5
 LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# ============================================================
+# PAPER-TRACKING
+# ============================================================
+PAPER_ENABLED = True
+
+# Торговые часы для paper-tracking (отдельно от TRADING_HOURS).
+# Новые paper-сделки создаются только в этом окне (МСК).
+# Резолв открытых сделок работает всегда — иначе зависнут.
+PAPER_TRADING_HOURS = {
+    "start": "09:00",
+    "end": "18:00",
+    "timezone": "Europe/Moscow",
+}
+
+# Timeout: сколько торговых M15 свечей ждём stop/take,
+# прежде чем закрыть по close. 50 × M15 = 12.5 часов торгового времени.
+PAPER_TIMEOUT_BARS = 50
+
+# Дедупликация: не создавать дубль, если есть открытая сделка того же
+# направления и kind с entry в пределах PAPER_DEDUP_PRICE_TOL_ATR × ATR(H1)
+PAPER_DEDUP_PRICE_TOL_ATR = 0.25
+PAPER_DEDUP_MINUTES = 15  # жёсткое окно эха (не создавать дубль в пределах 15 мин)

@@ -14,7 +14,6 @@ import config
 
 log = get_logger(__name__)
 
-
 # ============================================================
 # Модель
 # ============================================================
@@ -54,40 +53,43 @@ class Trade:
 
         Пункты:
         - если result_override_points задан — берём его,
-        - иначе — из exit_price через price_step инструмента.
+        - иначе — через compute_trade_result() из core.instruments.
 
         Рубли:
         - gross = points × step_cost × size,
-        - commission = commission_rub (если задан) ИЛИ commission_round инструмента × size,
+        - commission = commission_rub (если задан) ИЛИ commission_round × size,
         - result_rub = gross − commission.
         """
-        from core.instruments import get_instrument
+        from core.instruments import get_instrument, compute_trade_result
 
         inst = get_instrument(self.symbol)
 
-        # --- Пункты ---
+        # --- Override: считаем вручную, без compute_trade_result ---
         if self.result_override_points is not None:
             self.result_points = round(self.result_override_points, 1)
-        elif self.exit_price is not None:
-            if self.direction == "long":
-                points = (self.exit_price - self.entry_price) / inst.price_step
-            else:
-                points = (self.entry_price - self.exit_price) / inst.price_step
-            self.result_points = round(points, 1)
-        else:
+            gross_rub = self.result_points * inst.step_cost * self.size
+            comm = (
+                self.commission_rub
+                if self.commission_rub is not None
+                else inst.commission_round
+            )
+            self.result_rub = round(gross_rub - comm * self.size, 2)
+            return
+
+        # --- Без override: общая функция ---
+        if self.exit_price is None:
             self.result_points = None
             self.result_rub = None
             return
 
-        # --- Рубли ---
-        gross_rub = self.result_points * inst.step_cost * self.size
-
-        if self.commission_rub is not None:
-            commission = self.commission_rub
-        else:
-            commission = inst.commission_round * self.size
-
-        self.result_rub = round(gross_rub - commission, 2)
+        self.result_points, self.result_rub = compute_trade_result(
+            inst,
+            self.direction,
+            self.entry_price,
+            self.exit_price,
+            size=self.size,
+            commission_round=self.commission_rub,
+        )
 
 
 # ============================================================
@@ -111,6 +113,11 @@ def _connect():
         conn.commit()
     finally:
         conn.close()
+
+
+# Публичный алиас для внешних потребителей (paper.py).
+# Внутри journal.py продолжаем использовать _connect.
+connect_journal = _connect
 
 
 def init_db() -> None:
@@ -152,55 +159,49 @@ def init_db() -> None:
 # ============================================================
 
 
-def add_trade(trade: Trade) -> int:
-    """Добавляет сделку в журнал. Возвращает id."""
-    trade.compute_result()
+def compute_result(self) -> None:
+    """
+    Считает result_points и result_rub.
 
-    tags_str = ",".join(trade.tags) if trade.tags else ""
+    Пункты:
+    - если result_override_points задан — берём его,
+    - иначе — через compute_trade_result() из core.instruments.
 
-    with _connect() as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO trades (
-                symbol, datetime_open, datetime_close, direction,
-                entry_price, exit_price, size, stop_price, take_price,
-                comment, tags, signal_kind, signal_strength, signal_score,
-                result_points, result_rub,
-                commission_rub, result_override_points, result_note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                trade.symbol,
-                trade.datetime_open.isoformat(),
-                trade.datetime_close.isoformat() if trade.datetime_close else None,
-                trade.direction,
-                trade.entry_price,
-                trade.exit_price,
-                trade.size,
-                trade.stop_price,
-                trade.take_price,
-                trade.comment,
-                tags_str,
-                trade.signal_kind,
-                trade.signal_strength,
-                trade.signal_score,
-                trade.result_points,
-                trade.result_rub,
-                trade.commission_rub,
-                trade.result_override_points,
-                trade.result_note,
-            ),
+    Рубли:
+    - gross = points × step_cost × size,
+    - commission = commission_rub (если задан) ИЛИ commission_round × size,
+    - result_rub = gross − commission.
+    """
+    from core.instruments import get_instrument, compute_trade_result
+
+    inst = get_instrument(self.symbol)
+
+    # --- Override: считаем вручную, без compute_trade_result ---
+    if self.result_override_points is not None:
+        self.result_points = round(self.result_override_points, 1)
+        gross_rub = self.result_points * inst.step_cost * self.size
+        comm = (
+            self.commission_rub
+            if self.commission_rub is not None
+            else inst.commission_round
         )
-        trade_id = cur.lastrowid
+        self.result_rub = round(gross_rub - comm * self.size, 2)
+        return
 
-    log.info(
-        "Сделка #%d добавлена: %s %s @ %.3f",
-        trade_id,
-        trade.symbol,
-        trade.direction,
-        trade.entry_price,
+    # --- Без override: общая функция ---
+    if self.exit_price is None:
+        self.result_points = None
+        self.result_rub = None
+        return
+
+    self.result_points, self.result_rub = compute_trade_result(
+        inst,
+        self.direction,
+        self.entry_price,
+        self.exit_price,
+        size=self.size,
+        commission_round=self.commission_rub,
     )
-    return trade_id
 
 
 def close_trade(

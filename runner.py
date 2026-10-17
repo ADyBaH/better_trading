@@ -1,9 +1,9 @@
 """
 Раннер. Каждые 20 минут:
-  1. Запускает анализ.
-  2. Сохраняет результат в logs/YYYY-MM-DD/analysis_HH-MM-SS.{json,txt}.
-  3. Спит 20 минут.
-  4. Повторяет.
+    1. Запускает анализ.
+    2. Сохраняет результат в logs/YYYY-MM-DD/analysis_HH-MM-SS.{json,txt}.
+    3. Спит 20 минут.
+    4. Повторяет.
 
 Остановка: Ctrl+C.
 """
@@ -52,6 +52,34 @@ def run_once(log) -> bool:
 
         json_path, txt_path = save_analysis(result)
 
+        # --- Paper-tracking ---
+        paper_created = 0
+        paper_closed = 0
+        if config.PAPER_ENABLED:
+            from trader.journal import connect_journal
+            from trader.paper import (
+                init_paper_table,
+                save_signal_as_paper,
+                resolve_open_trades,
+            )
+
+            try:
+                with connect_journal() as conn:
+                    init_paper_table(conn)
+                    paper_created = save_signal_as_paper(
+                        conn,
+                        result.signals,
+                        result,
+                        source_analysis_path=str(json_path),
+                    )
+                    paper_closed = resolve_open_trades(
+                        conn, result.symbol, result.timestamp
+                    )
+                log.info("paper: создано %d, закрыто %d", paper_created, paper_closed)
+            except Exception as e:
+                log.exception("paper-tracking упал: %s", e)
+        # --- /Paper-tracking ---
+
         # Краткий вывод в консоль
         print(f"\n{'═' * 70}")
         print(
@@ -61,13 +89,15 @@ def run_once(log) -> bool:
             f"  Тренд: {result.indicators.trend} (голосов {result.indicators.vote_sum:+d})  |  "
             f"День: {result.indicators.day_trend}  |  Структура: {result.indicators.structure}"
         )
-        print(f"  Сигналов: {len(result.signals)}")
         for s in result.signals:
             print(
                 f"    → {s.direction.upper()} {s.kind} ({s.strength}, score={s.strength_score:.1f})"
             )
         print(f"  Сохранено: {json_path.name}, {txt_path.name}")
         print(f"{'═' * 70}")
+        print(f"  Сигналов: {len(result.signals)}")
+        if config.PAPER_ENABLED:
+            print(f"  paper: создано {paper_created}, закрыто {paper_closed}")
 
         return True
 
