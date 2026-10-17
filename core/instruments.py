@@ -67,3 +67,45 @@ def get_instrument(symbol: str) -> Instrument:
 def list_instruments() -> list[str]:
     """Список доступных тикеров."""
     return list(INSTRUMENTS.keys())
+
+
+# ============================================================
+# Расчёт результата сделки
+# ============================================================
+
+
+def compute_trade_result(
+    inst: Instrument,
+    direction: str,
+    entry_price: float,
+    exit_price: float,
+    size: int = 1,
+    commission_round: float | None = None,
+) -> tuple[float, float]:
+    """
+    Считает (points, rub) для закрытой сделки.
+
+    points = (exit - entry) / price_step   (long)
+        = (entry - exit) / price_step   (short)
+    rub    = points × step_cost × size − commission × size
+
+    commission_round — если None, берётся inst.commission_round.
+        Если задан — переопределяет (например, из Trade.commission_rub).
+
+    Чистая арифметика. Не знает про БД, override, paper/real.
+    Не раздувать: свопы/проскальзывание/налоги — отдельные функции.
+    """
+    if direction == "long":
+        points = (exit_price - entry_price) / inst.price_step
+    elif direction == "short":
+        points = (entry_price - exit_price) / inst.price_step
+    else:
+        raise ValueError(
+            f"direction должен быть 'long' или 'short', получено: {direction!r}"
+        )
+
+    points = round(points, 1)
+    gross_rub = points * inst.step_cost * size
+    comm = commission_round if commission_round is not None else inst.commission_round
+    rub = round(gross_rub - comm * size, 2)
+    return points, rub

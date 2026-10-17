@@ -18,6 +18,9 @@
 - **Мульти-инструмент**: спецификации инструментов в `core/instruments.py`.
 - **Экспортирует** результат: консольный дашборд, JSON (flat / nested / full).
 - **Раннер**: периодический анализ каждые 20 минут с сохранением по дням.
+- **Paper-tracking**: автоматическая запись сигналов как виртуальных сделок
+  в `paper_trades` (SQLite, `storage/journal.db`) с резолвом по stop/take/timeout.
+- **Статистика paper-trades**: `journal_cli.py paper-stats`.
 
 ## Установка
 
@@ -83,6 +86,9 @@ python journal_cli.py stats
 | `python journal_cli.py close <id> <price> --commission=1.5` | Переопределить комиссию                |
 | `python journal_cli.py delete <id>`                         | Удалить сделку                         |
 | `python journal_cli.py stats`                               | Статистика по всем сделкам             |
+| `python journal_cli.py paper-stats`                         | Статистика paper-сделок                |
+| `python journal_cli.py paper-stats --since=2026-10-17`      | Paper с даты                           |
+| `python journal_cli.py paper-stats --symbol=CNYRUBF`        | Paper по тикеру                        |
 
 ### Интерактивный ввод в `add`
 
@@ -156,37 +162,79 @@ ATR(H1) = 0.02574
 
 ## Структура проекта
 
+## Структура проекта
+
 ```
 better_trading/
 ├── main.py                     # точка входа анализа
-├── runner.py                   # периодический запуск анализа
-├── journal_cli.py              # CLI журнала сделок
+├── runner.py                   # периодический анализ (каждые 20 мин)
+├── journal_cli.py              # CLI журнала + paper-stats
 ├── config.py                   # параметры приложения
+├── pyproject.toml
+├── requirements.txt
+├── README.md
+├── ROADMAP.md
+├── LICENSE
+│
 ├── core/
+│   ├── analyzer.py             # ядро анализа
+│   ├── instruments.py          # спецификации + compute_trade_result
+│   ├── models.py               # Level, Signal, AnalysisResult
 │   ├── logger.py               # логирование
-│   ├── models.py               # dataclass-ы: Level, Signal, AnalysisResult
-│   ├── instruments.py          # спецификации инструментов (CNYRUBF и др.)
-│   └── analyzer.py             # ядро анализа
+│   ├── errors.py               # (отложено)
+│   ├── scheduler.py            # (отложено)
+│   └── state.py                # (отложено)
+│
 ├── data/
 │   ├── api_moex.py             # запросы к MOEX ISS
 │   ├── api_facade.py           # кэш + докачка
 │   ├── storage_sqlite.py       # хранение свечей
-│   └── resample.py             # M1 → M5/M15/H1
+│   ├── storage.py              # (вспомогательное)
+│   └── resample.py             # M1 → M5/M15/H1/H4
+│
 ├── indicators/
 │   └── calc.py                 # EMA, RSI, ADX, ATR
+│
 ├── strategy/
 │   ├── levels.py               # фракталы + кластеризация
 │   ├── references.py           # round, PDH/PDL, PWH/PWL
-│   └── signals.py              # bounce, breakout, trend_level
+│   ├── signals.py              # bounce, breakout, trend_level
+│   ├── signal_history.py       # история сигналов
+│   └── trend.py                # голосование тренда
+│
 ├── trader/
-│   ├── journal.py              # журнал сделок (SQLite)
-│   └── stats.py                # статистика
+│   ├── journal.py              # журнал реальных сделок (SQLite, trades)
+│   ├── paper.py                # paper-tracking (SQLite, paper_trades)
+│   └── stats.py                # статистика журнала
+│
 ├── ui/
-│   ├── render_console.py       # дашборд
+│   ├── render_console.py       # консольный дашборд
 │   └── render_json.py          # JSON-рендеры
-├── logs/                       # логи
-├── data/                       # БД (market.db, journal.db)
-└── tests/                      # тесты (пока пусто)
+│
+├── storage/                    # данные (в .gitignore)
+│   ├── market.db               # свечи
+│   ├── journal.db              # trades + paper_trades
+│   └── logs/
+│       ├── bot.log
+│       ├── signals_history.json
+│       └── YYYY-MM-DD/
+│           ├── analysis_HH-MM-SS.json
+│           └── analysis_HH-MM-SS.txt
+│
+└── tests/                      # скрипты-проверки
+    ├── test_instruments.py
+    ├── test_journal_integrity.py
+    ├── test_paper.py
+    ├── test_paper_dedup.py
+    ├── test_paper_resolve.py
+    ├── test_paper_stats.py
+    ├── test_virtual_pnl.py
+    ├── test_signals_enrichment.py
+    ├── test_trend_conflict.py
+    ├── test_iss_lag.py
+    ├── test_pagination.py
+    ├── review_all_analysis.py
+    └── review_history.py
 ```
 
 ## Инструменты и комиссии
@@ -246,6 +294,22 @@ better_trading/
 - [ ] Экспорт журнала в CSV / Excel.
 - [ ] Тесты на ключевые модули.
 
+## Paper-tracking
+
+Каждый цикл раннера:
+
+1. Новые сигналы записываются в `paper_trades` (только в 09:00–18:00 МСК).
+2. Открытые paper-сделки резолвятся по stop/take/timeout (50 M15-свечей).
+3. Результат считается с комиссией (`compute_trade_result`).
+
+**Что НЕ делает:** не торгует, не отправляет ордера, не трогает `journal.db/trades`.
+
+**Просмотр:**
+
+```bash
+python journal_cli.py paper-stats
+
+
 ## Дисклеймер
 
 Это **инструмент для анализа**, не торговая система. Сигналы — не рекомендации.
@@ -254,3 +318,4 @@ better_trading/
 ## Лицензия
 
 См. `LICENSE`.
+```

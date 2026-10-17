@@ -198,6 +198,20 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
     df = add_indicators(df)
     current_price = float(df["close"].iloc[-1])
 
+    # Логируем лаг данных (наблюдаемость, не влияет на сигналы)
+    try:
+        last_begin = df["begin"].iloc[-1]
+        if hasattr(last_begin, "to_pydatetime"):
+            last_begin = last_begin.to_pydatetime()
+        data_age_min = int((datetime.now() - last_begin).total_seconds() / 60)
+        log.info(
+            "data_age=%d min (последняя свеча %s)",
+            data_age_min,
+            last_begin.strftime("%Y-%m-%d %H:%M"),
+        )
+    except Exception as e:
+        log.debug("data_age не посчитан: %s", e)
+
     # 2. ATR(H1)
     df_atr = get_candles_tf(config.ATR_TF, count=50)
     atr = get_atr(df_atr, period=config.ATR_PERIOD)
