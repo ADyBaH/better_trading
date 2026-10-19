@@ -63,8 +63,8 @@ def run_once(log) -> bool:
                 init_paper_table,
                 save_signal_as_paper,
                 resolve_open_trades,
-                format_paper_trade_short,
-                format_paper_trade_result,
+                format_paper_trade_short,  # ← добавить
+                format_paper_trade_result,  # ← добавить
             )
 
             try:
@@ -148,6 +148,7 @@ def run_once(log) -> bool:
 
 
 def main():
+    print("\033[92mТЕСТ ЦВЕТА\033[0m")
     setup_logging()
     log = get_logger(__name__)
 

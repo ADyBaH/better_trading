@@ -541,6 +541,24 @@ def cmd_paper_trades(args) -> int:
             tablefmt="rounded_outline",
         )
     )
+
+    from trader.paper import _colored, GREEN, RED, YELLOW
+
+    win = sum(1 for r in rows if r["result"] == "win")
+    loss = sum(1 for r in rows if r["result"] == "loss")
+    open_count = sum(1 for r in rows if r["result"] == "open")
+    total_pts = sum(r["result_points"] or 0 for r in rows)
+    total_rub = sum(r["result_rub"] or 0 for r in rows)
+
+    print()
+    print(
+        f"  Win: {_colored(str(win), GREEN)}  "
+        f"Loss: {_colored(str(loss), RED)}  "
+        f"Open: {_colored(str(open_count), YELLOW)}  |  "
+        f"Total: {_colored(f'{total_pts:+.1f} pts', GREEN if total_pts >= 0 else RED)} / "
+        f"{_colored(f'{total_rub:+.2f} ₽', GREEN if total_rub >= 0 else RED)}"
+    )
+
     return 0
 
 

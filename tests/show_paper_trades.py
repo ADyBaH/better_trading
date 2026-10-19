@@ -65,6 +65,8 @@ def main():
     )
     print("-" * 150)
 
+    from trader.paper import _colored, GREEN, RED, YELLOW
+
     for r in rows:
         exit_str = f"{r['exit_price']:>8.3f}" if r["exit_price"] else "       —"
         pts_str = (
@@ -77,11 +79,31 @@ def main():
         )
         bars_str = f"{r['bars_to_close']:>5}" if r["bars_to_close"] else "    —"
         conf_str = r["resolution_confidence"] or "—"
+
+        # Цвет результата
+        result = r["result"]
+        if result == "win":
+            result_str = _colored(f"{result:<8}", GREEN)
+            pts_str = _colored(pts_str, GREEN)
+            rub_str = _colored(rub_str, GREEN)
+        elif result == "loss":
+            result_str = _colored(f"{result:<8}", RED)
+            pts_str = _colored(pts_str, RED)
+            rub_str = _colored(rub_str, RED)
+        elif result == "open":
+            result_str = _colored(f"{result:<8}", YELLOW)
+        else:
+            result_str = f"{result:<8}"
+
+        # Цвет направления
+        dir_color = RED if r["direction"] == "short" else GREEN
+        dir_str = _colored(f"{r['direction']:<6}", dir_color)
+
         print(
-            f"{r['id']:>3} {r['direction']:<6} {r['kind']:<12} "
+            f"{r['id']:>3} {dir_str} {r['kind']:<12} "
             f"{r['strength_score'] or 0:>5.1f} "
             f"{r['entry_price']:>8.3f} {r['stop_price']:>8.3f} {r['take_price']:>8.3f} "
-            f"{exit_str} {r['result']:<8} "
+            f"{exit_str} {result_str} "
             f"{pts_str} {rub_str} {bars_str} {conf_str:<13} "
             f"{r['created_at'][:19]:<19}"
         )

@@ -8,6 +8,16 @@ from typing import Optional
 from core.logger import get_logger
 
 import config
+import os
+
+# ANSI-цвета. Отключаются только если явно задан NO_COLOR
+# (стандарт https://no-color.org/).
+_USE_COLOR = not os.environ.get("NO_COLOR")
+
+GREEN = "\033[92m" if _USE_COLOR else ""
+RED = "\033[91m" if _USE_COLOR else ""
+YELLOW = "\033[93m" if _USE_COLOR else ""
+RESET = "\033[0m" if _USE_COLOR else ""
 
 log = get_logger(__name__)
 
@@ -675,8 +685,10 @@ def format_paper_trade_short(row) -> str:
     Короткая строка для консоли runner.py:
     '#5 short breakout score=3.0 entry=12.412 stop=12.438 take=12.360'
     """
+    dir_color = RED if row["direction"] == "short" else GREEN
+    dir_str = _colored(f"{row['direction']:5}", dir_color)
     return (
-        f"#{row['id']} {row['direction']:5} {row['kind']:12} "
+        f"#{row['id']} {dir_str} {row['kind']:12} "
         f"score={row['strength_score'] or 0:.1f} "
         f"entry={row['entry_price']:.3f} "
         f"stop={row['stop_price']:.3f} "
@@ -694,8 +706,34 @@ def format_paper_trade_result(row) -> str:
     sign = "+" if pts >= 0 else ""
     bars = row["bars_to_close"] or "?"
     conf = row["resolution_confidence"] or "?"
+    result = row["result"]
+
+    # Цвет результата
+    if result == "win":
+        result_str = _colored(f"{result:7}", GREEN)
+        pts_str = _colored(f"{sign}{pts:.1f} pts", GREEN)
+        rub_str = _colored(f"{sign}{rub:.2f} ₽", GREEN)
+    elif result == "loss":
+        result_str = _colored(f"{result:7}", RED)
+        pts_str = _colored(f"{sign}{pts:.1f} pts", RED)
+        rub_str = _colored(f"{sign}{rub:.2f} ₽", RED)
+    else:  # open / timeout
+        result_str = _colored(f"{result:7}", YELLOW)
+        pts_str = f"{sign}{pts:.1f} pts"
+        rub_str = f"{sign}{rub:.2f} ₽"
+
+    dir_color = RED if row["direction"] == "short" else GREEN
+    dir_str = _colored(f"{row['direction']:5}", dir_color)
+
     return (
-        f"#{row['id']} {row['direction']:5} {row['kind']:12} → "
-        f"{row['result']:7} {sign}{pts:.1f} pts / {sign}{rub:.2f} ₽ "
+        f"#{row['id']} {dir_str} {row['kind']:12} → "
+        f"{result_str} {pts_str} / {rub_str} "
         f"({bars} bars, {conf})"
     )
+
+
+def _colored(text: str, color: str) -> str:
+    """Оборачивает текст в ANSI-цвет. Если цвета отключены — возвращает как есть."""
+    if not _USE_COLOR or not color:
+        return text
+    return f"{color}{text}{RESET}"
