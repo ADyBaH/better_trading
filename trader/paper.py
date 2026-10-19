@@ -663,3 +663,39 @@ def paper_stats(
         "by_day_trend": by_day_trend,
         "by_score": by_score,
     }
+
+
+# ============================================================
+# Форматирование для вывода
+# ============================================================
+
+
+def format_paper_trade_short(row) -> str:
+    """
+    Короткая строка для консоли runner.py:
+    '#5 short breakout score=3.0 entry=12.412 stop=12.438 take=12.360'
+    """
+    return (
+        f"#{row['id']} {row['direction']:5} {row['kind']:12} "
+        f"score={row['strength_score'] or 0:.1f} "
+        f"entry={row['entry_price']:.3f} "
+        f"stop={row['stop_price']:.3f} "
+        f"take={row['take_price']:.3f}"
+    )
+
+
+def format_paper_trade_result(row) -> str:
+    """
+    Строка закрытой сделки:
+    '#5 short breakout → win +33.6 pts / +31.54 ₽ (2 bars, auto)'
+    """
+    pts = row["result_points"] or 0
+    rub = row["result_rub"] or 0
+    sign = "+" if pts >= 0 else ""
+    bars = row["bars_to_close"] or "?"
+    conf = row["resolution_confidence"] or "?"
+    return (
+        f"#{row['id']} {row['direction']:5} {row['kind']:12} → "
+        f"{row['result']:7} {sign}{pts:.1f} pts / {sign}{rub:.2f} ₽ "
+        f"({bars} bars, {conf})"
+    )

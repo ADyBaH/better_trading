@@ -473,6 +473,77 @@ def cmd_paper_stats(args) -> int:
     return 0
 
 
+def cmd_paper_trades(args) -> int:
+    """Показать paper-сделки."""
+    from tabulate import tabulate
+
+    with journal.connect_journal() as conn:
+        from trader.paper import init_paper_table
+
+        init_paper_table(conn)
+
+        where = []
+        params = []
+        if args.open:
+            where.append("result = 'open'")
+        if args.symbol:
+            where.append("symbol = ?")
+            params.append(args.symbol)
+
+        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+        rows = conn.execute(
+            f"SELECT * FROM paper_trades {where_sql} ORDER BY id DESC LIMIT ?",
+            (*params, args.limit),
+        ).fetchall()
+
+    if not rows:
+        print("Paper-сделок нет.")
+        return 0
+
+    table_rows = []
+    for r in rows:
+        table_rows.append(
+            [
+                r["id"],
+                r["direction"].upper(),
+                r["kind"],
+                f"{r['strength_score'] or 0:.1f}",
+                f"{r['entry_price']:.3f}",
+                f"{r['stop_price']:.3f}",
+                f"{r['take_price']:.3f}",
+                f"{r['exit_price']:.3f}" if r["exit_price"] else "—",
+                r["result"],
+                f"{r['result_points']:+.1f}" if r["result_points"] is not None else "—",
+                f"{r['result_rub']:+.2f}" if r["result_rub"] is not None else "—",
+                r["bars_to_close"] or "—",
+                r["created_at"][:16],
+            ]
+        )
+
+    print(
+        tabulate(
+            table_rows,
+            headers=[
+                "ID",
+                "Dir",
+                "Kind",
+                "Score",
+                "Entry",
+                "Stop",
+                "Take",
+                "Exit",
+                "Result",
+                "Pts",
+                "Rub",
+                "Bars",
+                "Created",
+            ],
+            tablefmt="rounded_outline",
+        )
+    )
+    return 0
+
+
 # ============================================================
 # main
 # ============================================================
@@ -544,7 +615,14 @@ def main() -> int:
     p_paper.add_argument("--symbol", default=None, help="Фильтр по тикеру")
     p_paper.set_defaults(func=cmd_paper_stats)
 
+    # paper-trades
+    p_pt = sub.add_parser("paper-trades", help="Показать paper-сделки")
+    p_pt.add_argument("--open", action="store_true", help="Только открытые")
+    p_pt.add_argument("--limit", type=int, default=50)
+    p_pt.add_argument("--symbol", default=None, help="Фильтр по тикеру")
+    p_pt.set_defaults(func=cmd_paper_trades)
     args = parser.parse_args()
+
     journal.init_db()
 
     return args.func(args)
