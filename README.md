@@ -89,6 +89,10 @@ python journal_cli.py stats
 | `python journal_cli.py paper-stats`                         | Статистика paper-сделок                |
 | `python journal_cli.py paper-stats --since=2026-10-17`      | Paper с даты                           |
 | `python journal_cli.py paper-stats --symbol=CNYRUBF`        | Paper по тикеру                        |
+| `python journal_cli.py paper-trades`                        | Показать paper-сделки (таблица)        |
+| `python journal_cli.py paper-trades --open`                 | Только открытые                        |
+| `python journal_cli.py paper-trades --limit=10`             | Последние 10                           |
+| `python journal_cli.py paper-trades --symbol=CNYRUBF`       | Фильтр по тикеру                       |
 
 ### Интерактивный ввод в `add`
 
