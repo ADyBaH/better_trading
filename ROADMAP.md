@@ -200,6 +200,16 @@
 
 ---
 
+### 10.5. Больше информации от paper-trades
+
+- [x] `tests/show_paper_trades.py` — таблица всех paper-сделок с деталями
+      (entry/stop/take/exit/result/pts/rub/bars/conf).
+- [x] `journal_cli.py paper-trades` — то же через `tabulate`, с `--open` / `--limit` / `--symbol`.
+- [x] `runner.py` — вывод новых (`+`) и закрытых (`✓`) сделок в консоль.
+- [x] `trader/paper.py`: `format_paper_trade_short`, `format_paper_trade_result`.
+
+---
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
@@ -266,3 +276,20 @@
 
 **Решение по фильтрам:** НЕ внедряем до 40+ сигналов paper-tracking.
 Baseline сохраняется.
+
+### 19.10.2026 (понедельник) — первый день с paper-trades
+
+- **Режим:** down (голосов -2), day_trend neutral, structure mixed.
+- **Сигналов:** ~6 за день (08:39, 08:59, 09:19, 09:39, 11:00, 13:00).
+- **Paper-trades:** 4 создано, 4 закрыто (3W / 1L).
+  - #1 trend_level short score=4.0: +25.8 pts / +23.74 ₽ (win, 2 bars)
+  - #2 breakout short score=3.0: +26.5 pts / +24.44 ₽ (win, 1 bar)
+  - #3 breakout short score=3.0: -16.6 pts / -18.66 ₽ (loss, 5 bars)
+  - #4 bounce short score=1.5: +33.6 pts / +31.54 ₽ (win, 2 bars)
+- **Итого:** +69.3 pts / +61.06 ₽, winrate 75% (n=4).
+- **Наблюдения:**
+  - Все 4 — short по тренду `down`. Ни одного против тренда.
+  - Все закрылись за 1–5 M15-свечей (15–75 мин). Timeout не срабатывал.
+  - Узкий стоп (1.0 × ATR) у #3 — loss. Гипотеза: для breakout нужен шире.
+  - bounce score 1.5 дал лучший профит (+33.6) — возможно, удача (n=1).
+- **Вывод:** пайплайн работает end-to-end. n=4 — не статистика, но данные для будущего разбора.

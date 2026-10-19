@@ -55,26 +55,61 @@ def run_once(log) -> bool:
         # --- Paper-tracking ---
         paper_created = 0
         paper_closed = 0
+        new_trades = []
+        closed_trades = []
         if config.PAPER_ENABLED:
             from trader.journal import connect_journal
             from trader.paper import (
                 init_paper_table,
                 save_signal_as_paper,
                 resolve_open_trades,
+                format_paper_trade_short,  # ← добавить
+                format_paper_trade_result,  # ← добавить
             )
 
             try:
                 with connect_journal() as conn:
                     init_paper_table(conn)
+
+                    # Запоминаем max id до создания новых
+                    max_id_before = conn.execute(
+                        "SELECT COALESCE(MAX(id), 0) FROM paper_trades"
+                    ).fetchone()[0]
+
                     paper_created = save_signal_as_paper(
                         conn,
                         result.signals,
                         result,
                         source_analysis_path=str(json_path),
                     )
+
+                    # Запоминаем id закрытых до резолва
+                    open_ids_before = set(
+                        r["id"]
+                        for r in conn.execute(
+                            "SELECT id FROM paper_trades WHERE result = 'open'"
+                        ).fetchall()
+                    )
+
                     paper_closed = resolve_open_trades(
                         conn, result.symbol, result.timestamp
                     )
+
+                    # Новые сделки
+                    if paper_created > 0:
+                        new_trades = conn.execute(
+                            "SELECT * FROM paper_trades WHERE id > ? ORDER BY id",
+                            (max_id_before,),
+                        ).fetchall()
+
+                    # Только что закрытые
+                    if paper_closed > 0 and open_ids_before:
+                        closed_trades = conn.execute(
+                            f"SELECT * FROM paper_trades WHERE id IN ({','.join('?' * len(open_ids_before))}) "
+                            "AND result != 'open' ORDER BY id",
+                            tuple(open_ids_before),
+                        ).fetchall()
+
                 log.info("paper: создано %d, закрыто %d", paper_created, paper_closed)
             except Exception as e:
                 log.exception("paper-tracking упал: %s", e)
@@ -98,6 +133,10 @@ def run_once(log) -> bool:
         print(f"  Сигналов: {len(result.signals)}")
         if config.PAPER_ENABLED:
             print(f"  paper: создано {paper_created}, закрыто {paper_closed}")
+            for t in new_trades:
+                print(f"    + {format_paper_trade_short(t)}")
+            for t in closed_trades:
+                print(f"    ✓ {format_paper_trade_result(t)}")
 
         return True
 
@@ -109,6 +148,7 @@ def run_once(log) -> bool:
 
 
 def main():
+    print("\033[92mТЕСТ ЦВЕТА\033[0m")
     setup_logging()
     log = get_logger(__name__)
 
