@@ -1,8 +1,8 @@
 """
 Фасад над источниками данных.
 Логика:
-  1. Если БД свежая (последняя свеча < CACHE_TTL_MINUTES назад) — берём из БД.
-  2. Иначе — докачиваем только новые свечи с биржи, дописываем в БД, берём из БД.
+- 1. Если БД свежая (последняя свеча < CACHE_TTL_MINUTES назад) — берём из БД.
+- 2. Иначе — докачиваем только новые свечи с биржи, дописываем в БД, берём из БД.
 """
 
 from datetime import datetime, timedelta
@@ -107,7 +107,8 @@ def get_candles_tf(
 ) -> pd.DataFrame:
     """
     Возвращает последние `count` свечей указанного таймфрейма.
-    Внутри тянет M1 и ресемплит.
+    - MOEX: тянет M1 и ресемплит.
+    - T-Invest: тянет сразу нужный таймфрейм (без ресемплинга).
     """
     symbol = symbol or config.SYMBOL
 
@@ -124,6 +125,23 @@ def get_candles_tf(
     if tf_minutes is None:
         raise ValueError(f"Неизвестный таймфрейм: {timeframe}")
 
+    # --- T-Invest: отдельная ветка ---
+    if config.DATA_PROVIDER == "tinvest":
+        from data.api_tinvest import get_candles_range as _tinvest_get
+
+        # T-Invest отдаёт сразу нужный таймфрейм.
+        # start/end — примерно, мок их игнорирует.
+        end = datetime.now()
+        start = end - timedelta(minutes=tf_minutes * count * 2)
+
+        df = _tinvest_get(symbol, timeframe, start, end)
+        if df.empty:
+            log.warning("T-Invest: пустой ответ для %s %s", symbol, timeframe)
+            return df
+
+        return df.tail(count).reset_index(drop=True)
+
+    # --- MOEX: текущая логика (M1 → ресемплинг) ---
     need_m1 = (count + config.EMA_SLOW) * tf_minutes
     need_m1_with_reserve = int(need_m1 * 1.5)
 

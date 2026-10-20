@@ -6,6 +6,7 @@ __version__ = "0.7.0"
 # ИНСТРУМЕНТ
 # ============================================================
 
+DATA_PROVIDER = "tinvest"  # "moex" | "tinvest"
 DEFAULT_INSTRUMENT = "CNYRUBF"
 _ACTIVE = get_instrument(DEFAULT_INSTRUMENT)
 
