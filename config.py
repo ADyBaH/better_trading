@@ -6,6 +6,7 @@ __version__ = "0.7.0"
 # ИНСТРУМЕНТ
 # ============================================================
 
+DATA_PROVIDER = "alor"  # "moex" | "alor" | "tinvest"
 DEFAULT_INSTRUMENT = "CNYRUBF"
 _ACTIVE = get_instrument(DEFAULT_INSTRUMENT)
 
@@ -127,7 +128,7 @@ NOTIFY_FILE = "storage/logs/notifications.txt"
 
 # Сколько минут считать кэш свежим.
 # ISS обновляет данные с лагом ~15 мин — TTL 15 уменьшает «слепоту».
-CACHE_TTL_MINUTES = 15
+CACHE_TTL_MINUTES = 4
 
 # ============================================================
 # РАСПИСАНИЕ

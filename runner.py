@@ -19,7 +19,7 @@ from core.analyzer import analyze
 from ui.render_console import render_console_to_string
 from ui.render_json import render_json
 
-INTERVAL_MIN = 20
+INTERVAL_MIN = 5
 LOGS_DIR = Path(config.LOG_PATH).parent
 
 
