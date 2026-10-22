@@ -39,7 +39,15 @@ def setup_logging() -> None:
     formatter = logging.Formatter(config.LOG_FORMAT, datefmt=config.LOG_DATE_FORMAT)
 
     # --- Файл ---
-    file_handler = logging.FileHandler(config.LOG_PATH, encoding="utf-8")
+    from logging.handlers import RotatingFileHandler
+
+    file_handler = RotatingFileHandler(
+        config.LOG_PATH,
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5,  # хранить 5 старых файлов
+        encoding="utf-8",
+        mode="a",  # дописывать в конец
+    )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(config.LOG_LEVEL)
     root.addHandler(file_handler)

@@ -124,6 +124,20 @@ def get_candles_tf(
     if tf_minutes is None:
         raise ValueError(f"Неизвестный таймфрейм: {timeframe}")
 
+    # --- ALOR: отдельная ветка ---
+    if config.DATA_PROVIDER == "alor":
+        from data.api_alor import get_candles_range as _alor_get
+
+        end = datetime.now()
+        start = end - timedelta(minutes=tf_minutes * count * 2)
+
+        df = _alor_get(symbol, timeframe, start, end)
+        if df.empty:
+            log.warning("ALOR: пустой ответ для %s %s", symbol, timeframe)
+            return df
+
+        return df.tail(count).reset_index(drop=True)
+
     need_m1 = (count + config.EMA_SLOW) * tf_minutes
     need_m1_with_reserve = int(need_m1 * 1.5)
 
