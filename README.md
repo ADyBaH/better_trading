@@ -21,6 +21,7 @@
 - **Paper-tracking**: автоматическая запись сигналов как виртуальных сделок
   в `paper_trades` (SQLite, `storage/journal.db`) с резолвом по stop/take/timeout.
 - **Статистика paper-trades**: `journal_cli.py paper-stats`.
+- **Тянет свечи** с MOEX ISS (с лагом) **или ALOR WebSocket (real-time, лаг 5 мин)**.
 
 ## Установка
 
@@ -280,6 +281,7 @@ better_trading/
 - `requests` — запросы к MOEX ISS
 - `tabulate` — таблицы в консоли
 - SQLite — хранение свечей и журнала
+- `websockets` — WebSocket-клиент для ALOR (real-time данные)
 
 ## Как это работает
 
@@ -301,6 +303,8 @@ better_trading/
 - **Сигналы**: `BOUNCE_TOLERANCE_ATR`, `RSI_BOUNCE_LONG`, `ADX_BREAKOUT_THRESHOLD`, `VOLUME_MULTIPLIER`.
 - **Торговые правила**: `STOP_POINTS`, `TAKE_POINTS`.
 - **Кэш**: `CACHE_TTL_MINUTES`.
+- **Источник данных**: `DATA_PROVIDER = "alor"` (real-time) или `"moex"` (ISS).
+- **Кэш**: `CACHE_TTL_MINUTES = 4` (для ALOR).
 
 ## Что в планах
 
