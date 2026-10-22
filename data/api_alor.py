@@ -124,3 +124,50 @@ def get_candles_range(
     except Exception as e:
         log.error("ALOR: критическая ошибка: %s", e)
         return pd.DataFrame(columns=["begin", "open", "high", "low", "close", "volume"])
+
+
+def get_order_book_pressure_sync(symbol: str) -> dict:
+    """Синхронная обёртка: получает стакан и считает перевес."""
+    import asyncio
+
+    return asyncio.run(_get_order_book_pressure(symbol))
+
+
+async def _get_order_book_pressure(symbol: str) -> dict:
+    """Подключается к WS, получает стакан, считает перевес bid/ask."""
+    import websockets
+
+    access = _get_access_token()
+    sub_msg = {
+        "opcode": "OrderBookGetAndSubscribe",
+        "guid": "ob-1",
+        "exchange": "MOEX",
+        "code": symbol,
+        "instrumentGroup": "RFUD",
+        "depth": 10,
+        "format": "Simple",
+        "token": access,
+    }
+
+    last_ob = None
+    async with websockets.connect(WS_URL, open_timeout=10) as ws:
+        await ws.send(json.dumps(sub_msg))
+        try:
+            msg = await asyncio.wait_for(ws.recv(), timeout=3)
+            data = json.loads(msg)
+            if "data" in data:
+                last_ob = data["data"]
+        except asyncio.TimeoutError:
+            pass
+
+    if not last_ob:
+        return {"bid_vol": 0, "ask_vol": 0, "pressure_pct": 50.0}
+
+    bids = last_ob.get("bids", [])
+    asks = last_ob.get("asks", [])
+    bid_vol = sum(float(b.get("volume", 0)) for b in bids)
+    ask_vol = sum(float(a.get("volume", 0)) for a in asks)
+    total = bid_vol + ask_vol
+    pressure = (bid_vol / total * 100) if total > 0 else 50.0
+
+    return {"bid_vol": bid_vol, "ask_vol": ask_vol, "pressure_pct": pressure}

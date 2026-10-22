@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     bars_to_close INTEGER,
     resolution_confidence TEXT,
     warnings TEXT,
-    context TEXT
+    context TEXT,
+    bid_vol REAL,
+    ask_vol REAL
 );
 CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_trades(result);
 CREATE INDEX IF NOT EXISTS idx_paper_created ON paper_trades(created_at);
@@ -264,6 +266,8 @@ def save_signal_as_paper(
     signals: list,
     result,
     source_analysis_path: str | None = None,
+    bid_vol: float | None = None,
+    ask_vol: float | None = None,
 ) -> int:
     """
     Создаёт paper-сделки из сигналов.
@@ -310,8 +314,9 @@ def save_signal_as_paper(
                     strength, strength_score, entry_price, stop_price, take_price,
                     level_price, risk_reward, net_rr,
                     trend_at_open, adx_at_open, day_trend_at_open, structure_at_open,
-                    created_at, result, warnings, context
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, result, warnings, context,
+                    bid_vol, ask_vol
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     sid,
@@ -343,12 +348,13 @@ def save_signal_as_paper(
                         if sig.context
                         else None
                     ),
+                    bid_vol,
+                    ask_vol,
                 ),
             )
-            if conn.total_changes > 0:  # INSERT прошёл
+            if conn.total_changes > 0:
                 created += 1
         except sqlite3.IntegrityError:
-            # signal_id уже есть — пропускаем
             log.debug("paper: signal_id=%s уже существует", sid)
             continue
 

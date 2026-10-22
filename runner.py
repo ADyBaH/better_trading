@@ -25,19 +25,31 @@ LOGS_DIR = Path(config.LOG_PATH).parent
 
 def save_analysis(result) -> tuple[Path, Path]:
     """
-    Сохраняет результат в logs/YYYY-MM-DD/.
+    Дописывает результат в logs/YYYY-MM-DD/analysis_YYYY-MM-DD.json и .txt.
     Возвращает (json_path, txt_path).
     """
     now = datetime.now()
     date_dir = LOGS_DIR / now.strftime("%Y-%m-%d")
     date_dir.mkdir(parents=True, exist_ok=True)
 
-    ts = now.strftime("%H-%M-%S")
-    json_path = date_dir / f"analysis_{ts}.json"
-    txt_path = date_dir / f"analysis_{ts}.txt"
+    # Имя файла с полной датой (например, analysis_2026-10-22.json)
+    date_str = now.strftime("%Y-%m-%d")
+    json_path = date_dir / f"analysis_{date_str}.json"
+    txt_path = date_dir / f"analysis_{date_str}.txt"
 
-    json_path.write_text(render_json(result, mode="full"), encoding="utf-8")
-    txt_path.write_text(render_console_to_string(result), encoding="utf-8")
+    # JSON Lines: каждый цикл — одна строка
+    json_line = render_json(result, mode="full").replace("\n", " ")
+    with open(json_path, "a", encoding="utf-8") as f:
+        f.write(json_line + "\n")
+
+    # Текстовый дашборд: разделитель между циклами
+    txt_block = render_console_to_string(result)
+    with open(txt_path, "a", encoding="utf-8") as f:
+        f.write(f"\n{'=' * 70}\n")
+        f.write(f"  {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"{'=' * 70}\n")
+        f.write(txt_block)
+        f.write("\n")
 
     return json_path, txt_path
 
@@ -76,11 +88,33 @@ def run_once(log) -> bool:
                         "SELECT COALESCE(MAX(id), 0) FROM paper_trades"
                     ).fetchone()[0]
 
+                    # --- Получаем стакан (если ALOR) ---
+                    bid_vol = None
+                    ask_vol = None
+                    if config.DATA_PROVIDER == "alor" and result.signals:
+                        from data.api_alor import get_order_book_pressure_sync
+
+                        try:
+                            ob = get_order_book_pressure_sync(result.symbol)
+                            bid_vol = ob["bid_vol"]
+                            ask_vol = ob["ask_vol"]
+                            log.info(
+                                "order_book: bid=%.0f, ask=%.0f, pressure=%.1f%%",
+                                bid_vol,
+                                ask_vol,
+                                ob["pressure_pct"],
+                            )
+                        except Exception as e:
+                            log.debug("order_book не получен: %s", e)
+
+                    # --- Создаём paper-сделки ---
                     paper_created = save_signal_as_paper(
                         conn,
                         result.signals,
                         result,
                         source_analysis_path=str(json_path),
+                        bid_vol=bid_vol,
+                        ask_vol=ask_vol,
                     )
 
                     # Запоминаем id закрытых до резолва
