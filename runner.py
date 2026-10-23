@@ -24,7 +24,13 @@ LOGS_DIR = Path(config.LOG_PATH).parent
 
 
 def save_analysis(result) -> tuple[Path, Path]:
-    """Дописывает результат в logs/YYYY-MM-DD/analysis_YYYY-MM-DD.{json,txt}."""
+    """
+    Дописывает результат в logs/YYYY-MM-DD/analysis_YYYY-MM-DD.json и .txt.
+    JSON — валидный объект с массивом snapshots.
+    Возвращает (json_path, txt_path).
+    """
+    import json
+
     now = datetime.now()
     date_dir = LOGS_DIR / now.strftime("%Y-%m-%d")
     date_dir.mkdir(parents=True, exist_ok=True)
@@ -33,9 +39,37 @@ def save_analysis(result) -> tuple[Path, Path]:
     json_path = date_dir / f"analysis_{date_str}.json"
     txt_path = date_dir / f"analysis_{date_str}.txt"
 
-    json_line = render_json(result, mode="full").replace("\n", " ")
-    with open(json_path, "a", encoding="utf-8") as f:
-        f.write(json_line + "\n")
+    # --- JSON: читаем, добавляем, записываем ---
+    snapshot = json.loads(render_json(result, mode="full"))
+
+    if json_path.exists():
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data.get("snapshots"), list):
+                data["snapshots"] = []
+        except (json.JSONDecodeError, KeyError):
+            # Если файл битый — начинаем заново
+            data = {
+                "symbol": result.symbol,
+                "timeframe": result.timeframe,
+                "snapshots": [],
+            }
+    else:
+        data = {
+            "symbol": result.symbol,
+            "timeframe": result.timeframe,
+            "snapshots": [],
+        }
+
+    data["snapshots"].append(snapshot)
+
+    # Обновляем метаданные
+    data["last_updated"] = now.isoformat()
+    data["count"] = len(data["snapshots"])
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
     txt_block = render_console_to_string(result)
     with open(txt_path, "a", encoding="utf-8") as f:

@@ -1,6 +1,6 @@
 from core.instruments import get_instrument
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 # ============================================================
 # ИНСТРУМЕНТ

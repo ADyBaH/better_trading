@@ -66,8 +66,16 @@ CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_trades(symbol);
 
 
 def init_paper_table(conn: sqlite3.Connection) -> None:
-    """Идемпотентно создаёт таблицу paper_trades."""
+    """Идемпотентно создаёт таблицу paper_trades и добавляет новые колонки."""
     conn.executescript(CREATE_TABLE_SQL)
+
+    # Миграция: добавляем колонки, если их нет (для старых БД)
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
+    if "bid_vol" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN bid_vol REAL")
+    if "ask_vol" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN ask_vol REAL")
+
     conn.commit()
 
 
