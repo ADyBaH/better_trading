@@ -578,6 +578,31 @@ def cmd_paper_trades(args) -> int:
     return 0
 
 
+def cmd_paper_export(args) -> int:
+    """Экспорт paper_trades в CSV."""
+    from trader.paper_export import export_paper_trades
+
+    with journal.connect_journal() as conn:
+        from trader.paper import init_paper_table
+
+        init_paper_table(conn)
+
+        count = export_paper_trades(
+            conn,
+            output_path=args.output,
+            since=args.since,
+            until=args.until,
+            symbol=args.symbol,
+        )
+
+    if count == 0:
+        print("❌ Нет данных для экспорта")
+        return 1
+
+    print(f"✅ Экспортировано {count} записей → {args.output}")
+    return 0
+
+
 # ============================================================
 # main
 # ============================================================
@@ -648,6 +673,18 @@ def main() -> int:
     p_paper.add_argument("--until", default=None, help="До даты (ISO)")
     p_paper.add_argument("--symbol", default=None, help="Фильтр по тикеру")
     p_paper.set_defaults(func=cmd_paper_stats)
+
+    # paper-export
+    p_export = sub.add_parser("paper-export", help="Экспорт paper_trades в CSV")
+    p_export.add_argument(
+        "--output",
+        default="storage/exports/paper_trades.csv",
+        help="Путь к CSV (по умолчанию storage/exports/paper_trades.csv)",
+    )
+    p_export.add_argument("--since", default=None, help="С даты (ISO)")
+    p_export.add_argument("--until", default=None, help="До даты (ISO)")
+    p_export.add_argument("--symbol", default=None, help="Фильтр по тикеру")
+    p_export.set_defaults(func=cmd_paper_export)
 
     # paper-trades
     p_pt = sub.add_parser("paper-trades", help="Показать paper-сделки")

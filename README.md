@@ -23,6 +23,7 @@
 - **Статистика paper-trades**: `journal_cli.py paper-stats` (с разбивками по kind/trend/score/ADX/сессии).
 - **Детальная таблица сделок**: `journal_cli.py paper-trades --wide` (ADX, Bid/Ask, R:R).
 - **Тянет свечи** с MOEX ISS (с лагом) **или ALOR WebSocket (real-time, лаг 5 мин)**.
+- **Экспорт paper-trades в CSV**: `journal_cli.py paper-export` → `storage/exports/paper_trades.csv`.
 
 ## Установка
 
@@ -99,6 +100,9 @@ python journal_cli.py stats
 | `python journal_cli.py paper-trades --open --wide`          | Только открытые + расширенные поля     |
 | `python journal_cli.py paper-stats --by-adx`                | Разбивка по ADX                        |
 | `python journal_cli.py paper-stats --by-session`            | Разбивка по сессии                     |
+| `python journal_cli.py paper-export`                        | Экспорт paper_trades в CSV             |
+| `python journal_cli.py paper-export --since=2026-10-20`     | CSV с даты                             |
+| `python journal_cli.py paper-export --symbol=CNYRUBF`       | CSV по тикеру                          |
 
 ### Интерактивный ввод в `add`
 
