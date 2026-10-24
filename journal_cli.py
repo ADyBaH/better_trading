@@ -443,6 +443,8 @@ def cmd_paper_stats(args) -> int:
     _print_group("По типу сигнала", s["by_kind"])
     _print_group("По тренду на входе", s["by_trend"])
     _print_group("По дневному тренду", s["by_day_trend"])
+    _print_group("По ADX", s["by_adx"])
+    _print_group("По сессии", s["by_session"])
 
     # by_score — сортируем по возрастанию score
     if s["by_score"]:
