@@ -557,8 +557,10 @@ def paper_stats(
         winrate (по закрытым win/(win+loss), timeout не считается),
         total_points, total_rub,
         avg_win_points, avg_loss_points,
-        by_kind, by_trend, by_score, by_day_trend, by_session
+        by_kind, by_trend, by_score, by_day_trend, by_adx, by_session
     """
+    from datetime import datetime
+
     where = []
     params = []
 
@@ -670,6 +672,73 @@ def paper_stats(
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
+    def _adx_bucket(adx):
+        if adx is None:
+            return "unknown"
+        if adx < 20:
+            return "flat (<20)"
+        elif adx < 25:
+            return "trend (20-25)"
+        else:
+            return "strong (>25)"
+
+    by_adx = {}
+    for r in rows:
+        bucket = _adx_bucket(r["adx_at_open"])
+        if bucket not in by_adx:
+            by_adx[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        by_adx[bucket]["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            by_adx[bucket][r["result"]] += 1
+        by_adx[bucket]["points"] += r["result_points"] or 0
+        by_adx[bucket]["rub"] += r["result_rub"] or 0
+    for v in by_adx.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
+    def _session(created_at_str):
+        try:
+            dt = datetime.fromisoformat(created_at_str)
+        except Exception:
+            return "unknown"
+        h = dt.hour
+        if 9 <= h < 12:
+            return "morning (09-12)"
+        elif 12 <= h < 17:
+            return "day (12-17)"
+        elif 17 <= h < 20:
+            return "evening (17-20)"
+        else:
+            return "night (20-09)"
+
+    by_session = {}
+    for r in rows:
+        bucket = _session(r["created_at"])
+        if bucket not in by_session:
+            by_session[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        by_session[bucket]["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            by_session[bucket][r["result"]] += 1
+        by_session[bucket]["points"] += r["result_points"] or 0
+        by_session[bucket]["rub"] += r["result_rub"] or 0
+    for v in by_session.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
     return {
         "total": total,
         "open": open_count,
@@ -686,6 +755,8 @@ def paper_stats(
         "by_trend": by_trend,
         "by_day_trend": by_day_trend,
         "by_score": by_score,
+        "by_adx": by_adx,
+        "by_session": by_session,
     }
 
 
