@@ -551,21 +551,7 @@ def cmd_paper_trades(args) -> int:
     print(
         tabulate(
             table_rows,
-            headers=[
-                "ID",
-                "Dir",
-                "Kind",
-                "Score",
-                "Entry",
-                "Stop",
-                "Take",
-                "Exit",
-                "Result",
-                "Pts",
-                "Rub",
-                "Bars",
-                "Created",
-            ],
+            headers=headers,
             tablefmt="rounded_outline",
         )
     )
