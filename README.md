@@ -20,7 +20,8 @@
 - **Раннер**: периодический анализ каждые 20 минут с сохранением по дням.
 - **Paper-tracking**: автоматическая запись сигналов как виртуальных сделок
   в `paper_trades` (SQLite, `storage/journal.db`) с резолвом по stop/take/timeout.
-- **Статистика paper-trades**: `journal_cli.py paper-stats`.
+- **Статистика paper-trades**: `journal_cli.py paper-stats` (с разбивками по kind/trend/score/ADX/сессии).
+- **Детальная таблица сделок**: `journal_cli.py paper-trades --wide` (ADX, Bid/Ask, R:R).
 - **Тянет свечи** с MOEX ISS (с лагом) **или ALOR WebSocket (real-time, лаг 5 мин)**.
 
 ## Установка
@@ -94,6 +95,10 @@ python journal_cli.py stats
 | `python journal_cli.py paper-trades --open`                 | Только открытые                        |
 | `python journal_cli.py paper-trades --limit=10`             | Последние 10                           |
 | `python journal_cli.py paper-trades --symbol=CNYRUBF`       | Фильтр по тикеру                       |
+| `python journal_cli.py paper-trades --wide`                 | ADX, Bid/Ask, R:R                      |
+| `python journal_cli.py paper-trades --open --wide`          | Только открытые + расширенные поля     |
+| `python journal_cli.py paper-stats --by-adx`                | Разбивка по ADX                        |
+| `python journal_cli.py paper-stats --by-session`            | Разбивка по сессии                     |
 
 ### Интерактивный ввод в `add`
 
