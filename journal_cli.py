@@ -504,23 +504,49 @@ def cmd_paper_trades(args) -> int:
 
     table_rows = []
     for r in rows:
-        table_rows.append(
-            [
-                r["id"],
-                r["direction"].upper(),
-                r["kind"],
-                f"{r['strength_score'] or 0:.1f}",
-                f"{r['entry_price']:.3f}",
-                f"{r['stop_price']:.3f}",
-                f"{r['take_price']:.3f}",
-                f"{r['exit_price']:.3f}" if r["exit_price"] else "—",
-                r["result"],
-                f"{r['result_points']:+.1f}" if r["result_points"] is not None else "—",
-                f"{r['result_rub']:+.2f}" if r["result_rub"] is not None else "—",
-                r["bars_to_close"] or "—",
-                r["created_at"][:16],
-            ]
-        )
+        row_data = [
+            r["id"],
+            r["direction"].upper(),
+            r["kind"],
+            f"{r['strength_score'] or 0:.1f}",
+            f"{r['entry_price']:.3f}",
+            f"{r['stop_price']:.3f}",
+            f"{r['take_price']:.3f}",
+            f"{r['exit_price']:.3f}" if r["exit_price"] else "—",
+            r["result"],
+            f"{r['result_points']:+.1f}" if r["result_points"] is not None else "—",
+            f"{r['result_rub']:+.2f}" if r["result_rub"] is not None else "—",
+            r["bars_to_close"] or "—",
+            r["created_at"][:16],
+        ]
+        if args.wide:
+            row_data.extend(
+                [
+                    f"{r['adx_at_open']:.1f}" if r["adx_at_open"] is not None else "—",
+                    f"{r['bid_vol']:.0f}" if r["bid_vol"] is not None else "—",
+                    f"{r['ask_vol']:.0f}" if r["ask_vol"] is not None else "—",
+                    f"{r['risk_reward']:.2f}" if r["risk_reward"] is not None else "—",
+                ]
+            )
+        table_rows.append(row_data)
+
+    headers = [
+        "ID",
+        "Dir",
+        "Kind",
+        "Score",
+        "Entry",
+        "Stop",
+        "Take",
+        "Exit",
+        "Result",
+        "Pts",
+        "Rub",
+        "Bars",
+        "Created",
+    ]
+    if args.wide:
+        headers.extend(["ADX", "Bid", "Ask", "R:R"])
 
     print(
         tabulate(
@@ -641,6 +667,7 @@ def main() -> int:
     p_pt.add_argument("--limit", type=int, default=50)
     p_pt.add_argument("--symbol", default=None, help="Фильтр по тикеру")
     p_pt.set_defaults(func=cmd_paper_trades)
+    p_pt.add_argument("--wide", action="store_true", help="Показать ADX, Bid/Ask, R:R")
     args = parser.parse_args()
 
     journal.init_db()
