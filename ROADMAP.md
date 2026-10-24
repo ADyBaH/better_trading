@@ -241,7 +241,7 @@
 
 ---
 
-### 11.4. Наблюдаемость
+### 11.5. Наблюдаемость
 
 - [x] `paper-trades --wide`: ADX, Bid, Ask, R:R.
 - [x] `paper_stats`: `by_adx` (flat/trend/strong), `by_session` (morning/day/evening/night).
