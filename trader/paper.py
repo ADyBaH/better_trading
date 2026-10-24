@@ -739,6 +739,58 @@ def paper_stats(
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
+    # --- by_hour ---
+    by_hour = {}
+    for r in rows:
+        try:
+            dt = datetime.fromisoformat(r["created_at"])
+            bucket = f"{dt.hour:02d}:00"
+        except Exception:
+            bucket = "unknown"
+        if bucket not in by_hour:
+            by_hour[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        by_hour[bucket]["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            by_hour[bucket][r["result"]] += 1
+        by_hour[bucket]["points"] += r["result_points"] or 0
+        by_hour[bucket]["rub"] += r["result_rub"] or 0
+    for v in by_hour.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
+    # --- by_weekday ---
+    by_weekday = {}
+    for r in rows:
+        try:
+            dt = datetime.fromisoformat(r["created_at"])
+            bucket = dt.strftime("%a")  # Mon, Tue, ...
+        except Exception:
+            bucket = "unknown"
+        if bucket not in by_weekday:
+            by_weekday[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        by_weekday[bucket]["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            by_weekday[bucket][r["result"]] += 1
+        by_weekday[bucket]["points"] += r["result_points"] or 0
+        by_weekday[bucket]["rub"] += r["result_rub"] or 0
+    for v in by_weekday.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
     return {
         "total": total,
         "open": open_count,
@@ -757,6 +809,8 @@ def paper_stats(
         "by_score": by_score,
         "by_adx": by_adx,
         "by_session": by_session,
+        "by_hour": by_hour,
+        "by_weekday": by_weekday,
     }
 
 
