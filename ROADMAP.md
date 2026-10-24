@@ -244,7 +244,7 @@
 ### 11.5. Наблюдаемость
 
 - [x] `paper-trades --wide`: ADX, Bid, Ask, R:R.
-- [x] `paper_stats`: `by_adx` (flat/trend/strong), `by_session` (morning/day/evening/night).
+- [x] `paper_stats`: `by_adx` (flat/trend/strong), `by_session` (morning/day/evening/night), `by_hour`, `by_weekday`.
 - [x] `--by-adx`, `--by-session` флаги в `paper-stats`.
 
 ---
@@ -279,10 +279,10 @@
 ## Текущий статус
 
 **Версия:** 0.8.0
-**Готово:** этапы 1–11 (ALOR WebSocket, real-time).
-**В работе:** сбор статистики на real-time данных (ALOR).
+**Готово:** этапы 1–11 (ALOR WebSocket, real-time), **наблюдаемость** (`--wide`, `by_adx`, `by_session`, `by_hour`, `by_weekday`).
+**В работе:** сбор статистики (19 сделок, 70.6% winrate).
 **Режим:** baseline. Фильтры НЕ внедряются до 40+ сигналов.
-**Следующий шаг:** запустить раннер на 2 недели, затем разбор `paper_stats`.
+**Следующий шаг:** через 2 недели (≈05.11) — разбор `paper_stats` на 40+ сделках.
 
 ---
 
@@ -324,3 +324,9 @@
   - bounce — слабый (n=3).
   - score не коррелирует с winrate (n мал).
 - **Вывод:** стратегия работает. Ждём 40+ сделок.
+
+### 24.10.2026 — by_hour, by_weekday
+
+- **По часу:** 09:00–10:00 — 5/5 (100%); 12:00–13:00 — 5/5 (100%); **17:00 — 0/2 (-62.4 pts)**.
+- **По дню недели:** Wed — 6/6 (+280.3); Tue — 3/3 (+133.3); Thu — 0/2 (-57.6); Fri — 0/1 (-32.4).
+- **Вывод:** 17:00 и четверг/пятница — убыточные (n мало).
