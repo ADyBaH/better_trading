@@ -608,6 +608,57 @@ def cmd_paper_export(args) -> int:
     return 0
 
 
+def cmd_paper_vs_real(args) -> int:
+    """Сравнение paper entry vs market_price_at_open."""
+    from trader.paper_vs_real import paper_vs_real_stats
+
+    with journal.connect_journal() as conn:
+        from trader.paper import init_paper_table
+
+        init_paper_table(conn)
+
+        s = paper_vs_real_stats(
+            conn,
+            since=args.since,
+            until=args.until,
+            symbol=args.symbol,
+        )
+
+    print()
+    print(f"Всего сделок: {s['total']}")
+    print(f"С market_price: {s['with_market']}")
+
+    if s["with_market"] == 0:
+        print("\n⚠️ Нет сделок с market_price_at_open")
+        print("   (старые сделки — до миграции, или ALOR не отвечал)")
+        return 0
+
+    overall = s["overall"]
+    print(f"\n── Лаг (market - entry) в пунктах ──")
+    print(f"  Средний: {overall['avg']:+.1f}")
+    print(f"  Медиана: {overall['median']:+.1f}")
+    print(f"  Мин: {overall['min']:+.1f}")
+    print(f"  Макс: {overall['max']:+.1f}")
+
+    print(f"\n── По направлению ──")
+    for d in ("long", "short"):
+        st = s["by_direction"][d]
+        if st["count"] > 0:
+            print(
+                f"  {d.upper():5} n={st['count']:2} avg={st['avg']:+.1f} median={st['median']:+.1f}"
+            )
+
+    print(f"\n── По результату ──")
+    for res in ("win", "loss", "open"):
+        st = s["by_result"][res]
+        if st["count"] > 0:
+            print(
+                f"  {res.upper():5} n={st['count']:2} avg={st['avg']:+.1f} median={st['median']:+.1f}"
+            )
+
+    return 0
+
+
 # ============================================================
 # main
 # ============================================================
@@ -672,9 +723,7 @@ def main() -> int:
 
     # paper-stats
     p_paper = sub.add_parser("paper-stats", help="Статистика paper-trading")
-    p_paper.add_argument(
-        "--since", default=None, help="С даты (ISO, например 2026-10-17)"
-    )
+    p_paper.add_argument("--since", default=None, help="С даты (ISO)")
     p_paper.add_argument("--until", default=None, help="До даты (ISO)")
     p_paper.add_argument("--symbol", default=None, help="Фильтр по тикеру")
     p_paper.set_defaults(func=cmd_paper_stats)
@@ -684,7 +733,7 @@ def main() -> int:
     p_export.add_argument(
         "--output",
         default="storage/exports/paper_trades.csv",
-        help="Путь к CSV (по умолчанию storage/exports/paper_trades.csv)",
+        help="Путь к CSV",
     )
     p_export.add_argument("--since", default=None, help="С даты (ISO)")
     p_export.add_argument("--until", default=None, help="До даты (ISO)")
@@ -696,9 +745,19 @@ def main() -> int:
     p_pt.add_argument("--open", action="store_true", help="Только открытые")
     p_pt.add_argument("--limit", type=int, default=50)
     p_pt.add_argument("--symbol", default=None, help="Фильтр по тикеру")
+    p_pt.add_argument(
+        "--wide", action="store_true", help="Показать ADX, Bid/Ask, R:R, Mkt"
+    )
     p_pt.set_defaults(func=cmd_paper_trades)
-    p_pt.add_argument("--wide", action="store_true", help="Показать ADX, Bid/Ask, R:R")
-    args = parser.parse_args()
+
+    # paper-vs-real  ← ДО parse_args!
+    p_vs = sub.add_parser("paper-vs-real", help="Сравнение paper entry vs market")
+    p_vs.add_argument("--since", default=None, help="С даты (ISO)")
+    p_vs.add_argument("--until", default=None, help="До даты (ISO)")
+    p_vs.add_argument("--symbol", default=None, help="Фильтр по тикеру")
+    p_vs.set_defaults(func=cmd_paper_vs_real)
+
+    args = parser.parse_args()  # ← ПОСЛЕ всех add_parser
 
     journal.init_db()
 
