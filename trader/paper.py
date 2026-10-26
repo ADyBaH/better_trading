@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     warnings TEXT,
     context TEXT,
     bid_vol REAL,
-    ask_vol REAL
+    ask_vol REAL,
+    market_price_at_open REAL
 );
 CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_trades(result);
 CREATE INDEX IF NOT EXISTS idx_paper_created ON paper_trades(created_at);
@@ -71,11 +72,8 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
 
     # Миграция: добавляем колонки, если их нет (для старых БД)
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
-    if "bid_vol" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN bid_vol REAL")
-    if "ask_vol" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN ask_vol REAL")
-
+    if "market_price_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN market_price_at_open REAL")
     conn.commit()
 
 
@@ -276,6 +274,7 @@ def save_signal_as_paper(
     source_analysis_path: str | None = None,
     bid_vol: float | None = None,
     ask_vol: float | None = None,
+    market_price_at_open: float | None = None,
 ) -> int:
     """
     Создаёт paper-сделки из сигналов.
@@ -323,8 +322,8 @@ def save_signal_as_paper(
                     level_price, risk_reward, net_rr,
                     trend_at_open, adx_at_open, day_trend_at_open, structure_at_open,
                     created_at, result, warnings, context,
-                    bid_vol, ask_vol
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    bid_vol, ask_vol, market_price_at_open
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     sid,
@@ -358,6 +357,7 @@ def save_signal_as_paper(
                     ),
                     bid_vol,
                     ask_vol,
+                    market_price_at_open,
                 ),
             )
             if conn.total_changes > 0:
@@ -407,6 +407,7 @@ def _row_to_trade(row: sqlite3.Row) -> dict:
         "resolution_confidence": row["resolution_confidence"],
         "warnings": row["warnings"],
         "context": row["context"],
+        "market_price_at_open": row["market_price_at_open"],
     }
 
 

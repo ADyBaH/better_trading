@@ -249,6 +249,52 @@
 
 ---
 
+## Этап 12. Real-trading (мок-режим) ⏸
+
+### 12.1. Инфраструктура
+
+- [x] `data/api_alor_trade.py` — POST-ордера (place_order, cancel_order, get_orders).
+- [x] `_MOCK_MODE = True` — реальные ордера НЕ ставятся.
+- [x] `core/risk.py` — `calculate_position_size`.
+- [x] `trader/real.py` — `open_real_trade`, `close_real_trade` (мок).
+- [x] `ui/notify.py` — звук + `storage/logs/notifications.txt`.
+
+### 12.2. Интеграция
+
+- [x] `runner.py` — при сигнале: paper + notify + real (мок).
+
+### 12.3. Тесты
+
+- [x] `test_alor_trade.py` — 9 проверок.
+- [x] `test_real_trading.py` — 9 проверок.
+- [x] `test_notify.py` — 5 проверок.
+
+**Итого: 23 проверки.**
+
+### 12.4. Что НЕ делаем
+
+- Реальные ордера (только мок).
+- Авто-торговля (только ручное подтверждение).
+- Риск > 1% депозита.
+
+**Следующий шаг:** через 2 недели paper-tracking → если winrate 70%+ → тесты с реальными ордерами (на малом депозите).
+
+## Этап 13. market_price_at_open (лаг paper vs real) ✅
+
+### 13.1. Инфраструктура
+
+- [x] `data/api_alor.py`: `get_current_price_sync` (bid/ask/mid из стакана).
+- [x] `trader/paper.py`: миграция + `market_price_at_open` в `paper_trades`.
+- [x] `runner.py`: `get_current_price_sync` → `market_price_at_open`.
+- [x] `journal_cli.py`: `--wide` показывает `Mkt`.
+
+### 13.2. Результат
+
+- Сделка #7: `entry_price = 12.050` (close), `market_price_at_open = 12.073` (real).
+- **Разница 23 пункта** — лаг paper vs real.
+
+**Вывод:** лаг **существенен** (23 пункта). Через 2 недели — **сравнить** paper vs real.
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).

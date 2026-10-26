@@ -528,6 +528,11 @@ def cmd_paper_trades(args) -> int:
                     f"{r['bid_vol']:.0f}" if r["bid_vol"] is not None else "—",
                     f"{r['ask_vol']:.0f}" if r["ask_vol"] is not None else "—",
                     f"{r['risk_reward']:.2f}" if r["risk_reward"] is not None else "—",
+                    (
+                        f"{r['market_price_at_open']:.3f}"
+                        if r["market_price_at_open"] is not None
+                        else "—"
+                    ),
                 ]
             )
         table_rows.append(row_data)
@@ -548,7 +553,7 @@ def cmd_paper_trades(args) -> int:
         "Created",
     ]
     if args.wide:
-        headers.extend(["ADX", "Bid", "Ask", "R:R"])
+        headers.extend(["ADX", "Bid", "Ask", "R:R", "Mkt"])
 
     print(
         tabulate(

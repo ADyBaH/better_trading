@@ -157,51 +157,55 @@ def init_db() -> None:
 # ============================================================
 # CRUD
 # ============================================================
+def add_trade(trade: Trade) -> int:
+    """Добавляет сделку в журнал. Возвращает id."""
+    trade.compute_result()
 
+    tags_str = ",".join(trade.tags) if trade.tags else ""
 
-def compute_result(self) -> None:
-    """
-    Считает result_points и result_rub.
-
-    Пункты:
-    - если result_override_points задан — берём его,
-    - иначе — через compute_trade_result() из core.instruments.
-
-    Рубли:
-    - gross = points × step_cost × size,
-    - commission = commission_rub (если задан) ИЛИ commission_round × size,
-    - result_rub = gross − commission.
-    """
-    from core.instruments import get_instrument, compute_trade_result
-
-    inst = get_instrument(self.symbol)
-
-    # --- Override: считаем вручную, без compute_trade_result ---
-    if self.result_override_points is not None:
-        self.result_points = round(self.result_override_points, 1)
-        gross_rub = self.result_points * inst.step_cost * self.size
-        comm = (
-            self.commission_rub
-            if self.commission_rub is not None
-            else inst.commission_round
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO trades (
+                symbol, datetime_open, datetime_close, direction,
+                entry_price, exit_price, size, stop_price, take_price,
+                comment, tags, signal_kind, signal_strength, signal_score,
+                result_points, result_rub,
+                commission_rub, result_override_points, result_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                trade.symbol,
+                trade.datetime_open.isoformat(),
+                trade.datetime_close.isoformat() if trade.datetime_close else None,
+                trade.direction,
+                trade.entry_price,
+                trade.exit_price,
+                trade.size,
+                trade.stop_price,
+                trade.take_price,
+                trade.comment,
+                tags_str,
+                trade.signal_kind,
+                trade.signal_strength,
+                trade.signal_score,
+                trade.result_points,
+                trade.result_rub,
+                trade.commission_rub,
+                trade.result_override_points,
+                trade.result_note,
+            ),
         )
-        self.result_rub = round(gross_rub - comm * self.size, 2)
-        return
+        trade_id = cur.lastrowid
 
-    # --- Без override: общая функция ---
-    if self.exit_price is None:
-        self.result_points = None
-        self.result_rub = None
-        return
-
-    self.result_points, self.result_rub = compute_trade_result(
-        inst,
-        self.direction,
-        self.entry_price,
-        self.exit_price,
-        size=self.size,
-        commission_round=self.commission_rub,
+    log.info(
+        "Сделка #%d добавлена: %s %s @ %.3f",
+        trade_id,
+        trade.symbol,
+        trade.direction,
+        trade.entry_price,
     )
+    return trade_id
 
 
 def close_trade(

@@ -2,8 +2,9 @@
 Раннер. Каждые 5 минут:
     1. Запускает анализ.
     2. Дописывает результат в logs/YYYY-MM-DD/analysis_YYYY-MM-DD.{json,txt}.
-    3. Спит 5 минут.
-    4. Повторяет.
+    3. Paper-tracking + уведомления + real (мок).
+    4. Спит 5 минут.
+    5. Повторяет.
 
 Остановка: Ctrl+C.
 """
@@ -49,7 +50,6 @@ def save_analysis(result) -> tuple[Path, Path]:
             if not isinstance(data.get("snapshots"), list):
                 data["snapshots"] = []
         except (json.JSONDecodeError, KeyError):
-            # Если файл битый — начинаем заново
             data = {
                 "symbol": result.symbol,
                 "timeframe": result.timeframe,
@@ -63,8 +63,6 @@ def save_analysis(result) -> tuple[Path, Path]:
         }
 
     data["snapshots"].append(snapshot)
-
-    # Обновляем метаданные
     data["last_updated"] = now.isoformat()
     data["count"] = len(data["snapshots"])
 
@@ -83,7 +81,7 @@ def save_analysis(result) -> tuple[Path, Path]:
 
 
 def run_once(log) -> bool:
-    """Один цикл: анализ + сохранение + paper-tracking."""
+    """Один цикл: анализ + сохранение + paper-tracking + уведомления + real (мок)."""
     try:
         result = analyze()
         if result is None:
@@ -117,6 +115,18 @@ def run_once(log) -> bool:
                         "SELECT COALESCE(MAX(id), 0) FROM paper_trades"
                     ).fetchone()[0]
 
+                    # --- Реальная цена из стакана ---
+                    market_price = None
+                    if config.DATA_PROVIDER == "alor" and result.signals:
+                        from data.api_alor import get_current_price_sync
+
+                        try:
+                            cp = get_current_price_sync(result.symbol)
+                            market_price = cp["mid"]
+                            log.info("market_price: mid=%.3f", market_price)
+                        except Exception as e:
+                            log.debug("market_price не получен: %s", e)
+
                     # --- Стакан (только если есть сигналы) ---
                     bid_vol = None
                     ask_vol = None
@@ -144,6 +154,7 @@ def run_once(log) -> bool:
                         source_analysis_path=str(json_path),
                         bid_vol=bid_vol,
                         ask_vol=ask_vol,
+                        market_price_at_open=market_price,
                     )
 
                     open_ids_before = set(
@@ -174,7 +185,35 @@ def run_once(log) -> bool:
             except Exception as e:
                 log.exception("paper-tracking упал: %s", e)
 
-        # 3. Консольный вывод
+        # 3. Уведомления (если созданы paper-сделки)
+        if paper_created > 0:
+            try:
+                from ui.notify import notify_signal
+
+                for sig in result.signals:
+                    notify_signal(sig)
+            except Exception as e:
+                log.exception("notify упал: %s", e)
+
+        # 4. Real-торговля (МОК-РЕЖИМ, реальные ордера НЕ ставятся)
+        if paper_created > 0:
+            try:
+                from trader.real import open_real_trade
+
+                for sig in result.signals:
+                    real_trade = open_real_trade(sig)
+                    if real_trade:
+                        log.info(
+                            "real: %s %s %d @ %.3f (mock)",
+                            real_trade["trade_id"],
+                            real_trade["direction"],
+                            real_trade["size"],
+                            real_trade["entry_price"],
+                        )
+            except Exception as e:
+                log.exception("real-trading упал: %s", e)
+
+        # 5. Консольный вывод
         print(f"\n{'═' * 70}")
         print(
             f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  |  {result.symbol}  |  Цена: {result.current_price:.3f}"
