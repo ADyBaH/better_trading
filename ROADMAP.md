@@ -251,11 +251,13 @@
 
 ## Этап 12. Real-trading (мок-режим) ⏸
 
+## Этап 12. Real-trading (мок-режим) ⏸
+
 ### 12.1. Инфраструктура
 
 - [x] `data/api_alor_trade.py` — POST-ордера (place_order, cancel_order, get_orders).
 - [x] `_MOCK_MODE = True` — реальные ордера НЕ ставятся.
-- [x] `core/risk.py` — `calculate_position_size`.
+- [x] `core/risk.py` — `calculate_position_size` (риск → размер).
 - [x] `trader/real.py` — `open_real_trade`, `close_real_trade` (мок).
 - [x] `ui/notify.py` — звук + `storage/logs/notifications.txt`.
 
@@ -295,6 +297,39 @@
 
 **Вывод:** лаг **существенен** (23 пункта). Через 2 недели — **сравнить** paper vs real.
 
+### 13.1. Инфраструктура
+
+- [x] `data/api_alor.py`: `get_current_price_sync` (bid/ask/mid из стакана).
+- [x] `trader/paper.py`: миграция + `market_price_at_open` в `paper_trades`.
+- [x] `runner.py`: `get_current_price_sync` → `market_price_at_open`.
+- [x] `journal_cli.py`: `--wide` показывает `Mkt`.
+
+### 13.2. Результат
+
+- Сделка #7: `entry_price = 12.050` (close), `market_price_at_open = 12.073` (real).
+- **Разница 23 пункта** — лаг paper vs real.
+
+**Вывод:** лаг **существенен** (23 пункта). Через 2 недели — **сравнить** paper vs real.
+
+## Этап 14. Виртуальный депозит + Size ✅
+
+### 14.1. Инфраструктура
+
+- [x] `config.py`: `VIRTUAL_DEPOSIT = 3000`, `RISK_PER_TRADE_PCT = 0.01`.
+- [x] `trader/paper.py`: `size` от риска, `balance_after` (миграция).
+- [x] `paper_stats`: депозит, PnL%, max drawdown.
+- [x] `journal_cli.py`: вывод депозита в `paper-stats`, `Size` в `--wide`.
+
+### 14.2. Результат
+
+- **Депозит:** 3000 ₽ → 3230.32 ₽ (+7.68%).
+- **Max drawdown:** 2.20%.
+- **Size:** 1 контракт (от риска 30 ₽ / стоп 30 пунктов).
+- **Открытых:** 0 (старые expired).
+- **Новых:** 1 (максимум).
+
+**Вывод:** виртуальный депозит **работает**. Через 2 недели — **сравнить** paper vs real.
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
@@ -325,10 +360,10 @@
 ## Текущий статус
 
 **Версия:** 0.8.0
-**Готово:** этапы 1–11 (ALOR WebSocket, real-time), **наблюдаемость** (`--wide`, `by_adx`, `by_session`, `by_hour`, `by_weekday`).
-**В работе:** сбор статистики (19 сделок, 70.6% winrate).
+**Готово:** этапы 1–13 (ALOR WebSocket, real-time, real-мок, депозит, лаг paper vs real).
+**В работе:** сбор статистики (19 сделок, 70.6% winrate, депозит 3230.32 ₽, +7.68%).
 **Режим:** baseline. Фильтры НЕ внедряются до 40+ сигналов.
-**Следующий шаг:** через 2 недели (≈05.11) — разбор `paper_stats` на 40+ сделках.
+**Следующий шаг:** через 2 недели (≈07.11) — разбор `paper_stats` на 40+ сделках.
 
 ---
 
@@ -376,3 +411,8 @@
 - **По часу:** 09:00–10:00 — 5/5 (100%); 12:00–13:00 — 5/5 (100%); **17:00 — 0/2 (-62.4 pts)**.
 - **По дню недели:** Wed — 6/6 (+280.3); Tue — 3/3 (+133.3); Thu — 0/2 (-57.6); Fri — 0/1 (-32.4).
 - **Вывод:** 17:00 и четверг/пятница — убыточные (n мало).
+
+1. bounce × ADX strong → фильтр (n=6, 1W/5L, −151 ₽)
+2. ADX 20–25 (любой kind) → фильтр (n=6, 2W/4L, −51 ₽)
+3. вечер 17–20 → фильтр (n=8, 1W/5L, −99 ₽)
+   Порог: n≥10 в каждой. Проверять на F, внедрять в Y.

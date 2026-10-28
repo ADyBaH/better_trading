@@ -404,6 +404,10 @@ def cmd_paper_stats(args) -> int:
     else:
         print("  Winrate:  —")
     print(f"  Total PnL: {s['total_points']:+.1f} pts / {s['total_rub']:+.2f} ₽")
+    print(
+        f"  Депозит: {s['virtual_deposit_start']:.0f} ₽ → {s['virtual_deposit_end']:.2f} ₽ ({s['virtual_pnl_pct']:+.2f}%)"
+    )
+    print(f"  Max drawdown: {s['max_drawdown_pct']:.2f}%")
     if s["avg_win_points"] is not None:
         print(f"  Avg win:   {s['avg_win_points']:+.1f} pts")
     if s["avg_loss_points"] is not None:
@@ -533,6 +537,7 @@ def cmd_paper_trades(args) -> int:
                         if r["market_price_at_open"] is not None
                         else "—"
                     ),
+                    f"{r['size'] or 1}",
                 ]
             )
         table_rows.append(row_data)
@@ -553,7 +558,7 @@ def cmd_paper_trades(args) -> int:
         "Created",
     ]
     if args.wide:
-        headers.extend(["ADX", "Bid", "Ask", "R:R", "Mkt"])
+        headers.extend(["ADX", "Bid", "Ask", "R:R", "Mkt", "Size"])
 
     print(
         tabulate(

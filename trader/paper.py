@@ -6,6 +6,8 @@ import json
 from datetime import datetime, time
 from typing import Optional
 from core.logger import get_logger
+from core.risk import calculate_position_size
+from core.instruments import get_instrument
 
 import config
 import os
@@ -58,7 +60,9 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     context TEXT,
     bid_vol REAL,
     ask_vol REAL,
-    market_price_at_open REAL
+    market_price_at_open REAL,
+    size INTEGER DEFAULT 1,
+    balance_after REAL
 );
 CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_trades(result);
 CREATE INDEX IF NOT EXISTS idx_paper_created ON paper_trades(created_at);
@@ -74,6 +78,11 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
     if "market_price_at_open" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN market_price_at_open REAL")
+    conn.commit()
+    if "size" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN size INTEGER DEFAULT 1")
+    if "balance_after" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN balance_after REAL")
     conn.commit()
 
 
@@ -296,6 +305,18 @@ def save_signal_as_paper(
         )
         return 0
 
+    # --- Виртуальный депозит ---
+    inst = get_instrument(result.symbol)
+    risk_rub = config.VIRTUAL_DEPOSIT * config.RISK_PER_TRADE_PCT
+
+    # --- Не более 1 открытой paper-сделки ---
+    open_count = conn.execute(
+        "SELECT COUNT(*) FROM paper_trades WHERE result = 'open'"
+    ).fetchone()[0]
+    if open_count >= 1:
+        log.debug("paper: уже есть открытая сделка (%d) — пропуск", open_count)
+        return 0
+
     created = 0
 
     for sig in signals:
@@ -312,6 +333,17 @@ def save_signal_as_paper(
 
         ind = result.indicators
         adx_val = round(ind.adx, 2) if ind.adx is not None else None
+        # Размер от риска
+        size = calculate_position_size(
+            risk_rub=risk_rub,
+            entry_price=sig.entry_price,
+            stop_price=sig.stop_price,
+            step_cost=inst.step_cost,
+            price_step=inst.price_step,
+        )
+        if size <= 0:
+            log.debug("paper: size=0, пропуск")
+            continue
 
         try:
             conn.execute(
@@ -322,8 +354,9 @@ def save_signal_as_paper(
                     level_price, risk_reward, net_rr,
                     trend_at_open, adx_at_open, day_trend_at_open, structure_at_open,
                     created_at, result, warnings, context,
-                    bid_vol, ask_vol, market_price_at_open
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    bid_vol, ask_vol, market_price_at_open,
+                    size, balance_after
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     sid,
@@ -358,6 +391,8 @@ def save_signal_as_paper(
                     bid_vol,
                     ask_vol,
                     market_price_at_open,
+                    size,
+                    None,  # balance_after (заполним при закрытии)
                 ),
             )
             if conn.total_changes > 0:
@@ -408,6 +443,8 @@ def _row_to_trade(row: sqlite3.Row) -> dict:
         "warnings": row["warnings"],
         "context": row["context"],
         "market_price_at_open": row["market_price_at_open"],
+        "size": row["size"],
+        "balance_after": row["balance_after"],
     }
 
 
@@ -493,6 +530,14 @@ def resolve_open_trades(
             exit_price,
         )
 
+        # Баланс после сделки
+        prev_pnl = conn.execute(
+            "SELECT COALESCE(SUM(result_rub), 0) FROM paper_trades "
+            "WHERE symbol = ? AND result IN ('win', 'loss') AND id < ?",
+            (trade["symbol"], trade["id"]),
+        ).fetchone()[0]
+        balance_after = round(config.VIRTUAL_DEPOSIT + prev_pnl + rub, 2)
+
         confidence = "auto_ambiguous" if pnl.get("ambiguous") else "auto"
 
         conn.execute(
@@ -504,7 +549,8 @@ def resolve_open_trades(
                 result_points = ?,
                 result_rub = ?,
                 bars_to_close = ?,
-                resolution_confidence = ?
+                resolution_confidence = ?,
+                balance_after = ?
             WHERE id = ?
             """,
             (
@@ -515,6 +561,7 @@ def resolve_open_trades(
                 rub,
                 pnl["bars"],
                 confidence,
+                balance_after,
                 trade["id"],
             ),
         )
@@ -792,6 +839,23 @@ def paper_stats(
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
+    # --- Виртуальный депозит ---
+    closed_rows = [r for r in rows if r["result"] in ("win", "loss")]
+    balance_after = config.VIRTUAL_DEPOSIT
+    max_balance = config.VIRTUAL_DEPOSIT
+    max_drawdown = 0.0
+
+    for r in closed_rows:
+        if r["balance_after"] is not None:
+            balance_after = r["balance_after"]
+            max_balance = max(max_balance, balance_after)
+            drawdown = (max_balance - balance_after) / max_balance * 100
+            max_drawdown = max(max_drawdown, drawdown)
+
+    final_pnl_pct = (
+        (balance_after - config.VIRTUAL_DEPOSIT) / config.VIRTUAL_DEPOSIT * 100
+    )
+
     return {
         "total": total,
         "open": open_count,
@@ -812,6 +876,10 @@ def paper_stats(
         "by_session": by_session,
         "by_hour": by_hour,
         "by_weekday": by_weekday,
+        "virtual_deposit_start": config.VIRTUAL_DEPOSIT,
+        "virtual_deposit_end": balance_after,
+        "virtual_pnl_pct": round(final_pnl_pct, 2),
+        "max_drawdown_pct": round(max_drawdown, 2),
     }
 
 

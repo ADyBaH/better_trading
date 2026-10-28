@@ -15,6 +15,8 @@ _MOCK_MODE = True
 
 # Риск на сделку (рублей). 1% от 10000₽ = 100₽.
 RISK_RUB_PER_TRADE = 100.0
+VIRTUAL_DEPOSIT = 10000.0  # ₽
+RISK_PER_TRADE = 0.01  # 1%
 
 
 def open_real_trade(signal) -> dict | None:
@@ -39,7 +41,7 @@ def open_real_trade(signal) -> dict | None:
 
     # Размер позиции от риска
     size = calculate_position_size(
-        risk_rub=RISK_RUB_PER_TRADE,
+        risk_rub=VIRTUAL_DEPOSIT * RISK_PER_TRADE,
         entry_price=signal.entry_price,
         stop_price=signal.stop_price,
         step_cost=inst.step_cost,

@@ -103,6 +103,10 @@ python journal_cli.py stats
 | `python journal_cli.py paper-export`                        | Экспорт paper_trades в CSV             |
 | `python journal_cli.py paper-export --since=2026-10-20`     | CSV с даты                             |
 | `python journal_cli.py paper-export --symbol=CNYRUBF`       | CSV по тикеру                          |
+| `python journal_cli.py paper-vs-real`                       | Лаг paper entry vs market (пункты)     |
+| `python journal_cli.py paper-vs-real --since=2026-10-27`    | Лаг с даты                             |
+| `python journal_cli.py paper-export`                        | Экспорт paper_trades в CSV             |
+| `python journal_cli.py paper-export --since=2026-10-27`     | CSV с даты                             |
 
 ### Интерактивный ввод в `add`
 
@@ -174,7 +178,17 @@ ATR(H1) = 0.02574
   Следующий запуск ~21:19:11
 ```
 
-## Paper-tracking
+### `paper-stats` (с депозитом)
+
+```
+Всего: 19 (закрытых 13, открытых 6)
+Win: 8
+Loss: 5
+Winrate: 61.5% (без timeout)
+Total PnL: +257.1 pts / +230.32 ₽
+Депозит: 3000 ₽ → 3230.32 ₽ (+7.68%)
+Max drawdown: 2.20%
+```
 
 Каждый цикл раннера:
 
@@ -193,76 +207,51 @@ python journal_cli.py paper-stats
 ## Структура проекта
 
 ```
-better_trading/
-├── main.py                     # точка входа анализа
-├── runner.py                   # периодический анализ (каждые 20 мин)
-├── journal_cli.py              # CLI журнала + paper-stats
-├── config.py                   # параметры приложения
-├── pyproject.toml
-├── requirements.txt
-├── README.md
-├── ROADMAP.md
-├── LICENSE
+├── trader/
+│   ├── journal.py              # журнал реальных сделок (SQLite, trades)
+│   ├── paper.py                # paper-tracking (paper_trades)
+│   ├── paper_export.py         # экспорт paper_trades в CSV
+│   ├── paper_vs_real.py        # сравнение entry vs market (лаг)
+│   ├── real.py                 # real-trading (мок-режим)
+│   └── stats.py                # статистика журнала
+│
+├── data/
+│   ├── api_moex.py             # запросы к MOEX ISS
+│   ├── api_alor.py             # ALOR WebSocket (свечи, стакан, цена)
+│   ├── api_alor_trade.py       # ALOR POST-ордера (мок-режим)
+│   ├── api_facade.py           # кэш + докачка
+│   ├── storage_sqlite.py       # хранение свечей
+│   └── resample.py             # M1 → M5/M15/H1/H4
 │
 ├── core/
 │   ├── analyzer.py             # ядро анализа
 │   ├── instruments.py          # спецификации + compute_trade_result
 │   ├── models.py               # Level, Signal, AnalysisResult
+│   ├── risk.py                 # calculate_position_size (риск → размер)
 │   ├── logger.py               # логирование
 │   ├── errors.py               # (отложено)
 │   ├── scheduler.py            # (отложено)
 │   └── state.py                # (отложено)
 │
-├── data/
-│   ├── api_moex.py             # запросы к MOEX ISS
-│   ├── api_facade.py           # кэш + докачка
-│   ├── storage_sqlite.py       # хранение свечей
-│   ├── storage.py              # (вспомогательное)
-│   └── resample.py             # M1 → M5/M15/H1/H4
-│
-├── indicators/
-│   └── calc.py                 # EMA, RSI, ADX, ATR
-│
-├── strategy/
-│   ├── levels.py               # фракталы + кластеризация
-│   ├── references.py           # round, PDH/PDL, PWH/PWL
-│   ├── signals.py              # bounce, breakout, trend_level
-│   ├── signal_history.py       # история сигналов
-│   └── trend.py                # голосование тренда
-│
-├── trader/
-│   ├── journal.py              # журнал реальных сделок (SQLite, trades)
-│   ├── paper.py                # paper-tracking (SQLite, paper_trades)
-│   └── stats.py                # статистика журнала
-│
 ├── ui/
 │   ├── render_console.py       # консольный дашборд
-│   └── render_json.py          # JSON-рендеры
+│   ├── render_json.py          # JSON-рендеры
+│   └── notify.py               # звук + notifications.txt
 │
-├── storage/                    # данные (в .gitignore)
-│   ├── market.db               # свечи
-│   ├── journal.db              # trades + paper_trades
-│   └── logs/
-│       ├── bot.log
-│       ├── signals_history.json
-│       └── YYYY-MM-DD/
-│           ├── analysis_HH-MM-SS.json
-│           └── analysis_HH-MM-SS.txt
+├── scripts/
+│   └── fix_open_trades.py      # закрыть open (expired)
 │
-└── tests/                      # скрипты-проверки
-    ├── test_instruments.py
-    ├── test_journal_integrity.py
-    ├── test_paper.py
-    ├── test_paper_dedup.py
-    ├── test_paper_resolve.py
-    ├── test_paper_stats.py
-    ├── test_virtual_pnl.py
-    ├── test_signals_enrichment.py
-    ├── test_trend_conflict.py
-    ├── test_iss_lag.py
-    ├── test_pagination.py
-    ├── review_all_analysis.py
-    └── review_history.py
+├── tests/
+│   ├── test_instruments.py     # compute_trade_result
+│   ├── test_signals.py         # signals.py (23 проверки)
+│   ├── test_levels.py          # levels.py (14 проверок)
+│   ├── test_indicators.py      # calc.py (22 проверки)
+│   ├── test_paper_stats_extra.py  # by_adx/by_session/by_hour/by_weekday (21)
+│   ├── test_paper_export.py    # CSV-экспорт (9)
+│   ├── test_alor_trade.py      # POST-ордера (мок) (9)
+│   ├── test_real_trading.py    # risk + real (мок) (9)
+│   ├── test_notify.py          # уведомления (5)
+│   └── test_current_price.py   # get_current_price (5)
 ```
 
 ## Инструменты и комиссии
@@ -314,6 +303,33 @@ better_trading/
 - **Кэш**: `CACHE_TTL_MINUTES`.
 - **Источник данных**: `DATA_PROVIDER = "alor"` (real-time) или `"moex"` (ISS).
 - **Кэш**: `CACHE_TTL_MINUTES = 4` (для ALOR).
+- **Виртуальный депозит**: `VIRTUAL_DEPOSIT = 3000` (₽), `RISK_PER_TRADE_PCT = 0.01` (1%).
+- **Paper-tracking**: `PAPER_ENABLED`, `PAPER_TRADING_HOURS` (09:00–18:00),
+  `PAPER_TIMEOUT_BARS = 50`, `PAPER_DEDUP_MINUTES = 15`.
+
+## Real-trading (мок-режим)
+
+**Важно:** реальные ордера **НЕ** ставятся (`_MOCK_MODE = True`).
+
+### Что есть
+
+- `data/api_alor_trade.py`: `place_order`, `cancel_order`, `get_orders` (мок).
+- `trader/real.py`: `open_real_trade`, `close_real_trade` (мок).
+- `core/risk.py`: `calculate_position_size` (риск → размер).
+- `ui/notify.py`: звук + `storage/logs/notifications.txt`.
+
+### Как включить реальные ордера
+
+1. `data/api_alor_trade.py`: `_MOCK_MODE = False`.
+2. `trader/real.py`: `_MOCK_MODE = False`.
+3. **Только** после 2 недель paper-tracking с winrate 70%+.
+4. **Только** на **малом** депозите (1% риск).
+
+### Что **не** делаем
+
+- Авто-торговля (только ручное подтверждение).
+- Риск > 1% депозита.
+- Реальные ордера без тестов.
 
 ## Что в планах
 
