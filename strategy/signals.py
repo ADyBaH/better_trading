@@ -800,7 +800,7 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
     for s in sorted(all_signals, key=lambda x: x.strength_score, reverse=True):
         is_dup = False
         for b in best:
-            if b.direction != s.direction or b.kind != s.kind:
+            if b.direction != s.direction:
                 continue
             if abs((b.level_price or 0) - (s.level_price or 0)) < dedup_window:
                 is_dup = True

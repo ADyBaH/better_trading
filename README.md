@@ -26,6 +26,7 @@
 - **Экспорт paper-trades в CSV**: `journal_cli.py paper-export` → `storage/exports/paper_trades.csv`.
 - **Недельный тренд** (`week_trend`): bullish / bearish / neutral по H4 (EMA50/200, close vs close-5d, close vs open-5d). Пишется в `paper_trades.week_trend_at_open`.
 - **Разрезы `paper-stats`**: `by_week_trend`, `by_week_trend_direction` (week × long/short), `by_pressure` (bid/ask), `by_bars` (скорость закрытия).
+- **Дедупликация без kind**: `bounce` + `trend_level` на одном уровне (direction + level_price) — это один сигнал (с большим score).
 
 ## Установка
 

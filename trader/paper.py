@@ -692,6 +692,31 @@ def paper_stats(
     by_day_trend = _group("day_trend_at_open")
     by_week_trend = _group("week_trend_at_open")
 
+    # --- Разрез week_trend × direction ---
+    by_week_trend_direction = {}
+    for r in rows:
+        week = r["week_trend_at_open"] or "unknown"
+        direction = r["direction"] or "unknown"
+        key = f"{week} / {direction}"
+        if key not in by_week_trend_direction:
+            by_week_trend_direction[key] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_week_trend_direction[key]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_week_trend_direction.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
     # by_score — бакеты (1.0, 1.5, 2.0, 2.5, 3.0+)
     by_score = {}
     for r in rows:
@@ -793,6 +818,76 @@ def paper_stats(
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
+    # --- by_pressure (стакан на входе) ---
+    def _pressure_bucket(bid, ask):
+        if bid is None or ask is None:
+            return "unknown"
+        total = bid + ask
+        if total <= 0:
+            return "unknown"
+        pct = bid / total * 100
+        if pct < 40:
+            return "ask-heavy (<40)"
+        elif pct > 60:
+            return "bid-heavy (>60)"
+        return "balanced (40-60)"
+
+    by_pressure = {}
+    for r in rows:
+        bucket = _pressure_bucket(r["bid_vol"], r["ask_vol"])
+        if bucket not in by_pressure:
+            by_pressure[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_pressure[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_pressure.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
+    # --- by_bars (скорость закрытия) ---
+    def _bars_bucket(bars):
+        if bars is None:
+            return "unknown"
+        if bars <= 3:
+            return "1-3"
+        elif bars <= 10:
+            return "4-10"
+        elif bars <= 30:
+            return "11-30"
+        return "30+"
+
+    by_bars = {}
+    for r in rows:
+        bucket = _bars_bucket(r["bars_to_close"])
+        if bucket not in by_bars:
+            by_bars[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_bars[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_bars.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
     # --- by_hour ---
     by_hour = {}
     for r in rows:
@@ -878,8 +973,11 @@ def paper_stats(
         "by_trend": by_trend,
         "by_day_trend": by_day_trend,
         "by_week_trend": by_week_trend,
+        "by_week_trend_direction": by_week_trend_direction,
         "by_score": by_score,
         "by_adx": by_adx,
+        "by_pressure": by_pressure,
+        "by_bars": by_bars,
         "by_session": by_session,
         "by_hour": by_hour,
         "by_weekday": by_weekday,

@@ -350,6 +350,25 @@
 
 **Следующий шаг:** через неделю (≈05.11) — разбор `by_week_trend_direction` на 20+ сделках с `week_trend`.
 
+### 16.1. by_pressure ✅
+
+- [x] `pressure_pct` из `bid_vol`/`ask_vol`.
+- [x] Бакеты: `ask-heavy (<40)`, `balanced (40-60)`, `bid-heavy (>60)`.
+- [x] `paper_stats.by_pressure`, `journal_cli` вывод.
+- [x] Y: `bid-heavy` = 0W/2L, −67.52 (n=3, шум). `ask-heavy` = 0 (стакан сбалансирован).
+
+### 16.2. by_bars ✅
+
+- [x] Бакеты `bars_to_close`: `1-3`, `4-10`, `11-30`, `30+`.
+- [x] `paper_stats.by_bars`, `journal_cli` вывод.
+- [x] Y: `1-3` = 7W/5L (+126), `4-10` = 2W/5L (−19), `30+` = 3W/0L (+207, n=3).
+
+### 16.3. Дедупликация без kind
+
+- [x] Убрана проверка `kind` в `detect_signals`.
+- [x] `bounce` + `trend_level` на одном уровне (direction + level_price) схлопываются в один сигнал (с большим score).
+- [x] Причина: #30/#31 в Y — дубли `long trend_level` + `long bounce` на 12.143.
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
