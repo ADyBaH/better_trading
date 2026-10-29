@@ -330,6 +330,26 @@
 
 **Вывод:** виртуальный депозит **работает**. Через 2 недели — **сравнить** paper vs real.
 
+## Этап 15. week_trend + разрез direction ✅
+
+### 15.1. Недельный тренд
+
+- [x] `get_week_trend(df_h4)` — голосование: EMA50/EMA200, close vs close-5d, close vs open-5d.
+- [x] `neutral` при `|week_change_atr| < 0.5`.
+- [x] `IndicatorSnapshot.week_trend`, `week_change_atr`.
+- [x] `paper_trades.week_trend_at_open` (миграция + запись).
+- [x] `paper_stats.by_week_trend` + `by_week_trend_direction`.
+- [x] `journal_cli.py`: два блока в `paper-stats`.
+
+### 15.2. Что выяснили
+
+- **Рынок падает 2 месяца** (29.08: 12.895 → 29.10: 12.095, −800 пунктов). `week_trend=bearish` — **правда**, не баг.
+- **`get_week_trend` корректен** — EMA50 (12.18) < EMA200 (12.43), close < open-5d. Оба голоса bearish.
+- **На 72 сделках F: 100% `unknown`** — старые, до миграции. Новые (после раннера) — `bearish`.
+- **`by_week_trend_direction` пока не работает** — нужны 20–30 новых сделок, чтобы `bearish / long` vs `bearish / short` набрали статистику.
+
+**Следующий шаг:** через неделю (≈05.11) — разбор `by_week_trend_direction` на 20+ сделках с `week_trend`.
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
