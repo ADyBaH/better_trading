@@ -1,6 +1,6 @@
 from core.instruments import get_instrument
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 # ============================================================
 # ИНСТРУМЕНТ
@@ -152,7 +152,7 @@ PAPER_ENABLED = True
 # Резолв открытых сделок работает всегда — иначе зависнут.
 PAPER_TRADING_HOURS = {
     "start": "09:00",
-    "end": "18:00",
+    "end": "17:00",
     "timezone": "Europe/Moscow",
 }
 

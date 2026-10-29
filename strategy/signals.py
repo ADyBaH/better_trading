@@ -795,12 +795,19 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
         _finalize_signal(s, result, df, level, recent, result.symbol)
 
     # Дедупликация
-    best = {}
-    for s in all_signals:
-        key = (s.direction, round(s.level_price or 0, 3))
-        if key not in best or s.strength_score > best[key].strength_score:
-            best[key] = s
+    dedup_window = 0.5 * result.atr if result.atr > 0 else 0.0
+    best = []
+    for s in sorted(all_signals, key=lambda x: x.strength_score, reverse=True):
+        is_dup = False
+        for b in best:
+            if b.direction != s.direction or b.kind != s.kind:
+                continue
+            if abs((b.level_price or 0) - (s.level_price or 0)) < dedup_window:
+                is_dup = True
+                break
+        if not is_dup:
+            best.append(s)
 
-    deduped = sorted(best.values(), key=lambda s: s.strength_score, reverse=True)
+    deduped = best
     log.info("Сигналов: %d (после дедупликации из %d)", len(deduped), len(all_signals))
     return deduped

@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     adx_at_open REAL,
     day_trend_at_open TEXT,
     structure_at_open TEXT,
+    week_trend_at_open TEXT,
     created_at TEXT NOT NULL,
     closed_at TEXT,
     exit_price REAL,
@@ -72,17 +73,19 @@ CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_trades(symbol);
 
 def init_paper_table(conn: sqlite3.Connection) -> None:
     """Идемпотентно создаёт таблицу paper_trades и добавляет новые колонки."""
+    conn.row_factory = sqlite3.Row  # чтобы работало row["name"] даже на голом conn
     conn.executescript(CREATE_TABLE_SQL)
 
     # Миграция: добавляем колонки, если их нет (для старых БД)
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
     if "market_price_at_open" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN market_price_at_open REAL")
-    conn.commit()
     if "size" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN size INTEGER DEFAULT 1")
     if "balance_after" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN balance_after REAL")
+    if "week_trend_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN week_trend_at_open TEXT")
     conn.commit()
 
 
@@ -346,18 +349,18 @@ def save_signal_as_paper(
             continue
 
         try:
+            _columns = (
+                "signal_id, source_analysis_path, symbol, direction, kind, "
+                "strength, strength_score, entry_price, stop_price, take_price, "
+                "level_price, risk_reward, net_rr, "
+                "trend_at_open, adx_at_open, day_trend_at_open, structure_at_open, "
+                "week_trend_at_open, "
+                "created_at, result, warnings, context, "
+                "bid_vol, ask_vol, market_price_at_open, size, balance_after"
+            )
+            _placeholders = ", ".join(["?"] * len(_columns.split(",")))
             conn.execute(
-                """
-                INSERT OR IGNORE INTO paper_trades (
-                    signal_id, source_analysis_path, symbol, direction, kind,
-                    strength, strength_score, entry_price, stop_price, take_price,
-                    level_price, risk_reward, net_rr,
-                    trend_at_open, adx_at_open, day_trend_at_open, structure_at_open,
-                    created_at, result, warnings, context,
-                    bid_vol, ask_vol, market_price_at_open,
-                    size, balance_after
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                f"INSERT OR IGNORE INTO paper_trades ({_columns}) VALUES ({_placeholders})",
                 (
                     sid,
                     source_analysis_path,
@@ -376,6 +379,7 @@ def save_signal_as_paper(
                     adx_val,
                     ind.day_trend,
                     ind.structure,
+                    ind.week_trend,
                     result.timestamp.isoformat(),
                     "open",
                     (
@@ -432,6 +436,7 @@ def _row_to_trade(row: sqlite3.Row) -> dict:
         "adx_at_open": row["adx_at_open"],
         "day_trend_at_open": row["day_trend_at_open"],
         "structure_at_open": row["structure_at_open"],
+        "week_trend_at_open": row["week_trend_at_open"],
         "created_at": row["created_at"],
         "closed_at": row["closed_at"],
         "exit_price": row["exit_price"],
@@ -685,6 +690,7 @@ def paper_stats(
     by_kind = _group("kind")
     by_trend = _group("trend_at_open")
     by_day_trend = _group("day_trend_at_open")
+    by_week_trend = _group("week_trend_at_open")
 
     # by_score — бакеты (1.0, 1.5, 2.0, 2.5, 3.0+)
     by_score = {}
@@ -871,6 +877,7 @@ def paper_stats(
         "by_kind": by_kind,
         "by_trend": by_trend,
         "by_day_trend": by_day_trend,
+        "by_week_trend": by_week_trend,
         "by_score": by_score,
         "by_adx": by_adx,
         "by_session": by_session,

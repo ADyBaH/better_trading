@@ -64,6 +64,10 @@ class IndicatorSnapshot:
     vote_sum: int = 0
     vote_breakdown: dict = field(default_factory=dict)
 
+    # --- Недельный тренд (новое) ---
+    week_trend: str = "unknown"  # bullish / bearish / neutral / unknown
+    week_change_atr: float = 0.0
+
     def to_dict(self) -> dict:
         d = asdict(self)
         for key in ("ema_fast", "ema_slow", "rsi", "adx"):
@@ -71,6 +75,8 @@ class IndicatorSnapshot:
                 d[key] = round(d[key], 5)
         if d.get("day_change_atr") is not None:
             d["day_change_atr"] = round(d["day_change_atr"], 2)
+        if d.get("week_change_atr") is not None:
+            d["week_change_atr"] = round(d["week_change_atr"], 2)
         return d
 
 

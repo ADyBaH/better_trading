@@ -447,6 +447,7 @@ def cmd_paper_stats(args) -> int:
     _print_group("По типу сигнала", s["by_kind"])
     _print_group("По тренду на входе", s["by_trend"])
     _print_group("По дневному тренду", s["by_day_trend"])
+    _print_group("По недельному тренду", s["by_week_trend"])
     _print_group("По ADX", s["by_adx"])
     _print_group("По сессии", s["by_session"])
     _print_group("По часу", s["by_hour"])
@@ -529,6 +530,7 @@ def cmd_paper_trades(args) -> int:
             row_data.extend(
                 [
                     f"{r['adx_at_open']:.1f}" if r["adx_at_open"] is not None else "—",
+                    r["week_trend_at_open"] or "—",
                     f"{r['bid_vol']:.0f}" if r["bid_vol"] is not None else "—",
                     f"{r['ask_vol']:.0f}" if r["ask_vol"] is not None else "—",
                     f"{r['risk_reward']:.2f}" if r["risk_reward"] is not None else "—",
@@ -558,7 +560,7 @@ def cmd_paper_trades(args) -> int:
         "Created",
     ]
     if args.wide:
-        headers.extend(["ADX", "Bid", "Ask", "R:R", "Mkt", "Size"])
+        headers.extend(["ADX", "Week", "Bid", "Ask", "R:R", "Mkt", "Size"])
 
     print(
         tabulate(

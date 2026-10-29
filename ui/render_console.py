@@ -15,15 +15,15 @@ import config
 
 
 def _stars(score: float | None, max_score: float) -> str:
-    """Визуальная сила уровня по strength_score."""
+    """Визуальная сила уровня по strength_score. ASCII, чтобы не ломать таблицу."""
     if not score or max_score <= 0:
         return ""
     ratio = score / max_score
     if ratio >= 0.75:
-        return "★★★"
+        return "***"
     elif ratio >= 0.4:
-        return "★★"
-    return "★"
+        return "**"
+    return "*"
 
 
 def _fmt_ago(dt: datetime | None) -> str:
@@ -80,18 +80,18 @@ def _levels_table(levels: list[Level], current_price: float, is_reference: bool)
                     tfs,
                     _fmt_ago(lv.last_seen),
                     f"{lv.strength_score:.1f}" if lv.strength_score else "",
-                    stars,
                     tags,
                     pos,
+                    stars,
                 ]
             )
 
     if is_reference:
         headers = ["Цена", "Метка", "ΔATR", "Поз"]
-        return tabulate(rows, headers=headers, tablefmt="rounded_outline")
+        return tabulate(rows, headers=headers, tablefmt="psql")
     else:
-        headers = ["Цена", "Вес", "Тип", "ТФ", "Живёт", "Score", "★", "Теги", "Поз"]
-        return tabulate(rows, headers=headers, tablefmt="rounded_outline")
+        headers = ["Цена", "Вес", "Тип", "ТФ", "Живёт", "Score", "Теги", "Поз", "*"]
+        return tabulate(rows, headers=headers, tablefmt="psql")
 
 
 # ============================================================
@@ -138,9 +138,10 @@ def _signals_table(signals: list[Signal]) -> str:
         "R:R",
         "Net",
         "⚠",
-        "Критерии",
+        "Крит",
     ]
-    return tabulate(rows, headers=headers, tablefmt="rounded_outline")
+    # "psql" — компактнее rounded_outline, не рисует внешние рамки
+    return tabulate(rows, headers=headers, tablefmt="psql")
 
 
 def _signals_detail(signals: list[Signal]) -> str:

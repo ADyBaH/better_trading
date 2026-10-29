@@ -24,6 +24,8 @@
 - **Детальная таблица сделок**: `journal_cli.py paper-trades --wide` (ADX, Bid/Ask, R:R).
 - **Тянет свечи** с MOEX ISS (с лагом) **или ALOR WebSocket (real-time, лаг 5 мин)**.
 - **Экспорт paper-trades в CSV**: `journal_cli.py paper-export` → `storage/exports/paper_trades.csv`.
+- **Недельный тренд** (`week_trend`): bullish / bearish / neutral по H4 (EMA50/200, close vs close-5d, close vs open-5d). Пишется в `paper_trades.week_trend_at_open`.
+- **Разрезы `paper-stats`**: `by_week_trend`, `by_week_trend_direction` (week × long/short), `by_pressure` (bid/ask), `by_bars` (скорость закрытия).
 
 ## Установка
 
@@ -92,21 +94,21 @@ python journal_cli.py stats
 | `python journal_cli.py paper-stats`                         | Статистика paper-сделок                |
 | `python journal_cli.py paper-stats --since=2026-10-17`      | Paper с даты                           |
 | `python journal_cli.py paper-stats --symbol=CNYRUBF`        | Paper по тикеру                        |
+| `python journal_cli.py paper-stats --by-adx`                | Разбивка по ADX                        |
+| `python journal_cli.py paper-stats --by-session`            | Разбивка по сессии                     |
 | `python journal_cli.py paper-trades`                        | Показать paper-сделки (таблица)        |
 | `python journal_cli.py paper-trades --open`                 | Только открытые                        |
 | `python journal_cli.py paper-trades --limit=10`             | Последние 10                           |
 | `python journal_cli.py paper-trades --symbol=CNYRUBF`       | Фильтр по тикеру                       |
 | `python journal_cli.py paper-trades --wide`                 | ADX, Bid/Ask, R:R                      |
 | `python journal_cli.py paper-trades --open --wide`          | Только открытые + расширенные поля     |
-| `python journal_cli.py paper-stats --by-adx`                | Разбивка по ADX                        |
-| `python journal_cli.py paper-stats --by-session`            | Разбивка по сессии                     |
 | `python journal_cli.py paper-export`                        | Экспорт paper_trades в CSV             |
 | `python journal_cli.py paper-export --since=2026-10-20`     | CSV с даты                             |
 | `python journal_cli.py paper-export --symbol=CNYRUBF`       | CSV по тикеру                          |
-| `python journal_cli.py paper-vs-real`                       | Лаг paper entry vs market (пункты)     |
-| `python journal_cli.py paper-vs-real --since=2026-10-27`    | Лаг с даты                             |
 | `python journal_cli.py paper-export`                        | Экспорт paper_trades в CSV             |
 | `python journal_cli.py paper-export --since=2026-10-27`     | CSV с даты                             |
+| `python journal_cli.py paper-vs-real`                       | Лаг paper entry vs market (пункты)     |
+| `python journal_cli.py paper-vs-real --since=2026-10-27`    | Лаг с даты                             |
 
 ### Интерактивный ввод в `add`
 
