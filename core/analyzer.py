@@ -9,7 +9,13 @@ from datetime import datetime
 from core.logger import get_logger
 from core.models import AnalysisResult, IndicatorSnapshot, Level, Signal
 from data.api_facade import get_candles_tf
-from indicators.calc import add_indicators, get_atr, get_trend_context, get_main_trend
+from indicators.calc import (
+    add_indicators,
+    get_atr,
+    get_trend_context,
+    get_main_trend,
+    get_week_trend,
+)
 from strategy.levels import build_levels, find_fractals
 from strategy.references import build_references
 from strategy.signals import detect_signals
@@ -80,6 +86,12 @@ def _build_indicator_snapshot(
 
     main_trend_info = get_main_trend(trend_context)
 
+    # --- Недельный тренд (H4) ---
+    from data.api_facade import get_candles_tf
+
+    df_h4 = get_candles_tf("H4", count=300)
+    week_ctx = get_week_trend(df_h4)
+
     return IndicatorSnapshot(
         ema_fast=ema_fast_f,
         ema_slow=ema_slow_f,
@@ -94,6 +106,8 @@ def _build_indicator_snapshot(
         price_direction=trend_context["price_direction"],
         vote_sum=main_trend_info["vote_sum"],
         vote_breakdown=main_trend_info["vote_breakdown"],
+        week_trend=week_ctx["week_trend"],
+        week_change_atr=week_ctx["week_change_atr"],
     )
 
 

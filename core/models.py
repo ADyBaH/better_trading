@@ -56,13 +56,17 @@ class IndicatorSnapshot:
     adx_state: str  # strong / trend / flat / none
     rsi_state: str  # overbought / oversold / near_overbought / ...
 
-    # --- НОВОЕ: контекст тренда ---
+    # --- контекст тренда ---
     day_trend: str = "unknown"  # bullish / bearish / neutral / unknown
     day_change_atr: float = 0.0
     structure: str = "mixed"  # bullish / bearish / mixed
     price_direction: str = "unknown"  # up / down / unknown
     vote_sum: int = 0
     vote_breakdown: dict = field(default_factory=dict)
+
+    # --- Недельный тренд ---
+    week_trend: str = "unknown"
+    week_change_atr: float = 0.0
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -71,6 +75,8 @@ class IndicatorSnapshot:
                 d[key] = round(d[key], 5)
         if d.get("day_change_atr") is not None:
             d["day_change_atr"] = round(d["day_change_atr"], 2)
+        if d.get("week_change_atr") is not None:
+            d["week_change_atr"] = round(d["week_change_atr"], 2)
         return d
 
 

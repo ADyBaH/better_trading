@@ -34,7 +34,7 @@ TIMEFRAMES = ["M5", "M15", "H1"]
 # ============================================================
 TRADING_HOURS = {
     "start": "08:00",
-    "end": "20:00",
+    "end": "19:00",
     "timezone": "Europe/Moscow",
 }
 TRADING_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]

@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     adx_at_open REAL,
     day_trend_at_open TEXT,
     structure_at_open TEXT,
+    week_trend_at_open TEXT,
     created_at TEXT NOT NULL,
     closed_at TEXT,
     exit_price REAL,
@@ -67,7 +68,12 @@ CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_trades(symbol);
 
 def init_paper_table(conn: sqlite3.Connection) -> None:
     """Идемпотентно создаёт таблицу paper_trades и добавляет новые колонки."""
+    if conn.row_factory is None:
+        conn.row_factory = sqlite3.Row
     conn.executescript(CREATE_TABLE_SQL)
+
+    # Миграция: добавляем колонки, если их нет (для старых БД)
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
 
     # Миграция: добавляем колонки, если их нет (для старых БД)
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
@@ -75,7 +81,10 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN bid_vol REAL")
     if "ask_vol" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN ask_vol REAL")
-
+    if "balance_after" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN balance_after REAL")
+    if "week_trend_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN week_trend_at_open TEXT")
     conn.commit()
 
 
@@ -315,17 +324,18 @@ def save_signal_as_paper(
         adx_val = round(ind.adx, 2) if ind.adx is not None else None
 
         try:
+            _columns = (
+                "signal_id, source_analysis_path, symbol, direction, kind, "
+                "strength, strength_score, entry_price, stop_price, take_price, "
+                "level_price, risk_reward, net_rr, "
+                "trend_at_open, adx_at_open, day_trend_at_open, structure_at_open, "
+                "week_trend_at_open, "
+                "created_at, result, warnings, context, "
+                "bid_vol, ask_vol"
+            )
+            _placeholders = ", ".join(["?"] * len(_columns.split(",")))
             conn.execute(
-                """
-                INSERT OR IGNORE INTO paper_trades (
-                    signal_id, source_analysis_path, symbol, direction, kind,
-                    strength, strength_score, entry_price, stop_price, take_price,
-                    level_price, risk_reward, net_rr,
-                    trend_at_open, adx_at_open, day_trend_at_open, structure_at_open,
-                    created_at, result, warnings, context,
-                    bid_vol, ask_vol
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                f"INSERT OR IGNORE INTO paper_trades ({_columns}) VALUES ({_placeholders})",
                 (
                     sid,
                     source_analysis_path,
@@ -344,6 +354,7 @@ def save_signal_as_paper(
                     adx_val,
                     ind.day_trend,
                     ind.structure,
+                    ind.week_trend,
                     result.timestamp.isoformat(),
                     "open",
                     (
@@ -407,6 +418,7 @@ def _row_to_trade(row: sqlite3.Row) -> dict:
         "resolution_confidence": row["resolution_confidence"],
         "warnings": row["warnings"],
         "context": row["context"],
+        "week_trend_at_open": row["week_trend_at_open"],
     }
 
 
@@ -637,6 +649,32 @@ def paper_stats(
     by_kind = _group("kind")
     by_trend = _group("trend_at_open")
     by_day_trend = _group("day_trend_at_open")
+    by_week_trend = _group("week_trend_at_open")
+
+    # --- Разрез week_trend × direction ---
+    by_week_trend_direction = {}
+    for r in rows:
+        week = r["week_trend_at_open"] or "unknown"
+        direction = r["direction"] or "unknown"
+        key = f"{week} / {direction}"
+        if key not in by_week_trend_direction:
+            by_week_trend_direction[key] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_week_trend_direction[key]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_week_trend_direction.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
 
     # by_score — бакеты (1.0, 1.5, 2.0, 2.5, 3.0+)
     by_score = {}
@@ -739,6 +777,76 @@ def paper_stats(
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
+    # --- by_pressure (стакан на входе) ---
+    def _pressure_bucket(bid, ask):
+        if bid is None or ask is None:
+            return "unknown"
+        total = bid + ask
+        if total <= 0:
+            return "unknown"
+        pct = bid / total * 100
+        if pct < 40:
+            return "ask-heavy (<40)"
+        elif pct > 60:
+            return "bid-heavy (>60)"
+        return "balanced (40-60)"
+
+    by_pressure = {}
+    for r in rows:
+        bucket = _pressure_bucket(r["bid_vol"], r["ask_vol"])
+        if bucket not in by_pressure:
+            by_pressure[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_pressure[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_pressure.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
+    # --- by_bars (скорость закрытия) ---
+    def _bars_bucket(bars):
+        if bars is None:
+            return "unknown"
+        if bars <= 3:
+            return "1-3"
+        elif bars <= 10:
+            return "4-10"
+        elif bars <= 30:
+            return "11-30"
+        return "30+"
+
+    by_bars = {}
+    for r in rows:
+        bucket = _bars_bucket(r["bars_to_close"])
+        if bucket not in by_bars:
+            by_bars[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_bars[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_bars.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
     # --- by_hour ---
     by_hour = {}
     for r in rows:
@@ -791,6 +899,31 @@ def paper_stats(
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
+    # --- Разрез week_trend × direction ---
+    by_week_trend_direction = {}
+    for r in rows:
+        week = r["week_trend_at_open"] or "unknown"
+        direction = r["direction"] or "unknown"
+        key = f"{week} / {direction}"
+        if key not in by_week_trend_direction:
+            by_week_trend_direction[key] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_week_trend_direction[key]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_week_trend_direction.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
     return {
         "total": total,
         "open": open_count,
@@ -806,8 +939,12 @@ def paper_stats(
         "by_kind": by_kind,
         "by_trend": by_trend,
         "by_day_trend": by_day_trend,
+        "by_week_trend": by_week_trend,
+        "by_week_trend_direction": by_week_trend_direction,
         "by_score": by_score,
         "by_adx": by_adx,
+        "by_pressure": by_pressure,
+        "by_bars": by_bars,
         "by_session": by_session,
         "by_hour": by_hour,
         "by_weekday": by_weekday,

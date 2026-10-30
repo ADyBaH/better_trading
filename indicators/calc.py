@@ -272,3 +272,67 @@ def get_main_trend(trend_context: dict) -> dict:
         "vote_sum": vote_sum,
         "vote_breakdown": votes,
     }
+
+
+def get_week_trend(df_h4) -> dict:
+    """
+    Недельный тренд по H4.
+    Голоса:
+        - EMA50 vs EMA200 (±1)
+        - close vs close 5 дней назад (±1)
+        - close vs open 5 дней назад (±1)
+    Нейтральная зона: |week_change_atr| < 0.5 → neutral.
+    """
+    import pandas as pd
+    import pandas_ta as ta
+
+    empty = {"week_trend": "unknown", "week_change_atr": 0.0}
+    if df_h4 is None or len(df_h4) < 200:
+        return empty
+
+    df = df_h4.copy().reset_index(drop=True)
+    df["ema50"] = ta.ema(df["close"], length=50)
+    df["ema200"] = ta.ema(df["close"], length=200)
+    df["atr"] = ta.atr(df["high"], df["low"], df["close"], length=14)
+
+    last = df.iloc[-1]
+    if pd.isna(last["ema50"]) or pd.isna(last["ema200"]) or pd.isna(last["atr"]):
+        return empty
+
+    votes = 0
+    if last["ema50"] > last["ema200"]:
+        votes += 1
+    else:
+        votes -= 1
+
+    week_close_5d = df["close"].iloc[-30]
+    week_open_5d = df["open"].iloc[-30]
+
+    if last["close"] > week_close_5d:
+        votes += 1
+    else:
+        votes -= 1
+
+    if last["close"] > week_open_5d:
+        votes += 1
+    else:
+        votes -= 1
+
+    week_change_atr = 0.0
+    if last["atr"] > 0:
+        week_change_atr = (last["close"] - week_open_5d) / last["atr"]
+
+    # Нейтральная зона: малое изменение → neutral
+    if abs(week_change_atr) < 0.5:
+        week_trend = "neutral"
+    elif votes >= 1:
+        week_trend = "bullish"
+    elif votes <= -1:
+        week_trend = "bearish"
+    else:
+        week_trend = "neutral"
+
+    return {
+        "week_trend": week_trend,
+        "week_change_atr": round(float(week_change_atr), 2),
+    }
