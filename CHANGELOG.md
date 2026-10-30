@@ -19,3 +19,8 @@
 
 - `week_trend` в F: 72 сделки `unknown` (до миграции). Новые — `bearish` (рынок падает).
 - `by_week_trend_direction` — ждёт 20–30 новых сделок.
+
+### Исправлено
+
+- `detect_signals`: дедупликация **не различает kind** — `bounce` + `trend_level` на одном уровне схлопываются в один сигнал (с большим score). Причина: #30/#31 в Y.
+- `detect_signals`: дедупликация без `kind` (bounce + trend_level на одном уровне — один сигнал).
