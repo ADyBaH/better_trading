@@ -127,3 +127,4 @@
 - **Сделано:** `order_book` в `AnalysisResult`, warning `bid-heavy`, фикс `reconfigure` (PYTHONIOENCODING).
 - **Сделок:** 0 (суббота).
 - **`paper-stats`:** 89 сделок (вчерашний срез).
+  **DD F (89 сделок): 12.85%.** Y (35): 7.04%. F — research (без лимита), Y — стратегия (лимит 1).
