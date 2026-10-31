@@ -276,6 +276,16 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
         references=references,
         signals=[],  # пока пусто — заполним ниже
     )
+
+    # --- Стакан (bid/ask) для warnings ---
+    if config.DATA_PROVIDER == "alor":
+        try:
+            from data.api_alor import get_order_book_pressure_sync
+
+            result.order_book = get_order_book_pressure_sync(symbol)
+        except Exception as e:
+            log.debug("order_book не получен: %s", e)
+
     from strategy.signal_history import append_signals
 
     signals = detect_signals(result, df)

@@ -149,6 +149,7 @@ class AnalysisResult:
     levels: list[Level]
     references: list[Level]
     signals: list[Signal] = field(default_factory=list)
+    order_book: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {

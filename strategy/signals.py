@@ -248,6 +248,19 @@ def _build_warnings(
     if ind.adx is not None and ind.adx < config.ADX_THRESHOLD:
         warnings.append(f"ADX {ind.adx:.1f} flat — нет тренда")
 
+    # --- Недельный тренд ---
+    if ind.week_trend == "neutral" and direction == "long":
+        warnings.append("✅ neutral week + long — хороший контекст")
+
+    # --- Стакан против входа ---
+    ob = getattr(result, "order_book", None) or {}
+    pressure = ob.get("pressure_pct")
+    if pressure is not None:
+        if direction == "short" and pressure > 60:
+            warnings.append(f"⚠ bid-heavy ({pressure:.0f}%) — шорт против покупателей")
+        elif direction == "long" and pressure < 40:
+            warnings.append(f"⚠ ask-heavy ({pressure:.0f}%) — лонг против продавцов")
+
     # Против тренда
     if ind.trend != "none":
         if direction == "long" and ind.trend == "down":

@@ -25,10 +25,10 @@ from core.analyzer import analyze
 from ui.render_console import render_console, render_console_to_string
 from ui.render_json import render_json
 
-
 # ============================================================
 # Аргументы CLI
 # ============================================================
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -82,6 +82,7 @@ def parse_args() -> argparse.Namespace:
 # Логирование запуска
 # ============================================================
 
+
 def attach_run_logger() -> Path:
     """
     Добавляет второй FileHandler, пишущий в storage/logs/run_<timestamp>.log.
@@ -97,7 +98,7 @@ def attach_run_logger() -> Path:
     handler.setFormatter(
         logging.Formatter(config.LOG_FORMAT, datefmt=config.LOG_DATE_FORMAT)
     )
-    handler.setLevel(logging.DEBUG)   # в отдельный файл — всё, включая DEBUG
+    handler.setLevel(logging.DEBUG)  # в отдельный файл — всё, включая DEBUG
     logging.getLogger().addHandler(handler)
 
     return run_log_path
@@ -106,6 +107,7 @@ def attach_run_logger() -> Path:
 # ============================================================
 # Сохранение вывода рендерера
 # ============================================================
+
 
 def save_output(
     result,
@@ -139,7 +141,15 @@ def save_output(
 # main
 # ============================================================
 
+
 def main() -> int:
+    import sys
+
+    if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+        sys.stdout.reconfigure(encoding="utf-8")
+    if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
+        sys.stderr.reconfigure(encoding="utf-8")
+
     setup_logging()
     log = get_logger(__name__)
 
