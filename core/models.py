@@ -162,6 +162,7 @@ class AnalysisResult:
             "levels": [lv.to_dict() for lv in self.levels],
             "references": [r.to_dict() for r in self.references],
             "signals": [s.to_dict() for s in self.signals],
+            "order_book": self.order_book,
         }
 
 
