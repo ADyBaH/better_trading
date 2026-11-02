@@ -523,7 +523,7 @@ def cmd_paper_trades(args) -> int:
             f"{r['result_points']:+.1f}" if r["result_points"] is not None else "—",
             f"{r['result_rub']:+.2f}" if r["result_rub"] is not None else "—",
             r["bars_to_close"] or "—",
-            r["created_at"][:16],
+            (r["created_at"][5:16] if r["created_at"] else "—"),
         ]
         if args.wide:
             row_data.extend(
