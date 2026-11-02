@@ -449,6 +449,7 @@ def cmd_paper_stats(args) -> int:
     _print_group("По дневному тренду", s["by_day_trend"])
     _print_group("По недельному тренду", s["by_week_trend"])
     _print_group("По недельному тренду × направление", s["by_week_trend_direction"])
+    _print_group("По состоянию рынка", s["by_market_state"])
     _print_group("По ADX", s["by_adx"])
     _print_group("По стакану (bid/ask)", s["by_pressure"])
     _print_group("По скорости закрытия (баров)", s["by_bars"])

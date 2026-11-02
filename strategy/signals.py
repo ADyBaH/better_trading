@@ -248,6 +248,14 @@ def _build_warnings(
     if ind.adx is not None and ind.adx < config.ADX_THRESHOLD:
         warnings.append(f"ADX {ind.adx:.1f} flat — нет тренда")
 
+    # --- Состояние рынка ---
+    if ind.market_state == "pullback":
+        warnings.append(
+            f"🔄 Откат после импульса ({ind.impulse_atr:.1f} ATR) — вход против отката"
+        )
+    elif ind.market_state == "impulse":
+        warnings.append(f"🚀 Импульс {ind.impulse_atr:.1f} ATR — риск входа на пике")
+
     # --- Недельный тренд ---
     if ind.week_trend == "neutral" and direction == "long":
         warnings.append("✅ neutral week + long — хороший контекст")
@@ -395,6 +403,7 @@ def _finalize_signal(
 ) -> Signal:
     """Заполняет context, warnings, R:R."""
     signal.context = _build_context(result, df, level, recent_signal)
+    signal.market_state = result.indicators.market_state
     signal.warnings = _build_warnings(
         signal.direction, result, level, recent_signal, df
     )
