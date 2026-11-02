@@ -92,6 +92,34 @@ def _build_indicator_snapshot(
     df_h4 = get_candles_tf("H4", count=300)
     week_ctx = get_week_trend(df_h4)
 
+    # --- Импульс и состояние рынка (M15) ---
+    n_impulse = 12  # 12 M15 = 3 часа
+    n_pullback = 6  # 6 M15 = 1.5 часа
+
+    impulse_atr = 0.0
+    pullback_atr = 0.0
+    impulse_dir = "none"
+    market_state = "normal"
+
+    if len(df) > n_impulse and atr > 0:
+        price_n_ago = float(df["close"].iloc[-n_impulse])
+        impulse_atr = abs(current_price - price_n_ago) / atr
+
+        if impulse_atr > 1.5:
+            if current_price > price_n_ago:
+                impulse_dir = "up"
+            else:
+                impulse_dir = "down"
+
+    if len(df) > n_pullback and atr > 0:
+        price_n_ago_pb = float(df["close"].iloc[-n_pullback])
+        pullback_atr = abs(current_price - price_n_ago_pb) / atr
+
+    if impulse_atr > 3.0:
+        market_state = "impulse"
+    elif impulse_atr > 2.0 and pullback_atr < impulse_atr * 0.5:
+        market_state = "pullback"
+
     return IndicatorSnapshot(
         ema_fast=ema_fast_f,
         ema_slow=ema_slow_f,
@@ -108,6 +136,9 @@ def _build_indicator_snapshot(
         vote_breakdown=main_trend_info["vote_breakdown"],
         week_trend=week_ctx["week_trend"],
         week_change_atr=week_ctx["week_change_atr"],
+        impulse_atr=round(impulse_atr, 2),
+        impulse_dir=impulse_dir,
+        market_state=market_state,
     )
 
 

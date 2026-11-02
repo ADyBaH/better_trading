@@ -68,6 +68,10 @@ class IndicatorSnapshot:
     week_trend: str = "unknown"
     week_change_atr: float = 0.0
 
+    impulse_atr: float = 0.0
+    impulse_dir: str = "none"  # up / down / none
+    market_state: str = "normal"  # normal / pullback / impulse
+
     def to_dict(self) -> dict:
         d = asdict(self)
         for key in ("ema_fast", "ema_slow", "rsi", "adx"):
@@ -77,6 +81,8 @@ class IndicatorSnapshot:
             d["day_change_atr"] = round(d["day_change_atr"], 2)
         if d.get("week_change_atr") is not None:
             d["week_change_atr"] = round(d["week_change_atr"], 2)
+        if d.get("impulse_atr") is not None:
+            d["impulse_atr"] = round(d["impulse_atr"], 2)
         return d
 
 
@@ -104,6 +110,7 @@ class Signal:
     net_rr: Optional[float] = None  # R:R с учётом комиссии
     warnings: list[str] = field(default_factory=list)
     context: dict = field(default_factory=dict)
+    market_state: str = "normal"
 
     def compute_rr(self, commission_round: float = 0.0) -> None:
         """
@@ -163,6 +170,7 @@ class AnalysisResult:
             "references": [r.to_dict() for r in self.references],
             "signals": [s.to_dict() for s in self.signals],
             "order_book": self.order_book,
+            "market_state": self.market_state,
         }
 
 

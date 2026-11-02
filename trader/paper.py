@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     day_trend_at_open TEXT,
     structure_at_open TEXT,
     week_trend_at_open TEXT,
+    market_state_at_open TEXT,
+    created_at TEXT NOT NULL,
+    week_trend_at_open TEXT,
     created_at TEXT NOT NULL,
     closed_at TEXT,
     exit_price REAL,
@@ -85,6 +88,8 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN balance_after REAL")
     if "week_trend_at_open" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN week_trend_at_open TEXT")
+    if "market_state_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN market_state_at_open TEXT")
     conn.commit()
 
 
@@ -329,7 +334,7 @@ def save_signal_as_paper(
                 "strength, strength_score, entry_price, stop_price, take_price, "
                 "level_price, risk_reward, net_rr, "
                 "trend_at_open, adx_at_open, day_trend_at_open, structure_at_open, "
-                "week_trend_at_open, "
+                "week_trend_at_open, market_state_at_open, "
                 "created_at, result, warnings, context, "
                 "bid_vol, ask_vol"
             )
@@ -355,6 +360,7 @@ def save_signal_as_paper(
                     ind.day_trend,
                     ind.structure,
                     ind.week_trend,
+                    ind.market_state,
                     result.timestamp.isoformat(),
                     "open",
                     (
@@ -408,6 +414,7 @@ def _row_to_trade(row: sqlite3.Row) -> dict:
         "adx_at_open": row["adx_at_open"],
         "day_trend_at_open": row["day_trend_at_open"],
         "structure_at_open": row["structure_at_open"],
+        "market_state_at_open": row["market_state_at_open"],
         "created_at": row["created_at"],
         "closed_at": row["closed_at"],
         "exit_price": row["exit_price"],
@@ -676,6 +683,9 @@ def paper_stats(
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
+    # --- by_market_state ---
+    by_market_state = _group("market_state_at_open")
+
     # by_score — бакеты (1.0, 1.5, 2.0, 2.5, 3.0+)
     by_score = {}
     for r in rows:
@@ -941,6 +951,7 @@ def paper_stats(
         "by_day_trend": by_day_trend,
         "by_week_trend": by_week_trend,
         "by_week_trend_direction": by_week_trend_direction,
+        "by_market_state": by_market_state,
         "by_score": by_score,
         "by_adx": by_adx,
         "by_pressure": by_pressure,
