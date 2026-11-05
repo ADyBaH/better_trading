@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     structure_at_open TEXT,
     week_trend_at_open TEXT,
     market_state_at_open TEXT,
+    rsi_at_open REAL,
+    atr_percentile_at_open REAL,
     created_at TEXT NOT NULL,
     week_trend_at_open TEXT,
     created_at TEXT NOT NULL,
@@ -90,6 +92,10 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN week_trend_at_open TEXT")
     if "market_state_at_open" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN market_state_at_open TEXT")
+    if "rsi_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN rsi_at_open REAL")
+    if "atr_percentile_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN atr_percentile_at_open REAL")
     conn.commit()
 
 
@@ -426,6 +432,8 @@ def _row_to_trade(row: sqlite3.Row) -> dict:
         "warnings": row["warnings"],
         "context": row["context"],
         "week_trend_at_open": row["week_trend_at_open"],
+        "rsi_at_open": row["rsi_at_open"],
+        "atr_percentile_at_open": row["atr_percentile_at_open"],
     }
 
 
@@ -685,6 +693,72 @@ def paper_stats(
 
     # --- by_market_state ---
     by_market_state = _group("market_state_at_open")
+
+    # --- by_rsi ---
+    def _rsi_bucket(rsi):
+        if rsi is None:
+            return "unknown"
+        if rsi < 30:
+            return "<30 (oversold)"
+        elif rsi < 50:
+            return "30-50"
+        elif rsi < 70:
+            return "50-70"
+        return ">70 (overbought)"
+
+    by_rsi = {}
+    for r in rows:
+        bucket = _rsi_bucket(r["rsi_at_open"])
+        if bucket not in by_rsi:
+            by_rsi[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_rsi[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_rsi.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
+    # --- by_atr_percentile ---
+    def _atr_pct_bucket(pct):
+        if pct is None:
+            return "unknown"
+        if pct < 0.25:
+            return "<0.25 (low)"
+        elif pct > 0.75:
+            return ">0.75 (high)"
+        return "0.25-0.75"
+
+    by_atr_percentile = {}
+    for r in rows:
+        bucket = _atr_pct_bucket(r["atr_percentile_at_open"])
+        if bucket not in by_atr_percentile:
+            by_atr_percentile[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_atr_percentile[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_atr_percentile.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
 
     # by_score — бакеты (1.0, 1.5, 2.0, 2.5, 3.0+)
     by_score = {}
@@ -952,6 +1026,8 @@ def paper_stats(
         "by_week_trend": by_week_trend,
         "by_week_trend_direction": by_week_trend_direction,
         "by_market_state": by_market_state,
+        "by_rsi": by_rsi,
+        "by_atr_percentile": by_atr_percentile,
         "by_score": by_score,
         "by_adx": by_adx,
         "by_pressure": by_pressure,

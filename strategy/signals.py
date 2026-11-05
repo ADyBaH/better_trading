@@ -807,6 +807,14 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
 
     # Обогащаем
     for s in all_signals:
+        # --- Фильтр: bullish / long (n=19, 4W/14L, -207 ₽) ---
+        if (
+            config.PAPER_SKIP_BULLISH_LONG
+            and result.indicators.week_trend == "bullish"
+            and s.direction == "long"
+        ):
+            log.info("bullish / long заблокирован (фильтр)")
+            continue
         # Найти уровень по level_price
         level = None
         if s.level_price is not None:
