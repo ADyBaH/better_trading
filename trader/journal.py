@@ -99,7 +99,7 @@ class Trade:
 
 def _journal_db_path() -> str:
     """Путь к БД журнала. Отдельно от market.db."""
-    return str(Path(config.DB_PATH).parent / "journal.db")
+    return config.JOURNAL_DB_PATH
 
 
 @contextmanager

@@ -89,16 +89,16 @@ SHOW_PWH_PWL = True
 # СИГНАЛЫ
 # ============================================================
 # --- Bounce ---
-BOUNCE_TOLERANCE_ATR = 0.3
+BOUNCE_TOLERANCE_ATR = 0.4
 RSI_BOUNCE_LONG = 35
 RSI_BOUNCE_SHORT = 65
 
 # --- Breakout ---
 ADX_BREAKOUT_THRESHOLD = 25
-BREAKOUT_BUFFER_ATR = 0.15
+BREAKOUT_BUFFER_ATR = 0.1
 
 # --- Trend + Level ---
-TREND_LEVEL_TOLERANCE_ATR = 0.4
+TREND_LEVEL_TOLERANCE_ATR = 0.5
 
 # --- Объём ---
 VOLUME_LOOKBACK = 20
@@ -121,7 +121,8 @@ DATA_MAX_AGE_BLOCK = 30  # блокировка — не создавать си
 # ============================================================
 # ДАННЫЕ
 # ============================================================
-DB_PATH = "storage/market.db"
+DB_PATH = "storage/market_aggressive.db"
+JOURNAL_DB_PATH = "storage/journal_aggressive.db"
 LOG_PATH = "storage/logs/bot.log"
 BACKUP_DIR = "storage/backups"
 NOTIFY_FILE = "storage/logs/notifications.txt"
@@ -152,22 +153,22 @@ PAPER_ENABLED = True
 # Резолв открытых сделок работает всегда — иначе зависнут.
 PAPER_TRADING_HOURS = {
     "start": "09:00",
-    "end": "18:00",
+    "end": "20:00",
     "timezone": "Europe/Moscow",
 }
 
 # Timeout: сколько торговых M15 свечей ждём stop/take,
 # прежде чем закрыть по close. 50 × M15 = 12.5 часов торгового времени.
-PAPER_TIMEOUT_BARS = 50
+PAPER_TIMEOUT_BARS = 60
 
 # Дедупликация: не создавать дубль, если есть открытая сделка того же
 # направления и kind с entry в пределах PAPER_DEDUP_PRICE_TOL_ATR × ATR(H1)
-PAPER_DEDUP_PRICE_TOL_ATR = 0.25
+PAPER_DEDUP_PRICE_TOL_ATR = 0.2
 PAPER_DEDUP_MINUTES = 5  # жёсткое окно эха (не создавать дубль в пределах 15 мин)
 
 # --- Фильтры (по статистике) ---
 # n=19, 4W/14L, -207.44 ₽ (2026-11-05) — long в bullish week убыточен
-PAPER_SKIP_BULLISH_LONG = True
+PAPER_SKIP_BULLISH_LONG = False
 
 # Фильтр: normal + breakout / trend_level — убыточны (5W/9L, -198 ₽)
-PAPER_SKIP_NORMAL_BREAKOUT = True
+PAPER_SKIP_NORMAL_BREAKOUT = False
