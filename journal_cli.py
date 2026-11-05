@@ -413,6 +413,15 @@ def cmd_paper_stats(args) -> int:
     if s["avg_loss_points"] is not None:
         print(f"  Avg loss:  {s['avg_loss_points']:+.1f} pts")
 
+    if s["profit_factor"] is not None:
+        print(f"  Profit factor: {s['profit_factor']:.2f}")
+    else:
+        print("  Profit factor: —")
+    if s["expectancy"] is not None:
+        print(f"  Expectancy: {s['expectancy']:+.1f} pts")
+    else:
+        print("  Expectancy: —")
+
     def _print_group(title: str, group: dict, sort_key=None):
         if not group:
             return

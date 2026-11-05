@@ -678,6 +678,15 @@ def paper_stats(
     avg_win = round(sum(win_points) / len(win_points), 1) if win_points else None
     avg_loss = round(sum(loss_points) / len(loss_points), 1) if loss_points else None
 
+    # --- PF и expectancy ---
+    win_rub = sum(r["result_rub"] or 0 for r in rows if r["result"] == "win")
+    loss_rub = abs(sum(r["result_rub"] or 0 for r in rows if r["result"] == "loss"))
+    profit_factor = round(win_rub / loss_rub, 2) if loss_rub > 0 else None
+    expectancy = None
+    if winrate is not None and avg_win is not None and avg_loss is not None:
+        p = winrate / 100
+        expectancy = round(p * avg_win + (1 - p) * avg_loss, 1)
+
     # --- Разбивки ---
     def _group(key: str) -> dict:
         result = {}
@@ -1076,6 +1085,8 @@ def paper_stats(
         "virtual_deposit_end": balance_after,
         "virtual_pnl_pct": round(final_pnl_pct, 2),
         "max_drawdown_pct": round(max_drawdown, 2),
+        "profit_factor": profit_factor,
+        "expectancy": expectancy,
     }
 
 
