@@ -53,8 +53,6 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     rsi_at_open REAL,
     atr_percentile_at_open REAL,
     created_at TEXT NOT NULL,
-    week_trend_at_open TEXT,
-    created_at TEXT NOT NULL,
     closed_at TEXT,
     exit_price REAL,
     result TEXT DEFAULT 'open',

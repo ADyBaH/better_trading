@@ -27,6 +27,10 @@
 - **Недельный тренд** (`week_trend`): bullish / bearish / neutral по H4 (EMA50/200, close vs close-5d, close vs open-5d). Пишется в `paper_trades.week_trend_at_open`.
 - **Разрезы `paper-stats`**: `by_week_trend`, `by_week_trend_direction` (week × long/short), `by_pressure` (bid/ask), `by_bars` (скорость закрытия).
 - **Дедупликация без kind**: `bounce` + `trend_level` на одном уровне (direction + level_price) — это один сигнал (с большим score).
+- **PF и expectancy**: `paper_stats` — profit_factor и expectancy.
+- **Фильтры**: `bullish / long` и `normal + breakout/trend_level` (в Y включены, в F — нет).
+- **`market_state`**: impulse / pullback / normal (по `impulse_atr`).
+- **`by_rsi`** и **`by_atr_percentile`**: разрезы по RSI на входе и волатильности.
 
 ## Установка
 
@@ -184,13 +188,18 @@ ATR(H1) = 0.02574
 ### `paper-stats` (с депозитом)
 
 ```
-Всего: 19 (закрытых 13, открытых 6)
-Win: 8
-Loss: 5
-Winrate: 61.5% (без timeout)
-Total PnL: +257.1 pts / +230.32 ₽
-Депозит: 3000 ₽ → 3230.32 ₽ (+7.68%)
-Max drawdown: 2.20%
+Всего: 48 (закрытых 40, открытых 1)
+Win: 18
+Loss: 21
+Timeout: 1
+Winrate: 46.2% (без timeout)
+Total PnL: +399.8 pts / +317.40 ₽
+Депозит: 3000 ₽ → 3301.46 ₽ (+10.05%)
+Max drawdown: 7.04%
+Avg win: +54.9 pts
+Avg loss: -28.8 pts
+Profit factor: 1.46
+Expectancy: +9.9 pts
 ```
 
 Каждый цикл раннера:
@@ -308,7 +317,10 @@ python journal_cli.py paper-stats
 - **Кэш**: `CACHE_TTL_MINUTES = 4` (для ALOR).
 - **Виртуальный депозит**: `VIRTUAL_DEPOSIT = 3000` (₽), `RISK_PER_TRADE_PCT = 0.01` (1%).
 - **Paper-tracking**: `PAPER_ENABLED`, `PAPER_TRADING_HOURS` (09:00–18:00),
-  `PAPER_TIMEOUT_BARS = 50`, `PAPER_DEDUP_MINUTES = 15`.
+  `PAPER_TIMEOUT_BARS = 60`, `PAPER_DEDUP_MINUTES = 5`.
+- **Фильтры**: `PAPER_SKIP_BULLISH_LONG` (True в Y, False в F),
+  `PAPER_SKIP_NORMAL_BREAKOUT` (True в Y, False в F).
+- **`market_state`**: `impulse > 2.0`, `pullback > 1.2` и откат `< 0.7 × impulse`.
 
 ## Real-trading (мок-режим)
 
@@ -343,6 +355,10 @@ python journal_cli.py paper-stats
 - [ ] Scheduler + VPS для автономной работы.
 - [ ] Экспорт журнала в CSV / Excel.
 - [ ] Тесты на ключевые модули.
+- [ ] **MFE/MAE** — max favorable/adverse excursion.
+- [ ] **`volume_ratio`** — объём на входе / средний объём.
+- [ ] **`stale`** — флаг устаревшего уровня (>10 дней).
+- [ ] **`data_age`** — в meta JSON.
 
 ## Дисклеймер
 

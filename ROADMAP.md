@@ -297,20 +297,6 @@
 
 **Вывод:** лаг **существенен** (23 пункта). Через 2 недели — **сравнить** paper vs real.
 
-### 13.1. Инфраструктура
-
-- [x] `data/api_alor.py`: `get_current_price_sync` (bid/ask/mid из стакана).
-- [x] `trader/paper.py`: миграция + `market_price_at_open` в `paper_trades`.
-- [x] `runner.py`: `get_current_price_sync` → `market_price_at_open`.
-- [x] `journal_cli.py`: `--wide` показывает `Mkt`.
-
-### 13.2. Результат
-
-- Сделка #7: `entry_price = 12.050` (close), `market_price_at_open = 12.073` (real).
-- **Разница 23 пункта** — лаг paper vs real.
-
-**Вывод:** лаг **существенен** (23 пункта). Через 2 недели — **сравнить** paper vs real.
-
 ## Этап 14. Виртуальный депозит + Size ✅
 
 ### 14.1. Инфраструктура
@@ -369,16 +355,6 @@
 - [x] `bounce` + `trend_level` на одном уровне (direction + level_price) схлопываются в один сигнал (с большим score).
 - [x] Причина: #30/#31 в Y — дубли `long trend_level` + `long bounce` на 12.143.
 
-### 17.1. by_pressure ✅
-
-- [x] F (89): `bid-heavy` 0W/4L, −136.74 (n=4). `ask-heavy` 0W/1L (n=1). `balanced` 26W/34L, +492.66.
-- [x] **Кандидат №1 на фильтр:** `bid-heavy` (n=4, 0/4, ждём 10+).
-
-### 17.2. by_bars ✅
-
-- [x] F (89): `30+` 9W/2L/4T, **+480.20** (n=15, 82% winrate). `1-3` 9W/11L, +75.70.
-- [x] **Гипотеза «медленные = плохие» опровергнута.** `30+` — лучшие.
-
 ## Этап 18. market_state (impulse / pullback) 🚧
 
 ### 18.1. Инфраструктура
@@ -422,6 +398,39 @@
 - [x] `atr_percentile_at_open` в `paper_trades` (миграция).
 - [x] `by_atr_percentile` в `paper_stats` (<0.25, 0.25-0.75, >0.75).
 
+## Этап 20. PF + expectancy ✅
+
+- [x] `paper_stats` — `profit_factor`, `expectancy`.
+- [x] `journal_cli.py` — вывод `Profit factor` и `Expectancy`.
+- [x] Y (48 сделок): PF **1.46**, expectancy **+9.9 pts**.
+- [x] F (120 сделок): PF **1.27**, expectancy **+6.9 pts**.
+- [x] **Y лучше F** по PF и expectancy — фильтры работают.
+
+## Этап 21. Фильтры (bullish/long, normal+breakout) ✅
+
+### 21.1. `PAPER_SKIP_BULLISH_LONG`
+
+- [x] `config.py` — флаг `True` (в Y) / `False` (в F).
+- [x] `detect_signals` — блокировка LONG при `week_trend == "bullish"`.
+- [x] Y: `bullish / long` — 10 сделок, 4W/6L, +38.40 ₽. **Фильтр работает** (не растёт).
+- [x] F: `bullish / long` — 21 сделка, 4W/14L/1T, −207.44 ₽ (без фильтра, для сравнения).
+
+### 21.2. `PAPER_SKIP_NORMAL_BREAKOUT`
+
+- [x] `config.py` — флаг `True` (в Y) / `False` (в F).
+- [x] `detect_signals` — блокировка `breakout` / `trend_level` при `market_state == "normal"`.
+- [x] Y: `normal` — 9 сделок, 2W/6L, −65.28 ₽. **Фильтр работает**.
+- [x] F: `normal` — 21 сделка, 5W/11L, −108.76 ₽ (без фильтра, для сравнения).
+
+### 21.3. `market_state` (impulse / pullback)
+
+- [x] `impulse_atr` (12 M15 свечей / ATR) — насколько цена ушла.
+- [x] `impulse_dir` (up / down / none) — направление импульса.
+- [x] `market_state` (normal / pullback / impulse).
+- [x] Пороги: `impulse > 2.0`, `pullback > 1.2` и откат `< 0.7 × impulse`.
+- [x] Y: `pullback` — 0 сделок (пока), `normal` — 9, `impulse` — 0.
+- [x] F: `normal` — 21, `pullback` — 0, `impulse` — 0.
+- [x] **`pullback` не создаёт сделки** — надо снизить окно `pullback_atr` до 3 M15 (45 мин).
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
@@ -451,11 +460,15 @@
 
 ## Текущий статус
 
-**Версия:** 0.8.0
-**Готово:** этапы 1–13 (ALOR WebSocket, real-time, real-мок, депозит, лаг paper vs real).
-**В работе:** сбор статистики (19 сделок, 70.6% winrate, депозит 3230.32 ₽, +7.68%).
-**Режим:** baseline. Фильтры НЕ внедряются до 40+ сигналов.
-**Следующий шаг:** через 2 недели (≈07.11) — разбор `paper_stats` на 40+ сделках.
+**Версия:** 0.9.0
+**Готово:** этапы 1–19 (ALOR WebSocket, real-time, real-мок, депозит, лаг paper vs real,
+`week_trend`, `by_pressure`, `by_bars`, `market_state`, PF, expectancy, фильтры).
+**В работе:** сбор статистики (F — 120 сделок, Y — 48 сделок).
+**F (main):** winrate **43.4%**, PnL **+565.20 ₽**, PF **1.27**, expectancy **+6.9 pts**.
+**Y (feature/real-trading):** winrate **46.2%**, PnL **+317.40 ₽**, PF **1.46**, expectancy **+9.9 pts**.
+**Фильтры:** `bullish / long` и `normal + breakout` — включены в Y, выключены в F (полигон).
+**Следующий шаг:** через неделю — сравнить F vs Y (PF, expectancy). Если Y лучше — оставить.
+**Мерж:** Y → main (когда будем готовы) — код Y (фильтры, PF, expectancy) в main.
 
 ---
 
