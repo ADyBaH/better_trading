@@ -404,6 +404,24 @@
 - **`pullback`** (impulse_atr > 2.0, откат) — данных нет.
 - **`impulse`** (impulse_atr > 3.0) — данных нет.
 
+## Этап 19. Фильтр bullish/long + новые разрезы ✅
+
+### 19.1. Фильтр `bullish / long`
+
+- [x] `PAPER_SKIP_BULLISH_LONG = True`.
+- [x] `detect_signals` — блокировка LONG при `week_trend == "bullish"`.
+- [x] Статистика: n=19, 4W/14L, −207.44 ₽.
+
+### 19.2. `by_rsi`
+
+- [x] `rsi_at_open` в `paper_trades` (миграция).
+- [x] `by_rsi` в `paper_stats` (бакеты <30, 30-50, 50-70, >70).
+
+### 19.3. `by_atr_percentile`
+
+- [x] `atr_percentile_at_open` в `paper_trades` (миграция).
+- [x] `by_atr_percentile` в `paper_stats` (<0.25, 0.25-0.75, >0.75).
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
