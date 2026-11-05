@@ -94,7 +94,7 @@ def _build_indicator_snapshot(
 
     # --- Импульс и состояние рынка (M15) ---
     n_impulse = 12  # 12 M15 = 3 часа
-    n_pullback = 6  # 6 M15 = 1.5 часа
+    n_pullback = 3  # 6 M15 = 1.5 часа
 
     impulse_atr = 0.0
     pullback_atr = 0.0

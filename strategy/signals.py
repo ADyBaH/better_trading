@@ -815,6 +815,16 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
         ):
             log.info("bullish / long заблокирован (фильтр)")
             continue
+
+        # --- Фильтр: normal + breakout / trend_level (5W/9L, -198 ₽) ---
+        if (
+            config.PAPER_SKIP_NORMAL_BREAKOUT
+            and result.indicators.market_state == "normal"
+            and s.kind in ("breakout", "trend_level")
+        ):
+            log.info("normal + %s заблокирован (фильтр)", s.kind)
+            continue
+
         # Найти уровень по level_price
         level = None
         if s.level_price is not None:

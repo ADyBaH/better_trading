@@ -163,8 +163,11 @@ PAPER_TIMEOUT_BARS = 50
 # Дедупликация: не создавать дубль, если есть открытая сделка того же
 # направления и kind с entry в пределах PAPER_DEDUP_PRICE_TOL_ATR × ATR(H1)
 PAPER_DEDUP_PRICE_TOL_ATR = 0.25
-PAPER_DEDUP_MINUTES = 15  # жёсткое окно эха (не создавать дубль в пределах 15 мин)
+PAPER_DEDUP_MINUTES = 5  # жёсткое окно эха (не создавать дубль в пределах 15 мин)
 
 # --- Фильтры (по статистике) ---
 # n=19, 4W/14L, -207.44 ₽ (2026-11-05) — long в bullish week убыточен
 PAPER_SKIP_BULLISH_LONG = True
+
+# Фильтр: normal + breakout / trend_level — убыточны (5W/9L, -198 ₽)
+PAPER_SKIP_NORMAL_BREAKOUT = True
