@@ -315,6 +315,40 @@
 - [x] `atr_percentile_at_open` в `paper_trades` (миграция).
 - [x] `by_atr_percentile` в `paper_stats` (<0.25, 0.25-0.75, >0.75).
 
+## Этап 20. PF + expectancy ✅
+
+- [x] `paper_stats` — `profit_factor`, `expectancy`.
+- [x] `journal_cli.py` — вывод `Profit factor` и `Expectancy`.
+- [x] F (120 сделок): PF **1.27**, expectancy **+6.9 pts**.
+- [x] Y (48 сделок): PF **1.46**, expectancy **+9.9 pts**.
+- [x] **Y лучше F** по PF и expectancy — фильтры работают.
+
+## Этап 21. Фильтры (bullish/long, normal+breakout) ✅
+
+### 21.1. `PAPER_SKIP_BULLISH_LONG`
+
+- [x] `config.py` — флаг `True` (в Y) / `False` (в F).
+- [x] `detect_signals` — блокировка LONG при `week_trend == "bullish"`.
+- [x] Y: `bullish / long` — 10 сделок, 4W/6L, +38.40 ₽. **Фильтр работает** (не растёт).
+- [x] F: `bullish / long` — 21 сделка, 4W/14L/1T, −207.44 ₽ (без фильтра, для сравнения).
+
+### 21.2. `PAPER_SKIP_NORMAL_BREAKOUT`
+
+- [x] `config.py` — флаг `True` (в Y) / `False` (в F).
+- [x] `detect_signals` — блокировка `breakout` / `trend_level` при `market_state == "normal"`.
+- [x] Y: `normal` — 9 сделок, 2W/6L, −65.28 ₽. **Фильтр работает**.
+- [x] F: `normal` — 21 сделка, 5W/11L, −108.76 ₽ (без фильтра, для сравнения).
+
+### 21.3. `market_state` (impulse / pullback)
+
+- [x] `impulse_atr` (12 M15 свечей / ATR) — насколько цена ушла.
+- [x] `impulse_dir` (up / down / none) — направление импульса.
+- [x] `market_state` (normal / pullback / impulse).
+- [x] Пороги: `impulse > 2.0`, `pullback > 1.2` и откат `< 0.7 × impulse`.
+- [x] Y: `pullback` — 0 сделок (пока), `normal` — 9, `impulse` — 0.
+- [x] F: `normal` — 21, `pullback` — 0, `impulse` — 0.
+- [x] **`pullback` не создаёт сделки** — надо снизить окно `pullback_atr` до 3 M15 (45 мин).
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
@@ -344,14 +378,50 @@
 
 ## Текущий статус
 
-**Версия:** 0.8.0
-**Готово:** этапы 1–11 (ALOR WebSocket, real-time), **наблюдаемость** (`--wide`, `by_adx`, `by_session`, `by_hour`, `by_weekday`).
-**В работе:** сбор статистики (19 сделок, 70.6% winrate).
-**Режим:** baseline. Фильтры НЕ внедряются до 40+ сигналов.
-**Следующий шаг:** через 2 недели (≈05.11) — разбор `paper_stats` на 40+ сделках.
+**Версия:** 0.9.0
+**Готово:** этапы 1–19 (ALOR WebSocket, real-time, `week_trend`, `by_pressure`, `by_bars`, `market_state`, PF, expectancy).
+**F (main) — основная ветка (без фильтров):** 120 сделок, winrate **43.4%**, PnL **+565.20 ₽**, PF **1.27**, expectancy **+6.9 pts**.
+**`experiment/aggressive-signals` (F) — агрессивный полигон:** без фильтров, сниженные пороги, расширенные часы, отдельная база `journal_aggressive.db`. Цель — накопить статистику быстрее.
+**Y (feature/real-trading) — актуальная ветка:** с фильтрами (`bullish / long`, `normal + breakout`), 48 сделок, winrate **46.2%**, PnL **+317.40 ₽**, PF **1.46**, expectancy **+9.9 pts**.
+**Роли:**
+- **F** — собирает все сигналы (для сравнения и накопления статистики).
+- **Y** — актуальная ветка (торгуем по ней, фильтры работают).
+**Следующий шаг:** сравнить F vs Y через неделю (PF, expectancy). Если Y лучше — оставить. Если F лучше — пересмотреть фильтры.
 
 ---
 
+## Ветки и их роли
+
+### `experiment/aggressive-signals` (F)
+- **Роль:** агрессивный полигон.
+- **Настройки:** без фильтров, сниженные пороги (`BOUNCE_TOLERANCE_ATR = 0.4`, `TREND_LEVEL_TOLERANCE_ATR = 0.5`, `BREAKOUT_BUFFER_ATR = 0.1`, `ADX_BREAKOUT_THRESHOLD = 20`), расширенные часы (`PAPER_TRADING_HOURS` 09:00–20:00), `PAPER_DEDUP_MINUTES = 5`, `PAPER_MAX_OPEN = 0`.
+- **База:** `storage/journal_aggressive.db`.
+- **Цель:** накопить статистику быстрее (больше сигналов).
+
+### `main` (F)
+- **Роль:** основная ветка (reference).
+- **Настройки:** без фильтров (как исторически), 120 сделок.
+- **База:** `storage/journal.db`.
+- **Цель:** сравнение с `experiment/aggressive-signals` и `feature/real-trading`.
+
+### `feature/real-trading` (Y)
+- **Роль:** актуальная ветка (торгуем по ней).
+- **Настройки:** с фильтрами (`PAPER_SKIP_BULLISH_LONG = True`, `PAPER_SKIP_NORMAL_BREAKOUT = True`), лимит 1, `PAPER_TRADING_HOURS` 09:00–18:00.
+- **База:** `storage/journal.db` (в Y).
+- **Цель:** торговля (PF 1.46, expectancy +9.9).
+
+## Сравнение (05.11)
+
+| Ветка | Сделок | Winrate | PnL | PF | Expectancy |
+|---|---|---|---|---|---|
+| **F (main)** | 120 | 43.4% | +565.20 ₽ | **1.27** | +6.9 pts |
+| **Y (real-trading)** | 48 | 46.2% | +317.40 ₽ | **1.46** | +9.9 pts |
+| **F (aggressive)** | 0 | — | — | — | — |
+
+**Y лучше F** по PF и expectancy — фильтры работают.
+**F (aggressive)** — только начинает, статистики пока нет.
+
+---
 ## Гипотезы после paper-tracking (проверить на 40+ сигналах)
 
 Источник: 19–24.10 (19 сделок, winrate 70.6%, PnL +374.1 pts).

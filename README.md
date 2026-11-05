@@ -24,6 +24,12 @@
 - **Детальная таблица сделок**: `journal_cli.py paper-trades --wide` (ADX, Bid/Ask, R:R).
 - **Тянет свечи** с MOEX ISS (с лагом) **или ALOR WebSocket (real-time, лаг 5 мин)**.
 - **Экспорт paper-trades в CSV**: `journal_cli.py paper-export` → `storage/exports/paper_trades.csv`.
+- **PF и expectancy**: `paper_stats` — profit_factor и expectancy.
+- **Фильтры**: `bullish / long` и `normal + breakout/trend_level` (в Y включены, в F — нет).
+- **`market_state`**: impulse / pullback / normal (по `impulse_atr`).
+- **`by_rsi`** и **`by_atr_percentile`**: разрезы по RSI на входе и волатильности.
+- **`by_week_trend`** и **`by_week_trend_direction`**: недельный тренд и его комбинация с направлением.
+- **`by_pressure`** и **`by_bars`**: стакан (bid/ask) и скорость закрытия.
 
 ## Установка
 
@@ -178,11 +184,12 @@ ATR(H1) = 0.02574
 
 Каждый цикл раннера:
 
-1. Новые сигналы записываются в `paper_trades` (только в 09:00–18:00 МСК).
-2. Открытые paper-сделки резолвятся по stop/take/timeout (50 M15-свечей).
+1. Новые сигналы записываются в `paper_trades` (только в 09:00–20:00 МСК для F, 09:00–18:00 для Y).
+2. Открытые paper-сделки резолвятся по stop/take/timeout (60 M15-свечей).
 3. Результат считается с комиссией (`compute_trade_result`).
 
-**Что НЕ делает:** не торгует, не отправляет ордера, не трогает `journal.db/trades`.
+**F (main) — основная ветка:** без фильтров, 120 сделок, winrate **43.4%**, PnL **+565.20 ₽**, PF **1.27**, expectancy **+6.9 pts**.
+**Y (feature/real-trading) — актуальная ветка:** с фильтрами, 48 сделок, winrate **46.2%**, PnL **+317.40 ₽**, PF **1.46**, expectancy **+9.9 pts**.
 
 **Просмотр:**
 
@@ -314,6 +321,37 @@ better_trading/
 - **Кэш**: `CACHE_TTL_MINUTES`.
 - **Источник данных**: `DATA_PROVIDER = "alor"` (real-time) или `"moex"` (ISS).
 - **Кэш**: `CACHE_TTL_MINUTES = 4` (для ALOR).
+
+## Ветки и их роли
+
+### `main` (F)
+- **Роль:** основная ветка (reference).
+- **Настройки:** без фильтров, 120 сделок.
+- **База:** `storage/journal.db`.
+- **Цель:** сравнение с `experiment/aggressive-signals` и `feature/real-trading`.
+
+### `experiment/aggressive-signals` (F)
+- **Роль:** агрессивный полигон.
+- **Настройки:** без фильтров, сниженные пороги (`BOUNCE_TOLERANCE_ATR = 0.4`, `TREND_LEVEL_TOLERANCE_ATR = 0.5`, `BREAKOUT_BUFFER_ATR = 0.1`, `ADX_BREAKOUT_THRESHOLD = 20`), расширенные часы (`PAPER_TRADING_HOURS` 09:00–20:00), `PAPER_DEDUP_MINUTES = 5`, `PAPER_MAX_OPEN = 0`.
+- **База:** `storage/journal_aggressive.db`.
+- **Цель:** накопить статистику быстрее (больше сигналов).
+
+### `feature/real-trading` (Y)
+- **Роль:** актуальная ветка (торгуем по ней).
+- **Настройки:** с фильтрами (`PAPER_SKIP_BULLISH_LONG = True`, `PAPER_SKIP_NORMAL_BREAKOUT = True`), лимит 1, `PAPER_TRADING_HOURS` 09:00–18:00.
+- **База:** `storage/journal.db` (в Y).
+- **Цель:** торговля (PF 1.46, expectancy +9.9).
+
+### Сравнение (05.11)
+
+| Ветка | Сделок | Winrate | PnL | PF | Expectancy |
+|---|---|---|---|---|---|
+| **F (main)** | 120 | 43.4% | +565.20 ₽ | **1.27** | +6.9 pts |
+| **Y (real-trading)** | 48 | 46.2% | +317.40 ₽ | **1.46** | +9.9 pts |
+| **F (aggressive)** | 0 | — | — | — | — |
+
+**Y лучше F** по PF и expectancy — фильтры работают.
+**F (aggressive)** — только начинает, статистики пока нет.
 
 ## Что в планах
 
