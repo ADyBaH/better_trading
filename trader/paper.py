@@ -366,6 +366,7 @@ def save_signal_as_paper(
                 "level_price, risk_reward, net_rr, "
                 "trend_at_open, adx_at_open, day_trend_at_open, structure_at_open, "
                 "week_trend_at_open, market_state_at_open, "
+                "rsi_at_open, atr_percentile_at_open, "
                 "created_at, result, warnings, context, "
                 "bid_vol, ask_vol, market_price_at_open, size, balance_after"
             )
@@ -392,6 +393,8 @@ def save_signal_as_paper(
                     ind.structure,
                     ind.week_trend,
                     ind.market_state,
+                    ind.rsi,
+                    sig.context.get("atr_percentile"),
                     result.timestamp.isoformat(),
                     "open",
                     (
