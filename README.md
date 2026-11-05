@@ -210,6 +210,38 @@ Expectancy: +9.9 pts
 
 **Что НЕ делает:** не торгует, не отправляет ордера, не трогает `journal.db/trades`.
 
+
+## Ветки и их роли
+
+### `main` (F)
+- **Роль:** основная ветка (reference).
+- **Настройки:** без фильтров, 120 сделок.
+- **База:** `storage/journal.db`.
+- **Цель:** сравнение с `experiment/aggressive-signals` и `feature/real-trading`.
+
+### `experiment/aggressive-signals` (F)
+- **Роль:** агрессивный полигон.
+- **Настройки:** без фильтров, сниженные пороги (`BOUNCE_TOLERANCE_ATR = 0.4`, `TREND_LEVEL_TOLERANCE_ATR = 0.5`, `BREAKOUT_BUFFER_ATR = 0.1`, `ADX_BREAKOUT_THRESHOLD = 20`), расширенные часы (`PAPER_TRADING_HOURS` 09:00–20:00), `PAPER_DEDUP_MINUTES = 5`, `PAPER_MAX_OPEN = 0`.
+- **База:** `storage/journal_aggressive.db`.
+- **Цель:** накопить статистику быстрее (больше сигналов).
+
+### `feature/real-trading` (Y)
+- **Роль:** актуальная ветка (торгуем по ней).
+- **Настройки:** с фильтрами (`PAPER_SKIP_BULLISH_LONG = True`, `PAPER_SKIP_NORMAL_BREAKOUT = True`), лимит 1, `PAPER_TRADING_HOURS` 09:00–18:00.
+- **База:** `storage/journal.db` (в Y).
+- **Цель:** торговля (PF 1.46, expectancy +9.9).
+
+### Сравнение (05.11)
+
+| Ветка | Сделок | Winrate | PnL | PF | Expectancy |
+|---|---|---|---|---|---|
+| **F (main)** | 120 | 43.4% | +565.20 ₽ | **1.27** | +6.9 pts |
+| **Y (real-trading)** | 48 | 46.2% | +317.40 ₽ | **1.46** | +9.9 pts |
+| **F (aggressive)** | 0 | — | — | — | — |
+
+**Y лучше F** по PF и expectancy — фильтры работают.
+**F (aggressive)** — только начинает, статистики пока нет.
+
 **Просмотр:**
 
 ```bash
