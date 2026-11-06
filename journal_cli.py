@@ -715,23 +715,5 @@ def main() -> int:
 
     return args.func(args)
 
-
-def cmd_delete(args) -> int:
-    t = journal.get_trade(args.id)
-    if t is None:
-        print(f"Сделка #{args.id} не найдена.")
-        return 1
-    confirm = input(
-        f"Удалить сделку #{args.id} ({t.direction} @ {t.entry_price})? [y/N]: "
-    )
-    if confirm.lower() != "y":
-        print("Отменено.")
-        return 0
-    with journal._connect() as conn:
-        conn.execute("DELETE FROM trades WHERE id = ?", (args.id,))
-    print(f"✓ Сделка #{args.id} удалена.")
-    return 0
-
-
 if __name__ == "__main__":
     sys.exit(main())

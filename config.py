@@ -106,8 +106,8 @@ VOLUME_MULTIPLIER = 1.5
 
 # --- Стопы / тейки ---
 USE_ATR_STOPS = True
-STOP_ATR_MULT = 1.0  # стоп = 1.0 × ATR(H1)
-TAKE_ATR_MULT = 2.0  # тейк = 2.0 × ATR(H1)
+STOP_ATR_MULT = 0.7  # стоп = 1.0 × ATR(H1)
+TAKE_ATR_MULT = 1.4  # тейк = 2.0 × ATR(H1)
 
 # --- Штрафы за конфликты тренда ---
 PENALTY_TREND_TRANSITION = 1.5  # для trend_level при transition
@@ -159,7 +159,7 @@ PAPER_TRADING_HOURS = {
 
 # Timeout: сколько торговых M15 свечей ждём stop/take,
 # прежде чем закрыть по close. 50 × M15 = 12.5 часов торгового времени.
-PAPER_TIMEOUT_BARS = 60
+PAPER_TIMEOUT_BARS = 20
 
 # Дедупликация: не создавать дубль, если есть открытая сделка того же
 # направления и kind с entry в пределах PAPER_DEDUP_PRICE_TOL_ATR × ATR(H1)

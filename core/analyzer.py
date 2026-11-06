@@ -115,9 +115,16 @@ def _build_indicator_snapshot(
         price_n_ago_pb = float(df["close"].iloc[-n_pullback])
         pullback_atr = abs(current_price - price_n_ago_pb) / atr
 
-    if impulse_atr > 2.0:
-        market_state = "impulse"
-    elif impulse_atr > 1.2 and pullback_atr < impulse_atr * 0.7:
+    # после расчёта impulse_dir и impulse_atr
+    if impulse_dir in ("up", "down") and len(df) > n_impulse:
+        window = df.iloc[-n_impulse:]
+    if impulse_dir == "up":
+        peak = window["high"].max()
+        retrace = (peak - current_price) / atr
+    else:
+        trough = window["low"].min()
+        retrace = (current_price - trough) / atr
+    if impulse_atr > 1.2 and 0.2 < retrace < impulse_atr * 0.7:
         market_state = "pullback"
 
     return IndicatorSnapshot(
