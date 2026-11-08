@@ -153,7 +153,7 @@ PAPER_ENABLED = True
 # Резолв открытых сделок работает всегда — иначе зависнут.
 PAPER_TRADING_HOURS = {
     "start": "09:00",
-    "end": "17:00",
+    "end": "18:00",
     "timezone": "Europe/Moscow",
 }
 

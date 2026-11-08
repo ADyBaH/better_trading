@@ -81,6 +81,7 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
 
     # Миграция: добавляем колонки, если их нет (для старых БД)
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
+
     if "market_price_at_open" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN market_price_at_open REAL")
     if "size" not in existing:
@@ -236,11 +237,13 @@ def _is_duplicate(
     """
     Проверяет, есть ли уже открытая paper-сделка, которая делает новый сигнал дублем.
 
+    ВАЖНО: kind НЕ учитывается — синхронизировано с дедупликацией в
+    strategy/signals.py (bounce + trend_level на одном уровне = один сигнал).
+
     Дубль, если ВСЕ условия:
     - status = 'open';
     - symbol совпадает;
     - direction совпадает;
-    - kind совпадает;
     - одно из:
         (a) abs(new.entry - old.entry) < PAPER_DEDUP_PRICE_TOL_ATR × ATR;
         (b) abs(now - old.created_at) < PAPER_DEDUP_MINUTES минут.
@@ -251,9 +254,8 @@ def _is_duplicate(
         WHERE result = 'open'
           AND symbol = ?
           AND direction = ?
-          AND kind = ?
         """,
-        (symbol, signal.direction, signal.kind),
+        (symbol, signal.direction),
     ).fetchall()
 
     if not rows:
@@ -509,6 +511,33 @@ def resolve_open_trades(
         log.warning("paper: нет M15 свечей для резолва (%s)", symbol)
         return 0
 
+    # --- Наблюдаемость: насколько свежие данные для резолва ---
+    data_age_min = None
+    try:
+        last_begin = df_m15["begin"].iloc[-1]
+        if hasattr(last_begin, "to_pydatetime"):
+            last_begin = last_begin.to_pydatetime()
+        data_age_min = int((now - last_begin).total_seconds() / 60)
+    except Exception:
+        pass
+
+    if data_age_min is not None:
+        if data_age_min > config.DATA_MAX_AGE_BLOCK * 2:
+            # Критический лаг: резолв по таким свечам исказит статистику.
+            log.error(
+                "paper: data_age=%d мин (> %d) — резолв пропущен, "
+                "чтобы не портить exit_price",
+                data_age_min,
+                config.DATA_MAX_AGE_BLOCK * 2,
+            )
+            return 0
+        elif data_age_min > config.DATA_MAX_AGE_BLOCK:
+            log.warning(
+                "paper: data_age=%d мин (> %d) — резолв по устаревшим свечам",
+                data_age_min,
+                config.DATA_MAX_AGE_BLOCK,
+            )
+
     from core.instruments import get_instrument, compute_trade_result
 
     inst = get_instrument(symbol)
@@ -522,6 +551,15 @@ def resolve_open_trades(
         except Exception:
             log.warning("paper: битый created_at у id=%d, пропуск", trade["id"])
             continue
+
+        # --- tz-совместимость: begin может быть tz-aware (ALOR — МСК),
+        #     а created_at из isoformat — naive. Иначе сравнение всегда False,
+        #     df_future пуст, и сделка «висит» вечно.
+        begin_tz = getattr(df_m15["begin"].dt, "tz", None)
+        if begin_tz is not None and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=begin_tz)
+        elif begin_tz is None and created_at.tzinfo is not None:
+            created_at = created_at.replace(tzinfo=None)
 
         # Только свечи строго после created_at
         # (свеча, в которой открыт сигнал, не участвует — это «нулевой» бар)
@@ -559,7 +597,15 @@ def resolve_open_trades(
         ).fetchone()[0]
         balance_after = round(config.VIRTUAL_DEPOSIT + prev_pnl + rub, 2)
 
-        confidence = "auto_ambiguous" if pnl.get("ambiguous") else "auto"
+        # auto_ambiguous — если stop и take задеты в одной свече (консервативно loss).
+        # auto_stale — если на момент резолва данные были старше DATA_MAX_AGE_BLOCK.
+        # auto — нормальный резолв.
+        if pnl.get("ambiguous"):
+            confidence = "auto_ambiguous"
+        elif data_age_min is not None and data_age_min > config.DATA_MAX_AGE_BLOCK:
+            confidence = "auto_stale"
+        else:
+            confidence = "auto"
 
         conn.execute(
             """
