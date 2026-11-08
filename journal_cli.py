@@ -467,6 +467,7 @@ def cmd_paper_stats(args) -> int:
     _print_group("По дню недели", s["by_weekday"])
     _print_group("По RSI на входе", s["by_rsi"])
     _print_group("По волатильности (ATR percentile)", s["by_atr_percentile"])
+    _print_group("По объёму на входе", s["by_volume_ratio"])
 
     # by_score — сортируем по возрастанию score
     if s["by_score"]:

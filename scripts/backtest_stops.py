@@ -158,7 +158,13 @@ def replay_trade(
 
 
 def aggregate(replayed: list[dict]) -> dict:
-    """winrate, PF, expectancy, total_points по списку переигранных сделок."""
+    """winrate, PF, expectancy, total_points + net (с комиссией)."""
+    from core.instruments import get_instrument
+    import config as _cfg
+
+    inst = get_instrument("CNYRUBF")
+    commission_per_trade = inst.commission_round  # 2.06 ₽
+
     wins = [r for r in replayed if r["result"] == "win"]
     losses = [r for r in replayed if r["result"] == "loss"]
     timeouts = [r for r in replayed if r["result"] == "timeout"]
@@ -166,7 +172,13 @@ def aggregate(replayed: list[dict]) -> dict:
     win_pts = sum(r["points"] for r in wins)
     loss_pts = sum(r["points"] for r in losses)
     total_pts = sum(r["points"] for r in replayed)
-    total_rub = sum(r["points"] * config.STEP_COST for r in replayed)
+    total_rub = sum(r["points"] * _cfg.STEP_COST for r in replayed)
+
+    # --- Комиссия ---
+    commission_rub = len(replayed) * commission_per_trade
+    commission_pts = commission_rub / _cfg.STEP_COST if _cfg.STEP_COST else 0
+    net_pts = total_pts - commission_pts
+    net_rub = total_rub - commission_rub
 
     closed_wl = len(wins) + len(losses)
     winrate = round(100 * len(wins) / closed_wl, 1) if closed_wl else None
@@ -183,6 +195,21 @@ def aggregate(replayed: list[dict]) -> dict:
         p = winrate / 100
         expectancy = round(p * avg_win + (1 - p) * avg_loss, 1)
 
+    # --- net-версии (с комиссией) ---
+    net_win_pts = win_pts - len(wins) * commission_pts
+    net_loss_pts = loss_pts - len(losses) * commission_pts
+    net_pf = None
+    if net_loss_pts != 0:
+        net_pf = round(net_win_pts / abs(net_loss_pts), 2)
+
+    net_exp = None
+    if winrate is not None and avg_win is not None and avg_loss is not None:
+        p = winrate / 100
+        net_exp = round(
+            p * (avg_win - commission_pts) + (1 - p) * (avg_loss - commission_pts),
+            1,
+        )
+
     return {
         "total": len(replayed),
         "win": len(wins),
@@ -191,10 +218,14 @@ def aggregate(replayed: list[dict]) -> dict:
         "winrate": winrate,
         "total_points": round(total_pts, 1),
         "total_rub": round(total_rub, 2),
+        "net_points": round(net_pts, 1),
+        "net_rub": round(net_rub, 2),
         "avg_win": avg_win,
         "avg_loss": avg_loss,
         "profit_factor": profit_factor,
+        "net_profit_factor": net_pf,
         "expectancy": expectancy,
+        "net_expectancy": net_exp,
     }
 
 
@@ -217,22 +248,16 @@ def main() -> int:
     parser.add_argument("--db", default="storage/journal.db")
     parser.add_argument("--symbol", default="CNYRUBF")
     parser.add_argument("--since", default=None)
-    parser.add_argument(
-        "--base-take-mult",
-        type=float,
-        default=2.0,
-        help="TAKE_ATR_MULT, с которым создавались сделки (для восстановления ATR)",
-    )
+    parser.add_argument("--base-take-mult", type=float, default=2.0)
     parser.add_argument(
         "--grid",
         default="1.0,2.0 0.7,1.4 0.5,1.0 0.3,0.6",
-        help="пары 'stop_mult,take_mult' через пробел",
     )
+    parser.add_argument("--timeout-bars", type=int, default=config.PAPER_TIMEOUT_BARS)
     parser.add_argument(
-        "--timeout-bars",
-        type=int,
-        default=config.PAPER_TIMEOUT_BARS,
-        help="сколько M15-свечей ждать (по умолчанию из config)",
+        "--train-until",
+        default=None,
+        help="дата (ISO): сделки до неё — train, после — test",
     )
     args = parser.parse_args()
 
@@ -249,10 +274,36 @@ def main() -> int:
     print()
 
     # --- 2. Свечи ---
-    # Хватит на весь период, если сделки за месяц: ~30 дней × 96 M15 ≈ 3000.
-    # Берём с запасом, но не больше, чем API готов отдать.
     print("Загружаю M15-свечи...")
-    df_m15 = get_candles_tf("M15", count=5000)
+    import sqlite3
+    from data.resample import resample
+
+    df_m15_api = get_candles_tf("M15", count=5000)
+
+    _conn = sqlite3.connect("storage/market.db")
+    df_m1_db = pd.read_sql_query(
+        "SELECT begin, open, high, low, close, volume FROM candles "
+        "WHERE symbol = 'CNYRUBF' AND interval = 1 "
+        "AND begin >= '2026-10-17' AND begin < '2026-11-01' "
+        "ORDER BY begin",
+        _conn,
+    )
+    _conn.close()
+
+    if len(df_m1_db):
+        df_m1_db["begin"] = pd.to_datetime(df_m1_db["begin"])
+        df_m15_db = resample(df_m1_db, "M15")
+    else:
+        df_m15_db = pd.DataFrame()
+
+    df_m15 = (
+        pd.concat([df_m15_db, df_m15_api])
+        .drop_duplicates("begin")
+        .sort_values("begin")
+        .reset_index(drop=True)
+    )
+    print(f"M15: db={len(df_m15_db)}, api={len(df_m15_api)}, всего={len(df_m15)}")
+    print(f"  диапазон: {df_m15['begin'].min()} .. {df_m15['begin'].max()}")
     if df_m15 is None or len(df_m15) == 0:
         print("❌ Нет M15-свечей")
         return 1
@@ -261,7 +312,7 @@ def main() -> int:
     )
     print()
 
-    # --- 3. Восстановление ATR ---
+    # --- 3. ATR ---
     trades_with_atr = []
     skipped_no_atr = 0
     for t in trades:
@@ -277,95 +328,115 @@ def main() -> int:
     print(f"С восстановленным ATR: {len(trades_with_atr)}")
     print()
 
-    # --- 4. Базовый прогон (текущие множители) ---
-    print("=" * 70)
-    print("БАЗОВЫЙ ПРОГОН (как было)")
-    print("=" * 70)
-    base_replayed = []
-    for t in trades_with_atr:
-        r = replay_trade(
-            t,
-            t["_atr"],
-            args.base_take_mult / 2,
-            args.base_take_mult,
-            df_m15,
-            args.timeout_bars,
-        )
-        if r:
-            r["_id"] = t["id"]
-            base_replayed.append(r)
+    # --- 4. Train/test split (если задан --train-until) ---
+    if args.train_until:
+        from datetime import datetime as _dt
 
-    base = aggregate(base_replayed)
-    print(
-        f"  сделок: {base['total']}  "
-        f"W/L/T: {base['win']}/{base['loss']}/{base['timeout']}"
-    )
-    print(
-        f"  winrate: {base['winrate']}%  "
-        f"PF: {base['profit_factor']}  "
-        f"expectancy: {base['expectancy']} pts"
-    )
-    print(f"  total: {base['total_points']} pts / {base['total_rub']} ₽")
-    print()
+        cutoff = _dt.fromisoformat(args.train_until)
+        train = [
+            t for t in trades_with_atr if _dt.fromisoformat(t["created_at"]) < cutoff
+        ]
+        test = [
+            t for t in trades_with_atr if _dt.fromisoformat(t["created_at"]) >= cutoff
+        ]
+        print(f"Train: {len(train)}  Test: {len(test)}  (cutoff={args.train_until})")
+        print()
+        splits = [("TRAIN", train), ("TEST", test)]
+    else:
+        splits = [("ALL", trades_with_atr)]
 
-    # --- 5. Сетка ---
     grid = parse_grid(args.grid)
-    print("=" * 70)
-    print("ПОДБОР (stop_mult, take_mult)")
-    print("=" * 70)
-    print(f"  timeout_bars = {args.timeout_bars}")
 
-    header = (
-        f"{'stop':>6} {'take':>6} | "
-        f"{'total':>5} {'W':>3} {'L':>3} {'T':>3} | "
-        f"{'winrate':>8} {'PF':>5} {'exp':>7} | "
-        f"{'pts':>8} {'rub':>9}"
-    )
-    print(header)
-    print("-" * len(header))
+    # --- 5. Прогон по сплитам ---
+    for split_name, split_trades in splits:
+        print("=" * 70)
+        print(f"СПЛИТ: {split_name}  ({len(split_trades)} сделок)")
+        print("=" * 70)
 
-    results = []
-    for stop_mult, take_mult in grid:
-        replayed = []
-        for t in trades_with_atr:
+        # --- 5.1. Базовый прогон ---
+        base_replayed = []
+        for t in split_trades:
             r = replay_trade(
                 t,
                 t["_atr"],
-                stop_mult,
-                take_mult,
+                args.base_take_mult / 2,
+                args.base_take_mult,
                 df_m15,
                 args.timeout_bars,
             )
             if r:
-                replayed.append(r)
+                r["_id"] = t["id"]
+                base_replayed.append(r)
 
-        agg = aggregate(replayed)
-        results.append((stop_mult, take_mult, agg))
+        base = aggregate(base_replayed)
+        print(f"  базовый ({args.base_take_mult/2:.1f}/{args.base_take_mult:.1f}):")
         print(
-            f"{stop_mult:>6.2f} {take_mult:>6.2f} | "
-            f"{agg['total']:>5} {agg['win']:>3} {agg['loss']:>3} {agg['timeout']:>3} | "
-            f"{str(agg['winrate']) + '%':>8} "
-            f"{str(agg['profit_factor']):>5} "
-            f"{str(agg['expectancy']):>7} | "
-            f"{agg['total_points']:>+8.1f} {agg['total_rub']:>+9.2f}"
+            f"    сделок: {base['total']}  "
+            f"W/L/T: {base['win']}/{base['loss']}/{base['timeout']}"
+        )
+        print(
+            f"    winrate: {base['winrate']}%  "
+            f"PF: {base['profit_factor']}  "
+            f"exp: {base['expectancy']}"
+        )
+        print(
+            f"    total: {base['total_points']:+.1f} pts / {base['total_rub']:+.2f} ₽"
         )
 
-    # --- 6. Лучший вариант ---
-    valid = [
-        r for r in results if r[2]["profit_factor"] is not None and r[2]["total"] >= 5
-    ]
-    if valid:
-        best = max(valid, key=lambda r: r[2]["profit_factor"])
+        # --- 5.2. Сетка ---
+        print(f"  ПОДБОР (stop_mult, take_mult), timeout={args.timeout_bars}")
+        header = (
+            f"  {'stop':>6} {'take':>6} | "
+            f"{'total':>5} {'W':>3} {'L':>3} {'T':>3} | "
+            f"{'winrate':>8} {'PF':>5} {'exp':>7} | "
+            f"{'pts':>8}"
+        )
+        print(header)
+        print("  " + "-" * (len(header) - 2))
+
+        results = []
+        for stop_mult, take_mult in grid:
+            replayed = []
+            for t in split_trades:
+                r = replay_trade(
+                    t,
+                    t["_atr"],
+                    stop_mult,
+                    take_mult,
+                    df_m15,
+                    args.timeout_bars,
+                )
+                if r:
+                    replayed.append(r)
+
+            agg = aggregate(replayed)
+            results.append((stop_mult, take_mult, agg))
+            print(
+                f"  {stop_mult:>6.2f} {take_mult:>6.2f} | "
+                f"{agg['total']:>5} {agg['win']:>3} {agg['loss']:>3} {agg['timeout']:>3} | "
+                f"{str(agg['winrate']) + '%':>8} "
+                f"{str(agg['profit_factor']):>5} "
+                f"{str(agg['expectancy']):>7} | "
+                f"{agg['total_points']:>+8.1f}"
+            )
+
+        # --- 5.3. Лучший по netPF ---
+        valid = [
+            r
+            for r in results
+            if r[2]["profit_factor"] is not None and r[2]["total"] >= 5
+        ]
+        if valid:
+            best = max(valid, key=lambda r: r[2]["profit_factor"])
+            print()
+            print(f"  ЛУЧШИЙ ПО PF: stop={best[0]} take={best[1]}")
+            print(
+                f"    PF={best[2]['profit_factor']}  "
+                f"exp={best[2]['expectancy']}  "
+                f"winrate={best[2]['winrate']}%  "
+                f"total={best[2]['total_points']:+.1f} pts"
+            )
         print()
-        print("=" * 70)
-        print(f"ЛУЧШИЙ ПО PF: stop={best[0]} take={best[1]}")
-        print(
-            f"  PF={best[2]['profit_factor']}  "
-            f"expectancy={best[2]['expectancy']}  "
-            f"winrate={best[2]['winrate']}%  "
-            f"total={best[2]['total_points']} pts"
-        )
-        print("=" * 70)
 
     return 0
 

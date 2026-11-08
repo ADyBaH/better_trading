@@ -72,6 +72,8 @@ class IndicatorSnapshot:
     impulse_dir: str = "none"  # up / down / none
     market_state: str = "normal"  # normal / pullback / impulse
 
+    volume_ratio: float = 1.0
+
     def to_dict(self) -> dict:
         d = asdict(self)
         for key in ("ema_fast", "ema_slow", "rsi", "adx"):
