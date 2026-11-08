@@ -159,7 +159,7 @@ PAPER_TRADING_HOURS = {
 
 # Timeout: сколько торговых M15 свечей ждём stop/take,
 # прежде чем закрыть по close. 50 × M15 = 12.5 часов торгового времени.
-PAPER_TIMEOUT_BARS = 20
+PAPER_TIMEOUT_BARS = 50
 
 # Дедупликация: не создавать дубль, если есть открытая сделка того же
 # направления и kind с entry в пределах PAPER_DEDUP_PRICE_TOL_ATR × ATR(H1)

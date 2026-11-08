@@ -232,3 +232,20 @@
 **Решение:** поставить **0.7/1.4** (лучший PF, timeout 17 — защита есть).
 0.3/0.6 и 0.5/1.0 — отклонены (overfit / стоп узкий).
 Комиссия не учтена — добавить в скрипт **после** первых 20 сделок с новым конфигом.
+
+## 08.11 (Sun) — mfe/mae + volume_ratio + is_duplicate closed_at
+
+**Сделано:**
+
+1. `_is_duplicate` — учитывает недавно закрытые (`closed_at >= now - 5 мин`).
+2. `virtual_pnl` — `mfe_points`, `mae_points` (max favorable/adverse excursion).
+3. `volume_ratio_at_open` — объём на входе / средний за 20.
+
+**Проверено:** тестовая open-сделка (06.11 17:40) →
+conf=auto_end_of_day, bars=10, exit=12.29, result_points=+14,
+mfe_points=+23 (high 12.299), mae_points=1 (low 12.275), volume_ratio=1.15.
+
+**Старые (#1–#20):** mfe/mae/volume_ratio = None (до миграций).
+**Новые (#21+):** заполнены.
+
+**Далее:** через неделю — `by_volume_ratio` в paper-stats: объём >1.2 лучше?

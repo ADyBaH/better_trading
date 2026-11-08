@@ -67,10 +67,12 @@ class IndicatorSnapshot:
     # --- Недельный тренд ---
     week_trend: str = "unknown"
     week_change_atr: float = 0.0
-
+    
     impulse_atr: float = 0.0
     impulse_dir: str = "none"  # up / down / none
     market_state: str = "normal"  # normal / pullback / impulse
+
+    volume_ratio: float = 1.0
 
     def to_dict(self) -> dict:
         d = asdict(self)

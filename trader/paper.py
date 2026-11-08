@@ -92,6 +92,12 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN rsi_at_open REAL")
     if "atr_percentile_at_open" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN atr_percentile_at_open REAL")
+    if "mfe_points" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_points REAL")
+    if "mae_points" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_points REAL")
+    if "volume_ratio_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN volume_ratio_at_open REAL")
     conn.commit()
 
 
@@ -134,6 +140,7 @@ def virtual_pnl(
     stop: float,
     take: float,
     max_bars: int = None,
+    end_of_day=None,  # ← НОВОЕ: datetime.time или None
 ) -> dict:
     """
     Считает виртуальный PnL по свечам вперёд.
@@ -143,14 +150,17 @@ def virtual_pnl(
     - long: high >= take → win, low <= stop → loss;
     - short: low <= take → win, high >= stop → loss;
     - если обе задеты в одной свече — консервативно loss (ambiguous=True);
-    - если max_bars пройден без касания — timeout по close последней свечи.
+    - если max_bars пройден без касания — timeout по close последней свечи;
+    - если end_of_day задан и время свечи >= end_of_day — timeout
+        по close этой свечи (reason="end_of_day").
 
     Возвращает:
         {
-            "result": "win" / "loss" / "timeout" / "no_data",
+            "result": "win" / "loss" / "timeout" / "open" / "no_data",
             "exit_price": float | None,
             "bars": int,
             "ambiguous": bool,
+            "reason": "take" / "stop" / "max_bars" / "end_of_day" / None,
         }
     """
     import pandas as pd
@@ -159,16 +169,37 @@ def virtual_pnl(
         max_bars = config.PAPER_TIMEOUT_BARS
 
     if df_future is None or len(df_future) == 0:
-        return {"result": "no_data", "exit_price": None, "bars": 0, "ambiguous": False}
+        return {
+            "result": "no_data",
+            "exit_price": None,
+            "bars": 0,
+            "ambiguous": False,
+            "reason": None,
+        }
+
+    mfe_points = 0.0
+    mae_points = 0.0
 
     for i, row in enumerate(df_future.itertuples(), 1):
         high = row.high
         low = row.low
 
+        # --- MFE/MAE (max favorable / adverse excursion) ---
+        if direction == "long":
+            cur_mfe = (high - entry) / config.PRICE_STEP
+            cur_mae = (entry - low) / config.PRICE_STEP
+        else:
+            cur_mfe = (entry - low) / config.PRICE_STEP
+            cur_mae = (high - entry) / config.PRICE_STEP
+        if cur_mfe > mfe_points:
+            mfe_points = cur_mfe
+        if cur_mae > mae_points:
+            mae_points = cur_mae
+
         if direction == "long":
             hit_take = high >= take
             hit_stop = low <= stop
-        else:  # short
+        else:
             hit_take = low <= take
             hit_stop = high >= stop
 
@@ -179,6 +210,9 @@ def virtual_pnl(
                 "exit_price": stop,
                 "bars": i,
                 "ambiguous": True,
+                "reason": "stop",
+                "mfe_points": round(mfe_points, 1),
+                "mae_points": round(mae_points, 1),
             }
 
         if hit_take:
@@ -187,6 +221,9 @@ def virtual_pnl(
                 "exit_price": take,
                 "bars": i,
                 "ambiguous": False,
+                "reason": "take",
+                "mfe_points": round(mfe_points, 1),
+                "mae_points": round(mae_points, 1),
             }
 
         if hit_stop:
@@ -195,7 +232,26 @@ def virtual_pnl(
                 "exit_price": stop,
                 "bars": i,
                 "ambiguous": False,
+                "reason": "stop",
+                "mfe_points": round(mfe_points, 1),
+                "mae_points": round(mae_points, 1),
             }
+
+        # --- Конец дня: закрываем по close, если свеча после end_of_day ---
+        if end_of_day is not None:
+            candle_begin = row.begin
+            if hasattr(candle_begin, "time"):
+                candle_time = candle_begin.time()
+                if candle_time >= end_of_day:
+                    return {
+                        "result": "timeout",
+                        "exit_price": float(row.close),
+                        "bars": i,
+                        "ambiguous": False,
+                        "reason": "end_of_day",
+                        "mfe_points": round(mfe_points, 1),
+                        "mae_points": round(mae_points, 1),
+                    }
 
         if i >= max_bars:
             return {
@@ -203,18 +259,19 @@ def virtual_pnl(
                 "exit_price": float(row.close),
                 "bars": i,
                 "ambiguous": False,
+                "reason": "max_bars",
+                "mfe_points": round(mfe_points, 1),
+                "mae_points": round(mae_points, 1),
             }
 
-    # Свечей меньше, чем max_bars, и ни stop, ни take не задеты.
-    # Это нормальная ситуация, когда сделка ещё открыта:
-    # в реальном времени мы не должны её закрывать по таймауту раньше времени.
-    # Вызывающий код (resolve_open_trades) сам решит: обновить partial-состояние
-    # или оставить open.
     return {
         "result": "open",
         "exit_price": None,
         "bars": len(df_future),
         "ambiguous": False,
+        "reason": None,
+        "mfe_points": round(mfe_points, 1),
+        "mae_points": round(mae_points, 1),
     }
 
 
@@ -244,14 +301,22 @@ def _is_duplicate(
         (a) abs(new.entry - old.entry) < PAPER_DEDUP_PRICE_TOL_ATR × ATR;
         (b) abs(now - old.created_at) < PAPER_DEDUP_MINUTES минут.
     """
+    # Смотрим и open, и недавно закрытые (в пределах dedup_minutes)
+    from datetime import timedelta
+
+    cutoff = (now - timedelta(minutes=config.PAPER_DEDUP_MINUTES)).isoformat()
+
     rows = conn.execute(
         """
-        SELECT entry_price, created_at FROM paper_trades
-        WHERE result = 'open'
-          AND symbol = ?
+        SELECT entry_price, created_at, closed_at, result FROM paper_trades
+        WHERE symbol = ?
           AND direction = ?
+          AND (
+              result = 'open'
+              OR (result IN ('win', 'loss', 'timeout') AND closed_at >= ?)
+          )
         """,
-        (symbol, signal.direction),
+        (symbol, signal.direction, cutoff),
     ).fetchall()
 
     if not rows:
@@ -470,7 +535,7 @@ def resolve_open_trades(
 
     # Свечи тянем один раз на все сделки
     if df_m15 is None:
-        count = config.PAPER_TIMEOUT_BARS + 30
+        count = max(config.PAPER_TIMEOUT_BARS + 30, 1000)
         df_m15 = get_candles_tf("M15", count=count)
 
     if df_m15 is None or len(df_m15) == 0:
@@ -531,6 +596,15 @@ def resolve_open_trades(
         # (свеча, в которой открыт сигнал, не участвует — это «нулевой» бар)
         df_future = df_m15[df_m15["begin"] > created_at].copy()
 
+        from datetime import time as dt_time
+
+        # end_of_day из config.PAPER_TRADING_HOURS["end"] (18:00 или 20:00)
+        end_of_day = None
+        try:
+            end_of_day = dt_time.fromisoformat(config.PAPER_TRADING_HOURS["end"])
+        except Exception:
+            pass
+
         pnl = virtual_pnl(
             df_future,
             trade["direction"],
@@ -538,6 +612,7 @@ def resolve_open_trades(
             trade["stop_price"],
             trade["take_price"],
             max_bars=config.PAPER_TIMEOUT_BARS,
+            end_of_day=end_of_day,
         )
 
         if pnl["result"] in ("open", "no_data"):
@@ -560,21 +635,18 @@ def resolve_open_trades(
         # auto — нормальный резолв.
         if pnl.get("ambiguous"):
             confidence = "auto_ambiguous"
-        elif data_age_min is not None and data_age_min > config.DATA_MAX_AGE_BLOCK:
-            confidence = "auto_stale"
+        elif pnl.get("reason") == "end_of_day":
+            confidence = "auto_end_of_day"
         else:
             confidence = "auto"
 
         conn.execute(
             """
             UPDATE paper_trades
-            SET closed_at = ?,
-                exit_price = ?,
-                result = ?,
-                result_points = ?,
-                result_rub = ?,
-                bars_to_close = ?,
-                resolution_confidence = ?
+            SET closed_at = ?, exit_price = ?, result = ?,
+                result_points = ?, result_rub = ?, bars_to_close = ?,
+                resolution_confidence = ?, balance_after = ?,
+                mfe_points = ?, mae_points = ?
             WHERE id = ?
             """,
             (
@@ -585,6 +657,9 @@ def resolve_open_trades(
                 rub,
                 pnl["bars"],
                 confidence,
+                trade["id"],
+                pnl.get("mfe_points"),
+                pnl.get("mae_points"),
                 trade["id"],
             ),
         )
@@ -1061,6 +1136,37 @@ def paper_stats(
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
+    def _vol_bucket(v):
+        if v is None:
+            return "unknown"
+        if v < 0.8:
+            return "<0.8"
+        elif v > 1.2:
+            return ">1.2"
+        return "0.8-1.2"
+
+    by_volume_ratio = {}
+    for r in rows:
+        bucket = _vol_bucket(r["volume_ratio_at_open"])
+        if bucket not in by_volume_ratio:
+            by_volume_ratio[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_volume_ratio[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_volume_ratio.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
     return {
         "total": total,
         "open": open_count,
@@ -1090,6 +1196,7 @@ def paper_stats(
         "by_weekday": by_weekday,
         "profit_factor": profit_factor,
         "expectancy": expectancy,
+        "by_volume_ratio": by_volume_ratio,
     }
 
 

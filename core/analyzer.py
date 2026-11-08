@@ -127,7 +127,18 @@ def _build_indicator_snapshot(
 
         if impulse_atr > 1.2 and 0.2 < retrace < impulse_atr * 0.7:
             market_state = "pullback"
-
+    
+    # --- Volume ratio: последняя свеча / среднее за VOLUME_LOOKBACK ---
+    volume_ratio = 1.0
+    try:
+        import config as _cfg
+        if len(df) > _cfg.VOLUME_LOOKBACK and df["volume"].iloc[-1] > 0:
+            avg_vol = df["volume"].iloc[-_cfg.VOLUME_LOOKBACK - 1:-1].mean()
+            if avg_vol > 0:
+                volume_ratio = round(float(df["volume"].iloc[-1] / avg_vol), 2)
+    except Exception:
+        pass
+    
     return IndicatorSnapshot(
         ema_fast=ema_fast_f,
         ema_slow=ema_slow_f,
@@ -147,6 +158,7 @@ def _build_indicator_snapshot(
         impulse_atr=round(impulse_atr, 2),
         impulse_dir=impulse_dir,
         market_state=market_state,
+        volume_ratio=volume_ratio,
     )
 
 
