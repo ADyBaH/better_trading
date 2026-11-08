@@ -86,9 +86,6 @@ def _build_indicator_snapshot(
 
     main_trend_info = get_main_trend(trend_context)
 
-    # --- Недельный тренд (H4) ---
-    from data.api_facade import get_candles_tf
-
     df_h4 = get_candles_tf("H4", count=300)
     week_ctx = get_week_trend(df_h4)
 
@@ -115,17 +112,21 @@ def _build_indicator_snapshot(
         price_n_ago_pb = float(df["close"].iloc[-n_pullback])
         pullback_atr = abs(current_price - price_n_ago_pb) / atr
 
-    # после расчёта impulse_dir и impulse_atr
-    if impulse_dir in ("up", "down") and len(df) > n_impulse:
+    # --- Pullback: откат от экстремума импульса ---
+    # ВАЖНО: всё внутри if len(df) > n_impulse and impulse_dir in ("up", "down"),
+    # иначе window/retrace не определены (UnboundLocalError).
+    if len(df) > n_impulse and atr > 0 and impulse_dir in ("up", "down"):
         window = df.iloc[-n_impulse:]
-    if impulse_dir == "up":
-        peak = window["high"].max()
-        retrace = (peak - current_price) / atr
-    else:
-        trough = window["low"].min()
-        retrace = (current_price - trough) / atr
-    if impulse_atr > 1.2 and 0.2 < retrace < impulse_atr * 0.7:
-        market_state = "pullback"
+
+        if impulse_dir == "up":
+            peak = window["high"].max()
+            retrace = (peak - current_price) / atr
+        else:
+            trough = window["low"].min()
+            retrace = (current_price - trough) / atr
+
+        if impulse_atr > 1.2 and 0.2 < retrace < impulse_atr * 0.7:
+            market_state = "pullback"
 
     return IndicatorSnapshot(
         ema_fast=ema_fast_f,

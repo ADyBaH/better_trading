@@ -640,6 +640,11 @@ def detect_trend_level(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]
     A1: цена у уровня.
     A2: свеча-подтверждение.
     A3: тренд по голосованию совпадает с направлением.
+
+    ВАЖНО: при trend=transition/none сигнал НЕ создаётся (return []).
+    Штраф PENALTY_TREND_TRANSITION здесь не применяется — transition
+    отсекается раньше. Если позже понадобится разрешить trend_level
+    при transition — вернуть блок штрафа (см. git history / NOTES).
     """
     signals = []
     price = result.current_price
@@ -656,16 +661,6 @@ def detect_trend_level(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]
         # transition или none — не создаём trend_level
         log.debug("trend_level пропущен: trend=%s", ind.trend)
         return []
-
-    # --- Двойной конфликт (transition + day_trend против направления) ---
-    # (сюда не попадём, если trend не transition, но на будущее — оставим)
-    if ind.trend == "transition":
-        if ind.day_trend == "bullish" and direction == "short":
-            log.info("trend_level SHORT заблокирован: transition + day bullish")
-            return []
-        if ind.day_trend == "bearish" and direction == "long":
-            log.info("trend_level LONG заблокирован: transition + day bearish")
-            return []
 
     for lv in result.levels:
         # Для лонга — уровень ниже цены (поддержка), для шорта — выше (сопротивление)
@@ -698,25 +693,6 @@ def detect_trend_level(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]
         score, strength = _compute_strength(matched)
         if strength == "none":
             continue
-
-        # --- Штраф за transition ---
-        if ind.trend == "transition":
-            penalty = config.PENALTY_TREND_TRANSITION
-            score = max(0.0, score - penalty)
-            reasons.append(f"штраф за transition: -{penalty}")
-
-            # Пересчёт strength
-            if score < 1.0:
-                strength = "none"
-            elif score < 2.0:
-                strength = "weak"
-            elif score < 3.0:
-                strength = "medium"
-            else:
-                strength = "strong"
-
-            if strength == "none":
-                continue
 
         entry = price
         stop, take = _compute_stops(entry, direction, result.atr)

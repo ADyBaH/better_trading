@@ -159,51 +159,6 @@ def init_db() -> None:
 # ============================================================
 
 
-def compute_result(self) -> None:
-    """
-    Считает result_points и result_rub.
-
-    Пункты:
-    - если result_override_points задан — берём его,
-    - иначе — через compute_trade_result() из core.instruments.
-
-    Рубли:
-    - gross = points × step_cost × size,
-    - commission = commission_rub (если задан) ИЛИ commission_round × size,
-    - result_rub = gross − commission.
-    """
-    from core.instruments import get_instrument, compute_trade_result
-
-    inst = get_instrument(self.symbol)
-
-    # --- Override: считаем вручную, без compute_trade_result ---
-    if self.result_override_points is not None:
-        self.result_points = round(self.result_override_points, 1)
-        gross_rub = self.result_points * inst.step_cost * self.size
-        comm = (
-            self.commission_rub
-            if self.commission_rub is not None
-            else inst.commission_round
-        )
-        self.result_rub = round(gross_rub - comm * self.size, 2)
-        return
-
-    # --- Без override: общая функция ---
-    if self.exit_price is None:
-        self.result_points = None
-        self.result_rub = None
-        return
-
-    self.result_points, self.result_rub = compute_trade_result(
-        inst,
-        self.direction,
-        self.entry_price,
-        self.exit_price,
-        size=self.size,
-        commission_round=self.commission_rub,
-    )
-
-
 def close_trade(
     trade_id: int,
     exit_price: float | None = None,

@@ -106,8 +106,8 @@ VOLUME_MULTIPLIER = 1.5
 
 # --- Стопы / тейки ---
 USE_ATR_STOPS = True
-STOP_ATR_MULT = 0.7  # стоп = 1.0 × ATR(H1)
-TAKE_ATR_MULT = 1.4  # тейк = 2.0 × ATR(H1)
+STOP_ATR_MULT = 0.7  # стоп = 0.7 × ATR(H1)
+TAKE_ATR_MULT = 1.4  # тейк = 1.4 × ATR(H1)
 
 # --- Штрафы за конфликты тренда ---
 PENALTY_TREND_TRANSITION = 1.5  # для trend_level при transition
