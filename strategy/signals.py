@@ -785,11 +785,11 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
     for s in all_signals:
         # --- Фильтр: bullish / long (n=19, 4W/14L, -207 ₽) ---
         if (
-            config.PAPER_SKIP_BULLISH_LONG
+            config.PAPER_SKIP_BULLISH_SHORT
             and result.indicators.week_trend == "bullish"
-            and s.direction == "long"
+            and s.direction == "short"
         ):
-            log.info("bullish / long заблокирован (фильтр)")
+            log.info("bullish / short заблокирован (фильтр)")
             continue
 
         # --- Фильтр: normal + breakout / trend_level (5W/9L, -198 ₽) ---
@@ -799,6 +799,16 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
             and s.kind in ("breakout", "trend_level")
         ):
             log.info("normal + %s заблокирован (фильтр)", s.kind)
+            continue
+
+        # --- Фильтр: ADX flat + breakout (4W/14L, −176 ₽) ---
+        if (
+            config.PAPER_SKIP_ADX_FLAT_BREAKOUT
+            and s.kind == "breakout"
+            and result.indicators.adx is not None
+            and result.indicators.adx < 20
+        ):
+            log.info("ADX flat + breakout заблокирован (фильтр)")
             continue
 
         # Найти уровень по level_price

@@ -172,3 +172,5 @@ PAPER_SKIP_BULLISH_LONG = False
 
 # Фильтр: normal + breakout / trend_level — убыточны (5W/9L, -198 ₽)
 PAPER_SKIP_NORMAL_BREAKOUT = False
+PAPER_SKIP_BULLISH_SHORT = True       # 0W/12L, −257 ₽ (F)
+PAPER_SKIP_ADX_FLAT_BREAKOUT = True   # ADX < 20 + breakout (F)
