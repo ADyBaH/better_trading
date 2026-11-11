@@ -431,6 +431,32 @@
 - [x] Y: `pullback` — 0 сделок (пока), `normal` — 9, `impulse` — 0.
 - [x] F: `normal` — 21, `pullback` — 0, `impulse` — 0.
 - [x] **`pullback` не создаёт сделки** — надо снизить окно `pullback_atr` до 3 M15 (45 мин).
+
+## Этап 22. Сохранение свечей в JSON ✅
+
+### 22.1. Инфраструктура
+
+- [x] `data/candles_export.py`: `save_candles_snapshots`, `append_candles_snapshot`, `candles_to_list`.
+- [x] Папка — `storage/logs/YYYY-MM-DD/`, рядом с `analysis_*.json`.
+- [x] Формат: массив `snapshots`, `has_signals` / `signals_count` — маркер B.
+
+### 22.2. Флаги
+
+- [x] `SAVE_CANDLES` — глобальный выключатель.
+- [x] `SAVE_CANDLES_ALWAYS` — A (каждый цикл) / B (только при сигналах).
+- [x] `SAVE_CANDLES_MARK_SIGNALS` — маркер `has_signals`.
+- [x] `SAVE_CANDLES_TIMEFRAMES`, `SAVE_CANDLES_COUNT`, `SAVE_CANDLES_MAX_SNAPSHOTS`.
+
+### 22.3. Интеграция
+
+- [x] `runner.py`: `save_candles_snapshots(result)` после `save_analysis`.
+- [x] Ошибки не валят раннер (try/except + log).
+
+### 22.4. Что нужно
+
+- [ ] Проверить на 2–3 днях: файл растёт ~4–6 МБ/день на M15.
+- [ ] Решить: фильтровать выходные свечи (`volume < 100`) при анализе.
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
@@ -460,32 +486,37 @@
 
 ## Текущий статус
 
-**Версия:** 0.9.0
-**Готово:** этапы 1–19 (ALOR WebSocket, real-time, real-мок, депозит, лаг paper vs real,
-`week_trend`, `by_pressure`, `by_bars`, `market_state`, PF, expectancy, фильтры).
-**В работе:** сбор статистики (F — 120 сделок, Y — 48 сделок).
-**F (main):** winrate **43.4%**, PnL **+565.20 ₽**, PF **1.27**, expectancy **+6.9 pts**.
-**Y (feature/real-trading):** winrate **46.2%**, PnL **+317.40 ₽**, PF **1.46**, expectancy **+9.9 pts**.
+**Версия:** 0.11.0
+**Готово:** этапы 1–22 (ALOR WebSocket, real-time, real-мок, депозит, лаг paper vs real,
+`week_trend`, `by_pressure`, `by_bars`, `market_state`, PF, expectancy, фильтры,
+сохранение свечей в JSON).
+**В работе:** сбор статистики (Y — 62 сделки, F — 56 сделок).
+**Y (feature/real-trading):** winrate **43.1%**, PnL **+357.36 ₽**, PF **1.35**, expectancy **+7.8 pts**.
+**F (main):** winrate **29.5%**, PnL **−172.48 ₽**, PF **0.61**, expectancy **−3.9 pts**.
 **Фильтры:** `bullish / long` и `normal + breakout` — включены в Y, выключены в F (полигон).
-**Следующий шаг:** через неделю — сравнить F vs Y (PF, expectancy). Если Y лучше — оставить.
-**Мерж:** Y → main (когда будем готовы) — код Y (фильтры, PF, expectancy) в main.
+**Следующий шаг:** через неделю — сравнить F vs Y. Если Y лучше — оставить. Кандидаты на фильтры (после 20+): `bullish / short`, `bid-heavy (>60)`, `ADX trend (20-25)`.
+**Мерж:** Y → main (когда будем готовы) — код Y (фильтры, PF, expectancy, candles) в main.
 
 ---
+
 ## Ветки и их роли
 
 ### `main` (F)
+
 - **Роль:** основная ветка (reference).
 - **Настройки:** без фильтров, 120 сделок.
 - **База:** `storage/journal.db`.
 - **Цель:** сравнение с `experiment/aggressive-signals` и `feature/real-trading`.
 
 ### `experiment/aggressive-signals` (F)
+
 - **Роль:** агрессивный полигон.
 - **Настройки:** без фильтров, сниженные пороги (`BOUNCE_TOLERANCE_ATR = 0.4`, `TREND_LEVEL_TOLERANCE_ATR = 0.5`, `BREAKOUT_BUFFER_ATR = 0.1`, `ADX_BREAKOUT_THRESHOLD = 20`), расширенные часы (`PAPER_TRADING_HOURS` 09:00–20:00), `PAPER_DEDUP_MINUTES = 5`, `PAPER_MAX_OPEN = 0`.
 - **База:** `storage/journal_aggressive.db`.
 - **Цель:** накопить статистику быстрее (больше сигналов).
 
 ### `feature/real-trading` (Y)
+
 - **Роль:** актуальная ветка (торгуем по ней).
 - **Настройки:** с фильтрами (`PAPER_SKIP_BULLISH_LONG = True`, `PAPER_SKIP_NORMAL_BREAKOUT = True`), лимит 1, `PAPER_TRADING_HOURS` 09:00–18:00.
 - **База:** `storage/journal.db` (в Y).
@@ -493,11 +524,11 @@
 
 ### Сравнение (05.11)
 
-| Ветка | Сделок | Winrate | PnL | PF | Expectancy |
-|---|---|---|---|---|---|
-| **F (main)** | 120 | 43.4% | +565.20 ₽ | **1.27** | +6.9 pts |
-| **Y (real-trading)** | 48 | 46.2% | +317.40 ₽ | **1.46** | +9.9 pts |
-| **F (aggressive)** | 0 | — | — | — | — |
+| Ветка                | Сделок | Winrate | PnL       | PF       | Expectancy |
+| -------------------- | ------ | ------- | --------- | -------- | ---------- |
+| **F (main)**         | 120    | 43.4%   | +565.20 ₽ | **1.27** | +6.9 pts   |
+| **Y (real-trading)** | 48     | 46.2%   | +317.40 ₽ | **1.46** | +9.9 pts   |
+| **F (aggressive)**   | 0      | —       | —         | —        | —          |
 
 **Y лучше F** по PF и expectancy — фильтры работают.
 **F (aggressive)** — только начинает, статистики пока нет.
@@ -520,6 +551,10 @@
 8. **Дедуп близких сигналов** — не проверялось.
 9. **«Пила» (< 60 мин)** — не проверялось.
 10. **RSI-экстремумы** — не проверялось.
+11. **`bullish / short` — убыточный** (Y: 2W/4L, +11.9, n=7; F: 1W/13L, −249.7, n=17). **Кандидат на фильтр** после 20+.
+12. **`bid-heavy (>60)` — убыточный** (Y: 0W/4L, −113.2, n=5; F: 0W/3L, −71.1, n=3). **Кандидат на фильтр** после 10+.
+13. **`ADX trend (20-25)` — противоречие** (Y: 0W/8L, −183.9, n=10; F: +141.5, n=20). Проверить на 20+ в Y.
+14. **`bearish / long` — лучший в Y** (4W/1L, +216.1, n=5). **Не блокировать.**
 
 **Решение по фильтрам:** НЕ внедряем до 40+ сигналов.
 **Вечер:** если 10+ вечерних сделок подтвердят убыточность — рассмотреть отключение `PAPER_TRADING_HOURS` после 17:00.

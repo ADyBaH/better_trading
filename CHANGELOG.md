@@ -58,3 +58,45 @@
 - **Y (48 сделок)**: PF **1.46**, expectancy **+9.9 pts**, winrate **46.2%**, PnL **+317.40 ₽**.
 - **F (120 сделок)**: PF **1.27**, expectancy **+6.9 pts**, winrate **43.4%**, PnL **+565.20 ₽**.
 - **Y лучше F** по PF и expectancy — фильтры работают.
+
+## [0.10.1] — 2026-11-11
+
+### Добавлено
+
+- **Сохранение свечей в JSON** рядом с анализом: `data/candles_export.py`,
+  `storage/logs/YYYY-MM-DD/candles_<TF>_YYYY-MM-DD.json`.
+- **Флаги** в `config.py`: `SAVE_CANDLES`, `SAVE_CANDLES_ALWAYS`,
+  `SAVE_CANDLES_MARK_SIGNALS`, `SAVE_CANDLES_TIMEFRAMES`,
+  `SAVE_CANDLES_COUNT`, `SAVE_CANDLES_MAX_SNAPSHOTS`.
+- **Режимы** A (все свечи) / B (только при сигналах) / A+B (все + маркер).
+- `runner.py`: вызов `save_candles_snapshots` после `save_analysis`.
+
+### Известные ограничения
+
+- Файл растёт ~4–6 МБ/день на M15 (144 снимка × 300 свечей).
+- Выходные свечи (`volume < 100`) попадают в снимок — фильтровать при анализе.
+
+## [0.11.0] — 2026-11-11
+
+### Добавлено
+
+- **Сохранение свечей в JSON** рядом с анализом: `data/candles_export.py`,
+  `storage/logs/YYYY-MM-DD/candles_<TF>_YYYY-MM-DD.json`.
+- **Флаги** в `config.py`: `SAVE_CANDLES`, `SAVE_CANDLES_ALWAYS`,
+  `SAVE_CANDLES_MARK_SIGNALS`, `SAVE_CANDLES_TIMEFRAMES`,
+  `SAVE_CANDLES_COUNT`, `SAVE_CANDLES_MAX_SNAPSHOTS`.
+- **Режимы** A (все свечи) / B (только при сигналах) / A+B (все + маркер).
+- `runner.py`: вызов `save_candles_snapshots` после `save_analysis`.
+
+### Статистика (11.11)
+
+- **Y (62 сделки):** winrate **43.1%**, PnL **+357.36 ₽**, PF **1.35**, expectancy **+7.8 pts**, депозит **+9.75%**.
+- **F (56 сделок):** winrate **29.5%**, PnL **−172.48 ₽**, PF **0.61**, expectancy **−3.9 pts**.
+- **Y лучше F** по всем метрикам — фильтры работают.
+- **Кандидаты на фильтры** (после 20+): `bullish / short`, `bid-heavy (>60)`, `ADX trend (20-25)`.
+
+### Известные ограничения
+
+- Файл свечей растёт ~4–6 МБ/день на M15 (144 снимка × 300 свечей).
+- Выходные свечи (`volume < 100`) попадают в снимок — фильтровать при анализе.
+- **`unknown` в разрезах — шум** (старые сделки до миграций): 25 `week_trend`, 39 `market_state`, 47 `RSI`, 59 `ATR pct` в Y. Разрезы на 20+ «известных» — после миграции.

@@ -178,3 +178,16 @@ PAPER_SKIP_BULLISH_LONG = True
 
 # Фильтр: normal + breakout / trend_level — убыточны (5W/9L, -198 ₽)
 PAPER_SKIP_NORMAL_BREAKOUT = True
+
+# ============================================================
+# СОХРАНЕНИЕ СВЕЧЕЙ В JSON
+# ============================================================
+SAVE_CANDLES = True  # глобальный выключатель (вкл/выкл фичу)
+SAVE_CANDLES_ALWAYS = True  # ФЛАГ «ВСЕ СВЕЧИ»: True — писать каждый цикл (A)
+#                    False — только при сигналах (B)
+SAVE_CANDLES_MARK_SIGNALS = (
+    True  # ставить has_signals/signals_count в снимке (B-маркер)
+)
+SAVE_CANDLES_TIMEFRAMES = ["M15"]  # какие ТФ сохранять
+SAVE_CANDLES_COUNT = 300  # сколько свечей брать
+SAVE_CANDLES_MAX_SNAPSHOTS = 300  # защита от разрастания
