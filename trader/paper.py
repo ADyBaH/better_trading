@@ -371,6 +371,7 @@ def save_signal_as_paper(
                 "bid_vol, ask_vol, market_price_at_open, size, balance_after"
             )
             _placeholders = ", ".join(["?"] * len(_columns.split(",")))
+            changes_before = conn.total_changes
             conn.execute(
                 f"INSERT OR IGNORE INTO paper_trades ({_columns}) VALUES ({_placeholders})",
                 (
@@ -411,10 +412,11 @@ def save_signal_as_paper(
                     ask_vol,
                     market_price_at_open,
                     size,
-                    None,  # balance_after (заполним при закрытии)
+                    None,  # balance_after
                 ),
             )
-            if conn.total_changes > 0:
+            inserted = conn.total_changes - changes_before
+            if inserted > 0:
                 created += 1
         except sqlite3.IntegrityError:
             log.debug("paper: signal_id=%s уже существует", sid)

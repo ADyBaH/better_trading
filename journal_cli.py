@@ -467,7 +467,6 @@ def cmd_paper_stats(args) -> int:
     _print_group("По дню недели", s["by_weekday"])
     _print_group("По RSI на входе", s["by_rsi"])
     _print_group("По волатильности (ATR percentile)", s["by_atr_percentile"])
-    _print_group("По объёму на входе", s["by_volume_ratio"])
 
     # by_score — сортируем по возрастанию score
     if s["by_score"]:
@@ -773,7 +772,7 @@ def main() -> int:
     )
     p_pt.set_defaults(func=cmd_paper_trades)
 
-    # paper-vs-real  ← ДО parse_args!
+    # paper-vs-real
     p_vs = sub.add_parser("paper-vs-real", help="Сравнение paper entry vs market")
     p_vs.add_argument("--since", default=None, help="С даты (ISO)")
     p_vs.add_argument("--until", default=None, help="До даты (ISO)")
