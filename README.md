@@ -20,6 +20,8 @@
 - **Раннер**: периодический анализ каждые 20 минут с сохранением по дням.
 - **Paper-tracking**: автоматическая запись сигналов как виртуальных сделок
   в `paper_trades` (SQLite, `storage/journal.db`) с резолвом по stop/take/timeout.
+- **Сохраняет свечи в JSON** рядом с анализом: `storage/logs/YYYY-MM-DD/candles_<TF>_YYYY-MM-DD.json`
+  (массив `snapshots`, режимы A / B / A+B, маркер `has_signals`).
 - **Статистика paper-trades**: `journal_cli.py paper-stats` (с разбивками по kind/trend/score/ADX/сессии).
 - **Детальная таблица сделок**: `journal_cli.py paper-trades --wide` (ADX, Bid/Ask, R:R).
 - **Тянет свечи** с MOEX ISS (с лагом) **или ALOR WebSocket (real-time, лаг 5 мин)**.
@@ -225,6 +227,7 @@ better_trading/
 │   ├── api_facade.py           # кэш + докачка
 │   ├── storage_sqlite.py       # хранение свечей
 │   ├── storage.py              # (вспомогательное)
+│   ├── candles_export.py       # сохранение свечей в JSON (рядом с analysis)
 │   └── resample.py             # M1 → M5/M15/H1/H4
 │
 ├── indicators/
@@ -322,6 +325,50 @@ better_trading/
 - **Источник данных**: `DATA_PROVIDER = "alor"` (real-time) или `"moex"` (ISS).
 - **Кэш**: `CACHE_TTL_MINUTES = 4` (для ALOR).
 
+### Сохранение свечей в JSON
+
+`runner.py` после каждого `save_analysis` дописывает снимок свечей в
+`storage/logs/YYYY-MM-DD/candles_<TF>_YYYY-MM-DD.json` — рядом с `analysis_*.json`.
+
+Управляется флагами в `config.py`:
+
+| Флаг                         | Значение         | Что делает                                       |
+| ---------------------------- | ---------------- | ------------------------------------------------ |
+| `SAVE_CANDLES`               | `True` / `False` | Глобальный выключатель                           |
+| `SAVE_CANDLES_ALWAYS`        | `True`           | **A**: писать каждый цикл                        |
+|                              | `False`          | **B**: писать только когда есть сигналы          |
+| `SAVE_CANDLES_MARK_SIGNALS`  | `True`           | Ставить `has_signals` / `signals_count` в снимке |
+| `SAVE_CANDLES_TIMEFRAMES`    | `["M15"]`        | Какие ТФ сохранять (можно `["M15","H1","H4"]`)   |
+| `SAVE_CANDLES_COUNT`         | `300`            | Сколько свечей в снимке                          |
+| `SAVE_CANDLES_MAX_SNAPSHOTS` | `300`            | Защита от разрастания файла                      |
+
+**Режимы:**
+
+- **A** = `ALWAYS=True, MARK_SIGNALS=False` — все свечи, без маркера.
+- **B** = `ALWAYS=False, MARK_SIGNALS=True` — только при сигналах, с маркером.
+- **A+B** = `ALWAYS=True, MARK_SIGNALS=True` — все свечи + маркер, где были сигналы (текущий).
+
+**Формат:**
+
+````json
+{
+  "symbol": "CNYRUBF",
+  "timeframe": "M15",
+  "date": "2026-11-11",
+  "count": 1,
+  "last_updated": "2026-11-11T18:09:29",
+  "snapshots": [
+    {
+      "saved_at": "2026-11-11T18:09:29",
+      "has_signals": true,
+      "signals_count": 1,
+      "count": 300,
+      "candles": [{"begin": "...", "open": 12.275, "high": 12.283, "low": 12.273, "close": 12.279, "volume": 21579}]
+    }
+  ]
+}
+
+````
 ## Ветки и их роли
 
 ### `main` (F)
@@ -352,6 +399,15 @@ better_trading/
 
 **Y лучше F** по PF и expectancy — фильтры работают.
 **F (aggressive)** — только начинает, статистики пока нет.
+
+### Сравнение (11.11)
+
+| Ветка | Сделок | Winrate | PnL | PF | Expectancy | Депозит |
+|---|---|---|---|---|---|---|
+| **Y (real-trading)** | 62 | 43.1% | +357.36 ₽ | **1.35** | **+7.8 pts** | +9.75% |
+| **F (main)** | 56 | 29.5% | −172.48 ₽ | **0.61** | **−3.9 pts** | — |
+
+**Y лучше F** по всем метрикам — фильтры `bullish/long` и `normal+breakout` работают.
 
 ## Что в планах
 

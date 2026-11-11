@@ -93,6 +93,17 @@ def run_once(log) -> bool:
         # 1. Сохраняем анализ
         json_path, txt_path = save_analysis(result)
 
+        # 1b. Сохраняем свечи (в ту же папку, что и анализ)
+        if config.SAVE_CANDLES:
+            try:
+                from data.candles_export import save_candles_snapshots
+
+                candle_paths = save_candles_snapshots(result, log)
+                for p in candle_paths:
+                    log.debug("candles saved: %s", p)
+            except Exception as e:
+                log.exception("candles-export упал: %s", e)
+
         # 2. Paper-tracking
         paper_created = 0
         paper_closed = 0
