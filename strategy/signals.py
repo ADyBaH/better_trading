@@ -65,7 +65,10 @@ def _has_volume_confirmation(df: pd.DataFrame) -> bool:
     avg_volume = df["volume"].iloc[-config.VOLUME_LOOKBACK - 1 : -1].mean()
     if avg_volume <= 0:
         return False
-    return df["volume"].iloc[-1] > avg_volume * config.VOLUME_MULTIPLIER
+    ratio = df["volume"].iloc[-1] / avg_volume
+    # Клип: ratio > 5.0 — артефакт (одна большая свеча / низкая база)
+    ratio = min(ratio, config.VOLUME_RATIO_CAP)
+    return ratio > config.VOLUME_MULTIPLIER
 
 
 def _nearest_level(
@@ -360,6 +363,13 @@ def _build_warnings(
     if hour_msk >= 18 or hour_msk < 9:
         warnings.append("Низкая ликвидность (вне основных часов)")
 
+    # --- Late/chase: цена уже прошла > 1 ATR от уровня ---
+    if level is not None and level.distance_atr is not None:
+        if level.distance_atr > 1.0:
+            warnings.append(
+                f"⚠ late/chase: цена прошла {level.distance_atr:.1f} ATR от уровня"
+            )
+
     return warnings
 
 
@@ -375,16 +385,18 @@ def _commission_in_price(symbol: str) -> float:
 
 
 def _compute_stops(entry: float, direction: str, atr: float) -> tuple[float, float]:
-    """
-    Считает stop и take.
-    Если USE_ATR_STOPS = True — от ATR(H1).
-    Иначе — фиксированные пункты из config.
-    """
     if config.USE_ATR_STOPS:
         stop_dist = config.STOP_ATR_MULT * atr
         take_dist = config.TAKE_ATR_MULT * atr
     else:
         stop_dist = config.STOP_POINTS * config.PRICE_STEP
+        take_dist = config.TAKE_POINTS * config.PRICE_STEP
+
+    # --- Защита: stop_dist должен быть > 0 ---
+    if stop_dist <= 0:
+        log.warning("_compute_stops: stop_dist=0 (atr=%.5f), fallback", atr)
+        stop_dist = config.STOP_POINTS * config.PRICE_STEP
+    if take_dist <= 0:
         take_dist = config.TAKE_POINTS * config.PRICE_STEP
 
     if direction == "long":
@@ -401,13 +413,65 @@ def _finalize_signal(
     recent_signal: dict | None,
     symbol: str,
 ) -> Signal:
-    """Заполняет context, warnings, R:R."""
-    signal.context = _build_context(result, df, level, recent_signal)
+    """Заполняет context, warnings, R:R. Не бросает исключения наружу."""
+    try:
+        signal.context = _build_context(result, df, level, recent_signal)
+    except Exception as e:
+        log.exception(
+            "_build_context упал (signal=%s %s): %s", signal.direction, signal.kind, e
+        )
+        signal.context = {}
+
     signal.market_state = result.indicators.market_state
-    signal.warnings = _build_warnings(
-        signal.direction, result, level, recent_signal, df
-    )
-    signal.compute_rr(commission_round=_commission_in_price(symbol))
+
+    try:
+        signal.warnings = _build_warnings(
+            signal.direction, result, level, recent_signal, df
+        )
+    except Exception as e:
+        log.exception(
+            "_build_warnings упал (signal=%s %s): %s", signal.direction, signal.kind, e
+        )
+        signal.warnings = []
+
+    # --- R:R — критично, всегда заполняем ---
+    try:
+        signal.compute_rr(commission_round=_commission_in_price(symbol))
+    except Exception as e:
+        log.exception(
+            "compute_rr упал (signal=%s %s): %s", signal.direction, signal.kind, e
+        )
+
+    # --- Fallback: если RR всё ещё None — считаем вручную ---
+    if signal.risk_reward is None or signal.net_rr is None:
+        gross_risk = abs(signal.entry_price - signal.stop_price)
+        gross_reward = abs(signal.take_price - signal.entry_price)
+        if gross_risk > 0:
+            comm = _commission_in_price(symbol)
+            if signal.risk_reward is None:
+                signal.risk_reward = round(gross_reward / gross_risk, 2)
+            if signal.net_rr is None:
+                net_risk = gross_risk + comm
+                net_reward = gross_reward - comm
+                if net_risk > 0:
+                    signal.net_rr = round(net_reward / net_risk, 2)
+            log.warning(
+                "RR fallback: %s %s entry=%.3f stop=%.3f take=%.3f → RR=%.2f net=%.2f",
+                signal.direction,
+                signal.kind,
+                signal.entry_price,
+                signal.stop_price,
+                signal.take_price,
+                signal.risk_reward,
+                signal.net_rr,
+            )
+        else:
+            log.error(
+                "RR невозможно посчитать: gross_risk=0 (entry=%.3f, stop=%.3f)",
+                signal.entry_price,
+                signal.stop_price,
+            )
+
     return signal
 
 
@@ -783,7 +847,7 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
 
     # Обогащаем
     for s in all_signals:
-        # --- Фильтр: bullish / long (n=19, 4W/14L, -207 ₽) ---
+        # --- Фильтр: bullish / long ---
         if (
             config.PAPER_SKIP_BULLISH_LONG
             and result.indicators.week_trend == "bullish"
@@ -792,7 +856,7 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
             log.info("bullish / long заблокирован (фильтр)")
             continue
 
-        # --- Фильтр: normal + breakout / trend_level (5W/9L, -198 ₽) ---
+        # --- Фильтр: normal + breakout / trend_level ---
         if (
             config.PAPER_SKIP_NORMAL_BREAKOUT
             and result.indicators.market_state == "normal"
@@ -808,9 +872,32 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
                 if abs(lv.price - s.level_price) < 0.0001:
                     level = lv
                     break
+
         _finalize_signal(s, result, df, level, recent, result.symbol)
 
-    # Дедупликация
+        # --- Штраф за late/chase (один раз на сигнал) ---
+        if (
+            level is not None
+            and level.distance_atr is not None
+            and level.distance_atr > 1.0
+        ):
+            penalty = 1.0
+            s.strength_score = max(0.0, s.strength_score - penalty)
+            s.reasons.append(
+                f"штраф late/chase: -{penalty} (distance={level.distance_atr:.1f} ATR)"
+            )
+            if s.strength_score < 1.0:
+                s.strength = "none"
+            elif s.strength_score < 2.0:
+                s.strength = "weak"
+            elif s.strength_score < 3.0:
+                s.strength = "medium"
+            else:
+                s.strength = "strong"
+            if s.strength == "none":
+                continue
+
+    # Дедупликация: один сигнал на (direction, entry_price) в пределах 0.5 ATR
     dedup_window = 0.5 * result.atr if result.atr > 0 else 0.0
     best = []
     for s in sorted(all_signals, key=lambda x: x.strength_score, reverse=True):
@@ -818,6 +905,11 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
         for b in best:
             if b.direction != s.direction:
                 continue
+            # (a) близкий entry_price — тот же сигнал, размноженный на уровни
+            if abs(b.entry_price - s.entry_price) < dedup_window:
+                is_dup = True
+                break
+            # (b) близкий level_price — старый критерий (оставляем)
             if abs((b.level_price or 0) - (s.level_price or 0)) < dedup_window:
                 is_dup = True
                 break

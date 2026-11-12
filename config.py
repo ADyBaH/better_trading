@@ -191,3 +191,4 @@ SAVE_CANDLES_MARK_SIGNALS = (
 SAVE_CANDLES_TIMEFRAMES = ["M15"]  # какие ТФ сохранять
 SAVE_CANDLES_COUNT = 300  # сколько свечей брать
 SAVE_CANDLES_MAX_SNAPSHOTS = 300  # защита от разрастания
+VOLUME_RATIO_CAP = 5.0 # глобальный cap, чтобы выбросы (17–20x) не завышали score

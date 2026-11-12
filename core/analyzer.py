@@ -139,7 +139,7 @@ def _build_indicator_snapshot(
         if len(df) > _cfg.VOLUME_LOOKBACK and df["volume"].iloc[-1] > 0:
             avg_vol = df["volume"].iloc[-_cfg.VOLUME_LOOKBACK - 1 : -1].mean()
             if avg_vol > 0:
-                volume_ratio = round(float(df["volume"].iloc[-1] / avg_vol), 2)
+                volume_ratio = round(min(float(df["volume"].iloc[-1] / avg_vol), 5.0), 2)
     except Exception:
         pass
 
