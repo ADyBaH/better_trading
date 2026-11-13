@@ -59,15 +59,13 @@ def _is_engulfing(df: pd.DataFrame, direction: str) -> bool:
         )
 
 
-def _has_volume_confirmation(df: pd.DataFrame) -> bool:
+def _has_volume_confirmation(df):
     if len(df) < config.VOLUME_LOOKBACK + 1:
         return False
     avg_volume = df["volume"].iloc[-config.VOLUME_LOOKBACK - 1 : -1].mean()
     if avg_volume <= 0:
         return False
-    ratio = df["volume"].iloc[-1] / avg_volume
-    # Клип: ratio > 5.0 — артефакт (одна большая свеча / низкая база)
-    ratio = min(ratio, config.VOLUME_RATIO_CAP)
+    ratio = min(df["volume"].iloc[-1] / avg_volume, config.VOLUME_RATIO_CAP)
     return ratio > config.VOLUME_MULTIPLIER
 
 
@@ -471,6 +469,7 @@ def _finalize_signal(
                 signal.entry_price,
                 signal.stop_price,
             )
+            signal._rr_invalid = True
 
     return signal
 
@@ -811,6 +810,16 @@ def _compute_strength(matched: list[str]) -> tuple[float, str]:
         return score, "medium"
 
 
+def _recalc_strength(score):
+    if score < 1.0:
+        return "none"
+    elif score < 2.0:
+        return "weak"
+    elif score < 3.0:
+        return "medium"
+    return "strong"
+
+
 # ============================================================
 # Агрегатор
 # ============================================================
@@ -845,7 +854,8 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
     # Получаем последний сигнал из истории (для cooldown)
     recent = get_recent_signal(result.symbol, lookback_minutes=120)
 
-    # Обогащаем
+    passed_signals: list[Signal] = []
+
     for s in all_signals:
         # --- Фильтр: bullish / long ---
         if (
@@ -875,7 +885,41 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
 
         _finalize_signal(s, result, df, level, recent, result.symbol)
 
-        # --- Штраф за late/chase (один раз на сигнал) ---
+        # --- Штраф: EMA против direction ---
+        ema_against = (
+            s.direction == "long" and s.context.get("ema_alignment") == "bearish"
+        ) or (s.direction == "short" and s.context.get("ema_alignment") == "bullish")
+        if ema_against:
+            penalty = 1.0
+            s.strength_score = max(0.0, s.strength_score - penalty)
+            s.reasons.append(f"штраф EMA-конфликт: -{penalty}")
+            s.strength = _recalc_strength(s.strength_score)
+            if s.strength == "none":
+                continue
+
+        # --- Штраф: пила (противоположный сигнал < 30 мин) ---
+        recent_dir = s.context.get("recent_signal_direction")
+        recent_age = s.context.get("recent_signal_age_min")
+        if (
+            recent_dir
+            and recent_dir != s.direction
+            and recent_age is not None
+            and recent_age < 30
+        ):
+            penalty = 1.0
+            s.strength_score = max(0.0, s.strength_score - penalty)
+            s.reasons.append(
+                f"штраф пила: -{penalty} ({recent_age} мин назад {recent_dir})"
+            )
+            s.strength = _recalc_strength(s.strength_score)
+            if s.strength == "none":
+                continue
+
+        if getattr(s, "_rr_invalid", False):
+            log.warning("Сигнал отброшен: RR не посчитан (%s)", s.kind)
+            continue
+
+        # --- Штраф за late/chase ---
         if (
             level is not None
             and level.distance_atr is not None
@@ -886,36 +930,34 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
             s.reasons.append(
                 f"штраф late/chase: -{penalty} (distance={level.distance_atr:.1f} ATR)"
             )
-            if s.strength_score < 1.0:
-                s.strength = "none"
-            elif s.strength_score < 2.0:
-                s.strength = "weak"
-            elif s.strength_score < 3.0:
-                s.strength = "medium"
-            else:
-                s.strength = "strong"
+            s.strength = _recalc_strength(s.strength_score)
             if s.strength == "none":
                 continue
 
-    # Дедупликация: один сигнал на (direction, entry_price) в пределах 0.5 ATR
+        # --- Только прошедшие все фильтры ---
+        passed_signals.append(s)
+
+    # Дедупликация — ТОЛЬКО по passed_signals
     dedup_window = 0.5 * result.atr if result.atr > 0 else 0.0
-    best = []
-    for s in sorted(all_signals, key=lambda x: x.strength_score, reverse=True):
+    best: list[Signal] = []
+    for s in sorted(passed_signals, key=lambda x: x.strength_score, reverse=True):
         is_dup = False
         for b in best:
             if b.direction != s.direction:
                 continue
-            # (a) близкий entry_price — тот же сигнал, размноженный на уровни
             if abs(b.entry_price - s.entry_price) < dedup_window:
                 is_dup = True
                 break
-            # (b) близкий level_price — старый критерий (оставляем)
             if abs((b.level_price or 0) - (s.level_price or 0)) < dedup_window:
                 is_dup = True
                 break
         if not is_dup:
             best.append(s)
 
-    deduped = best
-    log.info("Сигналов: %d (после дедупликации из %d)", len(deduped), len(all_signals))
-    return deduped
+    log.info(
+        "Сигналов: %d (из %d, прошло фильтры %d)",
+        len(best),
+        len(all_signals),
+        len(passed_signals),
+    )
+    return best

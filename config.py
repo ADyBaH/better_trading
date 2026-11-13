@@ -116,8 +116,8 @@ PENALTY_BREAKOUT_TRANSITION = 1.0  # для breakout при transition
 PENALTY_BOUNCE_TRANSITION = 0.5
 
 # --- Свежесть данных ---
-DATA_MAX_AGE_MIN = 15  # если последняя свеча старше — warning в сигнале
-DATA_MAX_AGE_BLOCK = 30  # блокировка — не создавать сигнал
+DATA_MAX_AGE_MIN = 5  # если последняя свеча старше — warning в сигнале
+DATA_MAX_AGE_BLOCK = 15  # блокировка — не создавать сигнал
 
 # ============================================================
 # ДАННЫЕ
@@ -183,7 +183,7 @@ PAPER_SKIP_NORMAL_BREAKOUT = True
 # СОХРАНЕНИЕ СВЕЧЕЙ В JSON
 # ============================================================
 SAVE_CANDLES = True  # глобальный выключатель (вкл/выкл фичу)
-SAVE_CANDLES_ALWAYS = True  # ФЛАГ «ВСЕ СВЕЧИ»: True — писать каждый цикл (A)
+SAVE_CANDLES_ALWAYS = False  # ФЛАГ «ВСЕ СВЕЧИ»: True — писать каждый цикл (A)
 #                    False — только при сигналах (B)
 SAVE_CANDLES_MARK_SIGNALS = (
     True  # ставить has_signals/signals_count в снимке (B-маркер)
