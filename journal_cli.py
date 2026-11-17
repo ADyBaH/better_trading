@@ -392,6 +392,8 @@ def cmd_paper_stats(args) -> int:
             since=args.since,
             until=args.until,
             symbol=args.symbol,
+            known_only=getattr(args, "known_only", False),
+            min_n=getattr(args, "min_n", 0),
         )
 
     print()
@@ -428,30 +430,24 @@ def cmd_paper_stats(args) -> int:
         print()
         print(f"── {title} " + "─" * 40)
         rows = []
-        items = (
-            sorted(group.items())
-            if sort_key is None
-            else sorted(group.items(), key=sort_key)
-        )
+        items = sorted(group.items()) if sort_key is None else sorted(group.items(), key=sort_key)
         for key, b in items:
-            rows.append(
-                [
-                    key,
-                    b["total"],
-                    b["win"],
-                    b["loss"],
-                    b["timeout"],
-                    f"{b['points']:+.1f}",
-                    f"{b['rub']:+.2f}",
-                ]
-            )
-        print(
-            tabulate(
-                rows,
-                headers=["", "Всего", "W", "L", "T", "Pts", "Rub"],
-                tablefmt="rounded_outline",
-            )
-        )
+            rows.append([
+                key,
+                b["total"],
+                b["win"],
+                b["loss"],
+                b["timeout"],
+                f"{b['points']:+.1f}",
+                f"{b['rub']:+.2f}",
+                # --- NEW: expectancy ---
+                f"{b.get('expectancy', 0):+.1f}" if b.get("expectancy") is not None else "—",
+            ])
+        print(tabulate(
+            rows,
+            headers=["", "Всего", "W", "L", "T", "Pts", "Rub", "Exp"],
+            tablefmt="rounded_outline",
+        ))
 
     _print_group("По типу сигнала", s["by_kind"])
     _print_group("По тренду на входе", s["by_trend"])
@@ -745,6 +741,17 @@ def main() -> int:
 
     # paper-stats
     p_paper = sub.add_parser("paper-stats", help="Статистика paper-trading")
+    p_paper.add_argument(
+        "--known-only",
+        action="store_true",
+        help="Убрать unknown в week_trend/market_state/RSI/ATR (чистые разрезы)",
+    )
+    p_paper.add_argument(
+        "--min-n",
+        type=int,
+        default=0,
+        help="Показывать только бакеты с n >= N (например, 10)",
+    )
     p_paper.add_argument("--since", default=None, help="С даты (ISO)")
     p_paper.add_argument("--until", default=None, help="До даты (ISO)")
     p_paper.add_argument("--symbol", default=None, help="Фильтр по тикеру")

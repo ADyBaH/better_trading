@@ -662,6 +662,8 @@ def paper_stats(
     since: str | None = None,
     until: str | None = None,
     symbol: str | None = None,
+    known_only: bool = False,
+    min_n: int = 0,
 ) -> dict:
     """
     Агрегаты по paper_trades.
@@ -690,6 +692,15 @@ def paper_stats(
     if symbol:
         where.append("symbol = ?")
         params.append(symbol)
+
+    # --- known_only: убираем unknown в ключевых разрезах ---
+    if known_only:
+        where.append("""
+            (week_trend_at_open IS NOT NULL AND week_trend_at_open != 'unknown')
+            AND (market_state_at_open IS NOT NULL AND market_state_at_open != 'unknown')
+            AND (rsi_at_open IS NOT NULL)
+            AND (atr_percentile_at_open IS NOT NULL)
+        """)
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
@@ -1099,6 +1110,22 @@ def paper_stats(
     final_pnl_pct = (
         (balance_after - config.VIRTUAL_DEPOSIT) / config.VIRTUAL_DEPOSIT * 100
     )
+    
+    def _enrich(bucket_dict: dict) -> dict:
+        for v in bucket_dict.values():
+            wins = v.get("win", 0)
+            losses = v.get("loss", 0)
+            total_wl = wins + losses
+            v["expectancy"] = round(v["points"] / total_wl, 1) if total_wl > 0 else None
+        return bucket_dict
+
+    def _filter_min_n(bucket_dict: dict, min_n: int) -> dict:
+        if min_n <= 0:
+            return bucket_dict
+        return {k: v for k, v in bucket_dict.items() if v.get("total", 0) >= min_n}
+
+    def _process(bucket_dict: dict) -> dict:
+        return _filter_min_n(_enrich(bucket_dict), min_n)
 
     return {
         "total": total,
@@ -1112,21 +1139,21 @@ def paper_stats(
         "total_rub": total_rub,
         "avg_win_points": avg_win,
         "avg_loss_points": avg_loss,
-        "by_kind": by_kind,
-        "by_trend": by_trend,
-        "by_day_trend": by_day_trend,
-        "by_week_trend": by_week_trend,
-        "by_week_trend_direction": by_week_trend_direction,
-        "by_market_state": by_market_state,
-        "by_rsi": by_rsi,
-        "by_atr_percentile": by_atr_percentile,
-        "by_score": by_score,
-        "by_adx": by_adx,
-        "by_pressure": by_pressure,
-        "by_bars": by_bars,
-        "by_session": by_session,
-        "by_hour": by_hour,
-        "by_weekday": by_weekday,
+        "by_kind": _process(by_kind),
+        "by_trend": _process(by_trend),
+        "by_day_trend": _process(by_day_trend),
+        "by_week_trend": _process(by_week_trend),
+        "by_week_trend_direction": _process(by_week_trend_direction),
+        "by_market_state": _process(by_market_state),
+        "by_rsi": _process(by_rsi),
+        "by_atr_percentile": _process(by_atr_percentile),
+        "by_score": _process(by_score),
+        "by_adx": _process(by_adx),
+        "by_pressure": _process(by_pressure),
+        "by_bars": _process(by_bars),
+        "by_session": _process(by_session),
+        "by_hour": _process(by_hour),
+        "by_weekday": _process(by_weekday),
         "virtual_deposit_start": config.VIRTUAL_DEPOSIT,
         "virtual_deposit_end": balance_after,
         "virtual_pnl_pct": round(final_pnl_pct, 2),
