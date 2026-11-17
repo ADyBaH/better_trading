@@ -96,6 +96,10 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN rsi_at_open REAL")
     if "atr_percentile_at_open" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN atr_percentile_at_open REAL")
+    if "mfe_points" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_points REAL")
+    if "mae_points" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_points REAL")
     conn.commit()
 
 
@@ -138,87 +142,102 @@ def virtual_pnl(
     stop: float,
     take: float,
     max_bars: int = None,
+    price_step: float = 0.001,
 ) -> dict:
     """
-    Считает виртуальный PnL по свечам вперёд.
+    Считает виртуальный PnL по свечам вперёд + MFE/MAE.
 
-    Логика:
-    - идём по свечам df_future по порядку;
-    - long: high >= take → win, low <= stop → loss;
-    - short: low <= take → win, high >= stop → loss;
-    - если обе задеты в одной свече — консервативно loss (ambiguous=True);
-    - если max_bars пройден без касания — timeout по close последней свечи.
+    MFE (max favorable excursion) — максимум в пользу позиции (в пунктах).
+    MAE (max adverse excursion) — максимум против позиции (в пунктах).
 
     Возвращает:
         {
-            "result": "win" / "loss" / "timeout" / "no_data",
+            "result": "win" / "loss" / "timeout" / "open" / "no_data",
             "exit_price": float | None,
             "bars": int,
             "ambiguous": bool,
+            "mfe_points": float,   # >= 0
+            "mae_points": float,   # >= 0 (по модулю)
         }
     """
     import pandas as pd
+
+    empty = {
+        "result": "no_data", "exit_price": None, "bars": 0,
+        "ambiguous": False, "mfe_points": 0.0, "mae_points": 0.0,
+    }
 
     if max_bars is None:
         max_bars = config.PAPER_TIMEOUT_BARS
 
     if df_future is None or len(df_future) == 0:
-        return {"result": "no_data", "exit_price": None, "bars": 0, "ambiguous": False}
+        return empty
+
+    mfe = 0.0  # max favorable (в пунктах, >= 0)
+    mae = 0.0  # max adverse (в пунктах, >= 0)
 
     for i, row in enumerate(df_future.itertuples(), 1):
         high = row.high
         low = row.low
 
+        # --- MFE/MAE по этой свече ---
+        if direction == "long":
+            fav = (high - entry) / price_step      # в пользу long
+            adv = (entry - low) / price_step       # против long
+        else:  # short
+            fav = (entry - low) / price_step       # в пользу short
+            adv = (high - entry) / price_step      # против short
+
+        if fav > mfe:
+            mfe = fav
+        if adv > mae:
+            mae = adv
+
+        # --- Проверка take/stop ---
         if direction == "long":
             hit_take = high >= take
             hit_stop = low <= stop
-        else:  # short
+        else:
             hit_take = low <= take
             hit_stop = high >= stop
 
-        # Оба касания в одной свече — консервативно loss
         if hit_take and hit_stop:
             return {
-                "result": "loss",
-                "exit_price": stop,
-                "bars": i,
+                "result": "loss", "exit_price": stop, "bars": i,
                 "ambiguous": True,
+                "mfe_points": round(mfe, 1),
+                "mae_points": round(mae, 1),
             }
 
         if hit_take:
             return {
-                "result": "win",
-                "exit_price": take,
-                "bars": i,
+                "result": "win", "exit_price": take, "bars": i,
                 "ambiguous": False,
+                "mfe_points": round(mfe, 1),
+                "mae_points": round(mae, 1),
             }
 
         if hit_stop:
             return {
-                "result": "loss",
-                "exit_price": stop,
-                "bars": i,
+                "result": "loss", "exit_price": stop, "bars": i,
                 "ambiguous": False,
+                "mfe_points": round(mfe, 1),
+                "mae_points": round(mae, 1),
             }
 
         if i >= max_bars:
             return {
-                "result": "timeout",
-                "exit_price": float(row.close),
-                "bars": i,
+                "result": "timeout", "exit_price": float(row.close), "bars": i,
                 "ambiguous": False,
+                "mfe_points": round(mfe, 1),
+                "mae_points": round(mae, 1),
             }
 
-    # Свечей меньше, чем max_bars, и ни stop, ни take не задеты.
-    # Это нормальная ситуация, когда сделка ещё открыта:
-    # в реальном времени мы не должны её закрывать по таймауту раньше времени.
-    # Вызывающий код (resolve_open_trades) сам решит: обновить partial-состояние
-    # или оставить open.
     return {
-        "result": "open",
-        "exit_price": None,
-        "bars": len(df_future),
+        "result": "open", "exit_price": None, "bars": len(df_future),
         "ambiguous": False,
+        "mfe_points": round(mfe, 1),
+        "mae_points": round(mae, 1),
     }
 
 
@@ -574,6 +593,7 @@ def resolve_open_trades(
             trade["stop_price"],
             trade["take_price"],
             max_bars=config.PAPER_TIMEOUT_BARS,
+            price_step=inst.price_step,
         )
 
         if pnl["result"] in ("open", "no_data"):
@@ -619,7 +639,9 @@ def resolve_open_trades(
                 result_rub = ?,
                 bars_to_close = ?,
                 resolution_confidence = ?,
-                balance_after = ?
+                balance_after = ?,
+                mfe_points = ?,
+                mae_points = ?
             WHERE id = ?
             """,
             (
@@ -631,6 +653,8 @@ def resolve_open_trades(
                 pnl["bars"],
                 confidence,
                 balance_after,
+                pnl.get("mfe_points"),
+                pnl.get("mae_points"),
                 trade["id"],
             ),
         )
@@ -1127,6 +1151,41 @@ def paper_stats(
     def _process(bucket_dict: dict) -> dict:
         return _filter_min_n(_enrich(bucket_dict), min_n)
 
+        # --- by_mfe_ratio: MFE / take_distance ---
+    def _mfe_bucket(ratio):
+        if ratio is None:
+            return "unknown"
+        if ratio < 0.3:
+            return "<0.3 (не дошла)"
+        elif ratio <= 0.7:
+            return "0.3-0.7 (частично)"
+        return ">0.7 (почти/дошла)"
+
+    by_mfe_ratio = {}
+    for r in rows:
+        mfe = r["mfe_points"]
+        # take_distance в пунктах
+        take_dist = abs(r["take_price"] - r["entry_price"]) / 0.001  # price_step
+        if mfe is None or take_dist <= 0:
+            bucket = "unknown"
+        else:
+            bucket = _mfe_bucket(mfe / take_dist)
+
+        if bucket not in by_mfe_ratio:
+            by_mfe_ratio[bucket] = {
+                "total": 0, "win": 0, "loss": 0, "timeout": 0,
+                "points": 0.0, "rub": 0.0,
+            }
+        b = by_mfe_ratio[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_mfe_ratio.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+        
     return {
         "total": total,
         "open": open_count,
@@ -1160,6 +1219,7 @@ def paper_stats(
         "max_drawdown_pct": round(max_drawdown, 2),
         "profit_factor": profit_factor,
         "expectancy": expectancy,
+        "by_mfe_ratio": _process(by_mfe_ratio),
     }
 
 

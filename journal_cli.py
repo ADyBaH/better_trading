@@ -450,6 +450,7 @@ def cmd_paper_stats(args) -> int:
         ))
 
     _print_group("По типу сигнала", s["by_kind"])
+    _print_group("По MFE ratio (тейк)", s["by_mfe_ratio"])
     _print_group("По тренду на входе", s["by_trend"])
     _print_group("По дневному тренду", s["by_day_trend"])
     _print_group("По недельному тренду", s["by_week_trend"])
