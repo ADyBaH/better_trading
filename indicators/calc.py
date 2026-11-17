@@ -178,6 +178,9 @@ def get_trend_context(
         ema_trend:       "up" / "down"
         day_trend:       "bullish" / "bearish" / "neutral" / "unknown"
         day_change_atr:  изменение дня в ATR
+        day_open:        open первого бара дня (для прозрачности)
+        day_atr_base:    ATR, использованный для day_change_atr
+        partial_day:     True, если день не завершён (сейчас < 18:00 МСК)
         structure:       "bullish" / "bearish" / "mixed"
         price_direction: "up" / "down" / "unknown"
     """
@@ -190,6 +193,10 @@ def get_trend_context(
     # --- 2. Дневной тренд ---
     day_trend = "unknown"
     day_change_atr = 0.0
+    day_open = None
+    day_atr_base = None
+    partial_day = False
+
     if not df.empty and atr > 0:
         try:
             today = df["begin"].iloc[-1].date()
@@ -198,6 +205,14 @@ def get_trend_context(
                 day_open = float(day_df["open"].iloc[0])
                 day_change = current_price - day_open
                 day_change_atr = day_change / atr
+                day_atr_base = atr
+
+                # partial_day: сейчас < 18:00 МСК (день не завершён)
+                from datetime import datetime
+
+                now = datetime.now()
+                hour_msk = (now.utctimetuple().tm_hour + 3) % 24
+                partial_day = hour_msk < 18
         except Exception as e:
             log.debug("Не удалось посчитать day_change: %s", e)
 
@@ -220,13 +235,28 @@ def get_trend_context(
         price_direction = "up" if current_price > price_20_ago else "down"
     else:
         price_direction = "unknown"
+    day_range_atr = 0.0
+    if not df.empty and atr > 0:
+        try:
+            today = df["begin"].iloc[-1].date()
+            day_df = df[df["begin"].dt.date == today]
+            if not day_df.empty:
+                day_high = float(day_df["high"].max())
+                day_low = float(day_df["low"].min())
+                day_range_atr = round((day_high - day_low) / atr, 2)
+        except Exception:
+            pass
 
     return {
         "ema_trend": ema_trend,
         "day_trend": day_trend,
         "day_change_atr": round(day_change_atr, 2),
+        "day_open": day_open,
+        "day_atr_base": round(day_atr_base, 5) if day_atr_base else None,
+        "partial_day": partial_day,
         "structure": structure,
         "price_direction": price_direction,
+        "day_range_atr": day_range_atr,
     }
 
 

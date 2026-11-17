@@ -33,6 +33,13 @@
 - **Фильтры**: `bullish / long` и `normal + breakout/trend_level` (в Y включены, в F — нет).
 - **`market_state`**: impulse / pullback / normal (по `impulse_atr`).
 - **`by_rsi`** и **`by_atr_percentile`**: разрезы по RSI на входе и волатильности.
+- **MFE/MAE** (max favorable/adverse excursion) — для тюнинга стопов/тейков.
+- **`by_mfe_ratio`** — разрез по MFE/take (<0.3, 0.3-0.7, >0.7).
+- **`--known-only`** + **`--min-n`** в `paper-stats` — чистые разрезы (без `unknown`).
+- **`expectancy`** в каждом бакете `paper-stats`.
+- **`partial_day`** — день не завершён (до 18:00), `day_open`/`day_atr_base`/`day_range_atr`.
+- **Replay** (`analyze_from_df` + `verify_candles.py`) — прогон истории из `candles_*.json`.
+- **`verify_filters.py`** — эффект фильтров Y на истории (win/loss/timeout).
 
 ## Установка
 
@@ -276,16 +283,14 @@ Expectancy: +9.9 pts
 - **База:** `storage/journal.db` (в Y).
 - **Цель:** торговля (PF 1.46, expectancy +9.9).
 
-### Сравнение (05.11)
+### Сравнение (17.11)
 
-| Ветка                | Сделок | Winrate | PnL       | PF       | Expectancy |
-| -------------------- | ------ | ------- | --------- | -------- | ---------- |
-| **F (main)**         | 120    | 43.4%   | +565.20 ₽ | **1.27** | +6.9 pts   |
-| **Y (real-trading)** | 48     | 46.2%   | +317.40 ₽ | **1.46** | +9.9 pts   |
-| **F (aggressive)**   | 0      | —       | —         | —        | —          |
+| Ветка | Сделок | Winrate | PnL | PF | Expectancy | Депозит |
+|---|---|---|---|---|---|---|
+| **Y (real-trading)** | 69 | 41.4% | +300.58 ₽ | **1.25** | **+6.2 pts** | +7.99% |
+| **F (main)** | 84 | 30.0% | −273.04 ₽ | **0.63** | **−3.1 pts** | — |
 
-**Y лучше F** по PF и expectancy — фильтры работают.
-**F (aggressive)** — только начинает, статистики пока нет.
+**Y лучше F** по PF/expectancy — фильтры `bullish/long` и `normal+breakout` работают.
 
 ### Сравнение (11.11)
 
@@ -300,7 +305,7 @@ Expectancy: +9.9 pts
 
 ```bash
 python journal_cli.py paper-stats
-````
+```
 
 ## Структура проекта
 
@@ -408,6 +413,10 @@ python journal_cli.py paper-stats
 - **Фильтры**: `PAPER_SKIP_BULLISH_LONG` (True в Y, False в F),
   `PAPER_SKIP_NORMAL_BREAKOUT` (True в Y, False в F).
 - **`market_state`**: `impulse > 2.0`, `pullback > 1.2` и откат `< 0.7 × impulse`.
+- **MFE/MAE**: `mfe_points`, `mae_points` в `paper_trades`.
+- **Partial day**: `partial_day_at_open` в `paper_trades`, `by_partial_day` в `paper-stats`.
+- **`DATA_MAX_AGE_MIN = 5`**, **`DATA_MAX_AGE_BLOCK = 15`** (ALOR лаг ~7 мин).
+- **`VOLUME_RATIO_CAP = 5.0`** — клип volume_ratio.
 
 ## Real-trading (мок-режим)
 

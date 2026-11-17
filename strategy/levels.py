@@ -192,11 +192,11 @@ def cluster_levels(
 
 
 def build_levels(
-    symbol: str,
-    tolerance: float,
-    current_price: float,
-    atr: float,
-    min_weight: int = None,
+    symbol, tolerance, current_price, atr,
+    min_weight=None,
+    df_intraday=None,
+    df_h1=None,
+    df_h4=None,
 ) -> list[dict]:
     """
     Строит карту уровней по нескольким ТФ (config.LEVEL_TIMEFRAMES).
@@ -209,10 +209,26 @@ def build_levels(
 
     all_fractals = []
     for tf in config.LEVEL_TIMEFRAMES:
-        df_tf = get_candles_tf(tf, count=300)
-        if df_tf.empty:
-            log.warning("Нет данных для ТФ %s", tf)
+        # Выбираем df по ТФ (переданный или fallback)
+        if tf == "M15":
+            df_tf = df_intraday
+        elif tf == "H1":
+            df_tf = df_h1
+        elif tf == "H4":
+            df_tf = df_h4
+        else:
+            df_tf = None
+
+        # Fallback — из сети (backward-compatible)
+        if df_tf is None or df_tf.empty:
+            from data.api_facade import get_candles_tf
+            log.warning("build_levels: %s не передан — тянем из сети", tf)
+            df_tf = get_candles_tf(tf, count=300)
+
+        if df_tf is None or df_tf.empty:
+            log.warning("build_levels: пустой df для %s", tf)
             continue
+
         fr = find_fractals(df_tf)
         weight = config.LEVEL_TF_WEIGHTS.get(tf, 1)
         for f in fr:

@@ -457,6 +457,47 @@
 - [ ] Проверить на 2–3 днях: файл растёт ~4–6 МБ/день на M15.
 - [ ] Решить: фильтровать выходные свечи (`volume < 100`) при анализе.
 
+## Этап 23. P0-фиксы + MFE/MAE + partial_day ✅
+
+### 23.1. Баг-фиксы (P0)
+
+- [x] `passed_signals` — фильтрованные не попадают в `result.signals` (RR=null).
+- [x] `_finalize_signal` — fallback для RR.
+- [x] `_compute_stops` — защита от `stop_dist=0`.
+- [x] `volume_ratio` клип 5.0.
+- [x] Дедуп по `entry_price`.
+- [x] Штрафы EMA-конфликт / пила / late-chase (−1.0).
+- [x] `DATA_MAX_AGE_BLOCK` 30 → 10 → 15.
+
+### 23.2. MFE/MAE
+
+- [x] `virtual_pnl`: `mfe_points`, `mae_points`.
+- [x] Миграция `paper_trades`: `mfe_points`, `mae_points`.
+- [x] `paper_stats`: `by_mfe_ratio`.
+- [x] `tests/test_mfe_mae.py`.
+
+### 23.3. Partial day
+
+- [x] `get_trend_context`: `day_open`, `day_atr_base`, `partial_day`, `day_range_atr`.
+- [x] `IndicatorSnapshot`: +4 поля.
+- [x] Миграция `paper_trades`: `partial_day_at_open`.
+- [x] `paper_stats`: `by_partial_day`.
+- [x] `tests/test_partial_day.py`.
+
+### 23.4. Replay
+
+- [x] `analyze_from_df` в `core/analyzer.py`.
+- [x] `scripts/verify_candles.py`.
+- [x] `scripts/verify_filters.py`.
+- [ ] **Match rate 10%** — look-ahead M15. Точный replay невозможен без M1.
+
+### 23.5. Фильтры Y (paper_trades, n=17)
+
+- [x] `bullish_long` — ON (−103 ₽ replay 11/13.11).
+- [x] `normal_breakout` — ON (−139.72 ₽ paper_trades, n=17).
+- [x] `bullish_short` — OFF (+21.72 ₽, n=8).
+- [x] `adx_flat_breakout` — OFF (+50.28 ₽, n=7).
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
@@ -487,15 +528,13 @@
 ## Текущий статус
 
 **Версия:** 0.11.0
-**Готово:** этапы 1–22 (ALOR WebSocket, real-time, real-мок, депозит, лаг paper vs real,
-`week_trend`, `by_pressure`, `by_bars`, `market_state`, PF, expectancy, фильтры,
-сохранение свечей в JSON).
-**В работе:** сбор статистики (Y — 62 сделки, F — 56 сделок).
-**Y (feature/real-trading):** winrate **43.1%**, PnL **+357.36 ₽**, PF **1.35**, expectancy **+7.8 pts**.
-**F (main):** winrate **29.5%**, PnL **−172.48 ₽**, PF **0.61**, expectancy **−3.9 pts**.
-**Фильтры:** `bullish / long` и `normal + breakout` — включены в Y, выключены в F (полигон).
-**Следующий шаг:** через неделю — сравнить F vs Y. Если Y лучше — оставить. Кандидаты на фильтры (после 20+): `bullish / short`, `bid-heavy (>60)`, `ADX trend (20-25)`.
-**Мерж:** Y → main (когда будем готовы) — код Y (фильтры, PF, expectancy, candles) в main.
+**Готово:** этапы 1–22 + P0-фиксы (RR, passed_signals, EMA/пила/late-chase, volume клип, дедуп) + MFE/MAE + partial_day + replay.
+**В работе:** сбор статистики (Y — 69 сделок, F — 84 сделки).
+**Y (feature/real-trading):** winrate **41.4%**, PnL **+300.58 ₽**, PF **1.25**, expectancy **+6.2 pts**.
+**F (main):** winrate **30.0%**, PnL **−273.04 ₽**, PF **0.63**, expectancy **−3.1 pts**.
+**Фильтры Y:** `bullish_long` ON (−103 ₽), `normal_breakout` ON (−139.72 ₽), `bullish_short` OFF (+21.72 ₽), `adx_flat_breakout` OFF (+50.28 ₽).
+**Следующий шаг:** адаптивный take (`take ≤ 0.6 × day_range_atr`), replay на 5 днях (когда накопятся `candles_H1/H4`).
+**Мерж:** Y → main (когда будем готовы) — код Y в main.
 
 ---
 
@@ -518,19 +557,19 @@
 ### `feature/real-trading` (Y)
 
 - **Роль:** актуальная ветка (торгуем по ней).
-- **Настройки:** с фильтрами (`PAPER_SKIP_BULLISH_LONG = True`, `PAPER_SKIP_NORMAL_BREAKOUT = True`), лимит 1, `PAPER_TRADING_HOURS` 09:00–18:00.
+- **Настройки:** с фильтрами (`PAPER_SKIP_BULLISH_LONG = True`, `PAPER_SKIP_NORMAL_BREAKOUT = True`, `PAPER_SKIP_BULLISH_SHORT = False`, `PAPER_SKIP_ADX_FLAT_BREAKOUT = False`), лимит 1, `PAPER_TRADING_HOURS` 09:00–18:00.
 - **База:** `storage/journal.db` (в Y).
-- **Цель:** торговля (PF 1.46, expectancy +9.9).
+- **Цель:** торговля (PF 1.25, expectancy +6.2).
 
-### Сравнение (05.11)
+### Сравнение (17.11)
 
-| Ветка                | Сделок | Winrate | PnL       | PF       | Expectancy |
-| -------------------- | ------ | ------- | --------- | -------- | ---------- |
-| **F (main)**         | 120    | 43.4%   | +565.20 ₽ | **1.27** | +6.9 pts   |
-| **Y (real-trading)** | 48     | 46.2%   | +317.40 ₽ | **1.46** | +9.9 pts   |
-| **F (aggressive)**   | 0      | —       | —         | —        | —          |
+| Ветка | Сделок | Winrate | PnL | PF | Expectancy | Депозит |
+|---|---|---|---|---|---|---|
+| **F (main)** | 84 | 30.0% | −273.04 ₽ | **0.63** | **−3.1 pts** | — |
+| **Y (real-trading)** | 69 | 41.4% | +300.58 ₽ | **1.25** | **+6.2 pts** | +7.99% |
+| **F (aggressive)** | 0 | — | — | — | — | — |
 
-**Y лучше F** по PF и expectancy — фильтры работают.
+**Y лучше F** по PF/expectancy — фильтры `bullish/long` и `normal+breakout` работают.
 **F (aggressive)** — только начинает, статистики пока нет.
 
 ---
@@ -555,9 +594,25 @@
 12. **`bid-heavy (>60)` — убыточный** (Y: 0W/4L, −113.2, n=5; F: 0W/3L, −71.1, n=3). **Кандидат на фильтр** после 10+.
 13. **`ADX trend (20-25)` — противоречие** (Y: 0W/8L, −183.9, n=10; F: +141.5, n=20). Проверить на 20+ в Y.
 14. **`bearish / long` — лучший в Y** (4W/1L, +216.1, n=5). **Не блокировать.**
+15. **MFE/MAE** — тейк 2.0 ATR часто не достигается (MFE 0.3-0.7). **Адаптивный take** (`≤ 0.6 × day_range_atr`).
+16. **`partial_day`** — сигналы до 18:00 отличаются от full day. **Проверить** на 20+ сделках.
+17. **`normal_breakout`** — 17 сделок, 4W/12L/1T, **−139.72 ₽**. **Фильтр** работает.
+18. **`bullish_short`** / **`adx_flat_breakout`** — прибыльные на `paper_trades`. **Не включать**.
 
 **Решение по фильтрам:** НЕ внедряем до 40+ сигналов.
 **Вечер:** если 10+ вечерних сделок подтвердят убыточность — рассмотреть отключение `PAPER_TRADING_HOURS` после 17:00.
+
+### 17.11.2026 — Y (69 сделок, PF 1.25, expectancy +6.2)
+
+- **`trend_level`** — лучший kind: 14 сделок, 7W/4L/2T, **+244.52 ₽**.
+- **`bounce`** — вырос: 20 сделок, 7W/9L/1T, **+76.08 ₽**.
+- **`breakout`** — просел: 35 сделок, 10W/21L/1T, **−20.02 ₽**. **Кандидат на фильтр** (ADX flat + breakout).
+- **`bearish / long`** — лучший разрез: 5 сделок, 4W/1L, **+205.8 ₽**. Не блокировать.
+- **`bullish / short`** — 8 сделок, 3W/5L, **+21.72 ₽**. **Не включать** `PAPER_SKIP_BULLISH_SHORT`.
+- **`ADX flat + breakout`** — 7 сделок, 3W/4L, **+50.28 ₽**. **Не включать** `PAPER_SKIP_ADX_FLAT_BREAKOUT`.
+- **`normal + breakout/trend_level`** — 17 сделок, 4W/12L/1T, **−139.72 ₽**. **Оставить** `PAPER_SKIP_NORMAL_BREAKOUT=True`.
+- **`partial_day`** — не проверен (runner блокировал по `data_age=14`). **Ждём** новых сделок.
+- **`by_mfe_ratio`** — `unknown` (нужны новые сделки с MFE/MAE).
 
 ### 19–24.10.2026 — статистика за 19 сделок
 

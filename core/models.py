@@ -59,6 +59,10 @@ class IndicatorSnapshot:
     # --- НОВОЕ: контекст тренда ---
     day_trend: str = "unknown"  # bullish / bearish / neutral / unknown
     day_change_atr: float = 0.0
+    day_open: Optional[float] = None
+    day_atr_base: Optional[float] = None
+    partial_day: bool = False
+    day_range_atr: float = 0.0
     structure: str = "mixed"  # bullish / bearish / mixed
     price_direction: str = "unknown"  # up / down / unknown
     vote_sum: int = 0
@@ -85,6 +89,8 @@ class IndicatorSnapshot:
             d["week_change_atr"] = round(d["week_change_atr"], 2)
         if d.get("impulse_atr") is not None:
             d["impulse_atr"] = round(d["impulse_atr"], 2)
+        if d.get("day_range_atr") is not None:
+            d["day_range_atr"] = round(d["day_range_atr"], 2)
         return d
 
 

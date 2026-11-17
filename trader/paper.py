@@ -100,6 +100,8 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_points REAL")
     if "mae_points" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_points REAL")
+    if "partial_day_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN partial_day_at_open INTEGER")
     conn.commit()
 
 
@@ -384,6 +386,7 @@ def save_signal_as_paper(
                 "strength, strength_score, entry_price, stop_price, take_price, "
                 "level_price, risk_reward, net_rr, "
                 "trend_at_open, adx_at_open, day_trend_at_open, structure_at_open, "
+                "partial_day_at_open, "
                 "week_trend_at_open, market_state_at_open, "
                 "rsi_at_open, atr_percentile_at_open, "
                 "created_at, result, warnings, context, "
@@ -411,6 +414,7 @@ def save_signal_as_paper(
                     adx_val,
                     ind.day_trend,
                     ind.structure,
+                    1 if ind.partial_day else 0,
                     ind.week_trend,
                     ind.market_state,
                     ind.rsi,
@@ -862,7 +866,32 @@ def paper_stats(
     for v in by_rsi.values():
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
-
+    
+    # --- by_partial_day ---
+    by_partial_day = {}
+    for r in rows:
+        val = r["partial_day_at_open"]
+        if val is None:
+            bucket = "unknown"
+        elif val:
+            bucket = "partial (до 18:00)"
+        else:
+            bucket = "full day"
+        if bucket not in by_partial_day:
+            by_partial_day[bucket] = {
+                "total": 0, "win": 0, "loss": 0, "timeout": 0,
+                "points": 0.0, "rub": 0.0,
+            }
+        b = by_partial_day[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_partial_day.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+    
     # --- by_atr_percentile ---
     def _atr_pct_bucket(pct):
         if pct is None:
@@ -1220,6 +1249,7 @@ def paper_stats(
         "profit_factor": profit_factor,
         "expectancy": expectancy,
         "by_mfe_ratio": _process(by_mfe_ratio),
+        "by_partial_day": _process(by_partial_day),
     }
 
 

@@ -163,13 +163,13 @@ def _build_context(
             if hasattr(last_candle_time, "to_pydatetime"):
                 last_candle_time = last_candle_time.to_pydatetime()
             data_age_minutes = int(
-                (datetime.now() - last_candle_time).total_seconds() / 60
+                (result.timestamp - last_candle_time).total_seconds() / 60
             )
         except Exception:
             pass
 
     # Время
-    now = datetime.now()
+    now = result.timestamp
     hour_utc = now.utctimetuple().tm_hour
     # МСК = UTC+3
     hour_msk = (hour_utc + 3) % 24
@@ -382,15 +382,20 @@ def _commission_in_price(symbol: str) -> float:
     return commission_points * inst.price_step
 
 
-def _compute_stops(entry: float, direction: str, atr: float) -> tuple[float, float]:
+def _compute_stops(
+    entry: float, direction: str, atr: float, day_range_atr: float | None = None
+) -> tuple[float, float]:
     if config.USE_ATR_STOPS:
         stop_dist = config.STOP_ATR_MULT * atr
-        take_dist = config.TAKE_ATR_MULT * atr
+        # take ≤ 0.6 × day_range, но не меньше 1.0 ATR
+        take_mult = config.TAKE_ATR_MULT
+        if day_range_atr is not None and day_range_atr > 0:
+            take_mult = min(take_mult, max(1.0, day_range_atr * 0.6))
+        take_dist = take_mult * atr
     else:
         stop_dist = config.STOP_POINTS * config.PRICE_STEP
         take_dist = config.TAKE_POINTS * config.PRICE_STEP
 
-    # --- Защита: stop_dist должен быть > 0 ---
     if stop_dist <= 0:
         log.warning("_compute_stops: stop_dist=0 (atr=%.5f), fallback", atr)
         stop_dist = config.STOP_POINTS * config.PRICE_STEP
@@ -500,7 +505,7 @@ def _is_direction_allowed(direction: str, trend: str, kind: str) -> bool:
 # ============================================================
 
 
-def detect_bounce(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
+def detect_bounce(result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0) -> list[Signal]:
     signals = []
     price = result.current_price
     atr = result.atr
@@ -565,7 +570,7 @@ def detect_bounce(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
                 continue
 
         entry = price
-        stop, take = _compute_stops(entry, direction, result.atr)
+        stop, take = _compute_stops(entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr)
 
         signal = Signal(
             direction=direction,
@@ -589,7 +594,7 @@ def detect_bounce(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
 # ============================================================
 
 
-def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
+def detect_breakout(result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0) -> list[Signal]:
     """
     Пробой уровня.
     A1: последняя свеча ЗАКРЫЛАСЬ за уровнем, предыдущая — нет.
@@ -673,7 +678,7 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
                 continue
 
         entry = price
-        stop, take = _compute_stops(entry, direction, result.atr)
+        stop, take = _compute_stops(entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr)
 
         signal = Signal(
             direction=direction,
@@ -697,7 +702,7 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
 # ============================================================
 
 
-def detect_trend_level(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
+def detect_trend_level(result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0) -> list[Signal]:
     """
     Тренд + отбой от уровня.
     A1: цена у уровня.
@@ -758,7 +763,7 @@ def detect_trend_level(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]
             continue
 
         entry = price
-        stop, take = _compute_stops(entry, direction, result.atr)
+        stop, take = _compute_stops(entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr)
 
         signal = Signal(
             direction=direction,
@@ -825,7 +830,9 @@ def _recalc_strength(score):
 # ============================================================
 
 
-def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
+def detect_signals(
+    result: AnalysisResult, df: pd.DataFrame, now: datetime | None = None, skip_age_check: bool = False,
+) -> list[Signal]:
     """
     Запускает детекторы, обогащает сигналы context/warnings/R:R,
     дедуплицирует, сортирует.
@@ -833,11 +840,13 @@ def detect_signals(result: AnalysisResult, df: pd.DataFrame) -> list[Signal]:
     from strategy.signal_history import get_recent_signal
 
     # --- Блокировка по свежести данных ---
-    if len(df) > 0:
+    _now = now or datetime.now()
+
+    if not skip_age_check and len(df) > 0:
         last = df["begin"].iloc[-1]
         if hasattr(last, "to_pydatetime"):
             last = last.to_pydatetime()
-        age_min = int((datetime.now() - last).total_seconds() / 60)
+        age_min = int((_now - last).total_seconds() / 60)
         if age_min > config.DATA_MAX_AGE_BLOCK:
             log.warning(
                 "Данные устарели на %d мин (> %d) — сигналы блокированы",

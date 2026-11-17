@@ -1,6 +1,6 @@
 from core.instruments import get_instrument
 
-__version__ = "0.9.0"
+__version__ = "0.11.0"
 
 # ============================================================
 # ИНСТРУМЕНТ
@@ -159,7 +159,7 @@ PAPER_TRADING_HOURS = {
 
 # Timeout: сколько торговых M15 свечей ждём stop/take,
 # прежде чем закрыть по close. 50 × M15 = 12.5 часов торгового времени.
-PAPER_TIMEOUT_BARS = 50
+PAPER_TIMEOUT_BARS = 20
 
 # Дедупликация: не создавать дубль, если есть открытая сделка того же
 # направления и kind с entry в пределах PAPER_DEDUP_PRICE_TOL_ATR × ATR(H1)
@@ -173,11 +173,12 @@ VIRTUAL_DEPOSIT = 3000.0  # стартовый депозит, ₽
 RISK_PER_TRADE_PCT = 0.01  # 1% риска на сделку
 
 # --- Фильтры (по статистике) ---
-# n=19, 4W/14L, -207.44 ₽ (2026-11-05) — long в bullish week убыточен
-PAPER_SKIP_BULLISH_LONG = True
-
-# Фильтр: normal + breakout / trend_level — убыточны (5W/9L, -198 ₽)
-PAPER_SKIP_NORMAL_BREAKOUT = True
+# Y (feature/real-trading): bullish_long + normal_breakout — ON
+# F (experiment/aggressive-signals): все OFF (полигон)
+PAPER_SKIP_BULLISH_LONG = True          # −103 ₽ (replay 11/13.11) — полезен
+PAPER_SKIP_NORMAL_BREAKOUT = True       # −139.72 ₽ (paper_trades, n=17) — полезен
+PAPER_SKIP_BULLISH_SHORT = False        # +21.72 ₽ (paper_trades, n=8) — НЕ включать
+PAPER_SKIP_ADX_FLAT_BREAKOUT = False    # +50.28 ₽ (paper_trades, n=7) — НЕ включать
 
 # ============================================================
 # СОХРАНЕНИЕ СВЕЧЕЙ В JSON
@@ -188,7 +189,7 @@ SAVE_CANDLES_ALWAYS = False  # ФЛАГ «ВСЕ СВЕЧИ»: True — писа
 SAVE_CANDLES_MARK_SIGNALS = (
     True  # ставить has_signals/signals_count в снимке (B-маркер)
 )
-SAVE_CANDLES_TIMEFRAMES = ["M15"]  # какие ТФ сохранять
+SAVE_CANDLES_TIMEFRAMES = ["M15", "H1", "H4"]  # какие ТФ сохранять
 SAVE_CANDLES_COUNT = 300  # сколько свечей брать
 SAVE_CANDLES_MAX_SNAPSHOTS = 300  # защита от разрастания
 VOLUME_RATIO_CAP = 5.0 # глобальный cap, чтобы выбросы (17–20x) не завышали score
