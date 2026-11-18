@@ -179,6 +179,7 @@ PAPER_SKIP_BULLISH_LONG = True          # −103 ₽ (replay 11/13.11) — по�
 PAPER_SKIP_NORMAL_BREAKOUT = True       # −139.72 ₽ (paper_trades, n=17) — полезен
 PAPER_SKIP_BULLISH_SHORT = False        # +21.72 ₽ (paper_trades, n=8) — НЕ включать
 PAPER_SKIP_ADX_FLAT_BREAKOUT = False    # +50.28 ₽ (paper_trades, n=7) — НЕ включать
+PAPER_SKIP_PULLBACK_BOUNCE = True   # 10 сделок, 1W/7L, −81.94 ₽
 
 # ============================================================
 # СОХРАНЕНИЕ СВЕЧЕЙ В JSON

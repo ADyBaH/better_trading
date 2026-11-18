@@ -505,7 +505,9 @@ def _is_direction_allowed(direction: str, trend: str, kind: str) -> bool:
 # ============================================================
 
 
-def detect_bounce(result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0) -> list[Signal]:
+def detect_bounce(
+    result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0
+) -> list[Signal]:
     signals = []
     price = result.current_price
     atr = result.atr
@@ -570,7 +572,9 @@ def detect_bounce(result: AnalysisResult, df: pd.DataFrame, day_range_atr: float
                 continue
 
         entry = price
-        stop, take = _compute_stops(entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr)
+        stop, take = _compute_stops(
+            entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
+        )
 
         signal = Signal(
             direction=direction,
@@ -594,7 +598,9 @@ def detect_bounce(result: AnalysisResult, df: pd.DataFrame, day_range_atr: float
 # ============================================================
 
 
-def detect_breakout(result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0) -> list[Signal]:
+def detect_breakout(
+    result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0
+) -> list[Signal]:
     """
     Пробой уровня.
     A1: последняя свеча ЗАКРЫЛАСЬ за уровнем, предыдущая — нет.
@@ -678,7 +684,9 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame, day_range_atr: flo
                 continue
 
         entry = price
-        stop, take = _compute_stops(entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr)
+        stop, take = _compute_stops(
+            entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
+        )
 
         signal = Signal(
             direction=direction,
@@ -702,7 +710,9 @@ def detect_breakout(result: AnalysisResult, df: pd.DataFrame, day_range_atr: flo
 # ============================================================
 
 
-def detect_trend_level(result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0) -> list[Signal]:
+def detect_trend_level(
+    result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0
+) -> list[Signal]:
     """
     Тренд + отбой от уровня.
     A1: цена у уровня.
@@ -763,7 +773,9 @@ def detect_trend_level(result: AnalysisResult, df: pd.DataFrame, day_range_atr: 
             continue
 
         entry = price
-        stop, take = _compute_stops(entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr)
+        stop, take = _compute_stops(
+            entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
+        )
 
         signal = Signal(
             direction=direction,
@@ -831,7 +843,10 @@ def _recalc_strength(score):
 
 
 def detect_signals(
-    result: AnalysisResult, df: pd.DataFrame, now: datetime | None = None, skip_age_check: bool = False,
+    result: AnalysisResult,
+    df: pd.DataFrame,
+    now: datetime | None = None,
+    skip_age_check: bool = False,
 ) -> list[Signal]:
     """
     Запускает детекторы, обогащает сигналы context/warnings/R:R,
@@ -861,7 +876,7 @@ def detect_signals(
     all_signals.extend(detect_trend_level(result, df))
 
     # Получаем последний сигнал из истории (для cooldown)
-    recent = get_recent_signal(result.symbol, lookback_minutes=120)
+    recent = get_recent_signal(result.symbol, lookback_minutes=180)
 
     passed_signals: list[Signal] = []
 
@@ -882,6 +897,15 @@ def detect_signals(
             and s.kind in ("breakout", "trend_level")
         ):
             log.info("normal + %s заблокирован (фильтр)", s.kind)
+            continue
+
+        # --- Фильтр: pullback + bounce (10 сделок, 1W/7L, −81.94 ₽) ---
+        if (
+            getattr(config, "PAPER_SKIP_PULLBACK_BOUNCE", False)
+            and result.indicators.market_state == "pullback"
+            and s.kind == "bounce"
+        ):
+            log.info("pullback + bounce заблокирован (фильтр)")
             continue
 
         # Найти уровень по level_price
@@ -915,7 +939,7 @@ def detect_signals(
             and recent_age is not None
             and recent_age < 30
         ):
-            penalty = 1.0
+            penalty = 1.5
             s.strength_score = max(0.0, s.strength_score - penalty)
             s.reasons.append(
                 f"штраф пила: -{penalty} ({recent_age} мин назад {recent_dir})"
