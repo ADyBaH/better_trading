@@ -898,7 +898,22 @@ def detect_signals(
         ):
             log.info("normal + %s заблокирован (фильтр)", s.kind)
             continue
+        # --- Фильтр: ADX 20-25 (17 сделок, 1W/12L, −256.36 ₽) ---
+        if (
+            getattr(config, "PAPER_SKIP_ADX_TREND", False)
+            and result.indicators.adx is not None
+            and 20 <= result.indicators.adx < 25
+        ):
+            log.info("ADX 20-25 заблокирован (фильтр)")
+            continue
 
+        # --- Фильтр: bid-heavy > 60% (6 сделок, 0W/5L, −150.30 ₽) ---
+        if getattr(config, "PAPER_SKIP_BID_HEAVY", False):
+            ob = getattr(result, "order_book", None) or {}
+            pressure = ob.get("pressure_pct")
+            if pressure is not None and pressure > 60:
+                log.info("bid-heavy (%.0f%%) заблокирован (фильтр)", pressure)
+                continue
         # --- Фильтр: pullback + bounce (10 сделок, 1W/7L, −81.94 ₽) ---
         if (
             getattr(config, "PAPER_SKIP_PULLBACK_BOUNCE", False)

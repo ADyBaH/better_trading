@@ -180,6 +180,8 @@ PAPER_SKIP_NORMAL_BREAKOUT = True       # −139.72 ₽ (paper_trades, n=17) —
 PAPER_SKIP_BULLISH_SHORT = False        # +21.72 ₽ (paper_trades, n=8) — НЕ включать
 PAPER_SKIP_ADX_FLAT_BREAKOUT = False    # +50.28 ₽ (paper_trades, n=7) — НЕ включать
 PAPER_SKIP_PULLBACK_BOUNCE = True   # 10 сделок, 1W/7L, −81.94 ₽
+PAPER_SKIP_ADX_TREND = True   # 17 сделок, 1W/12L, −256.36 ₽
+PAPER_SKIP_BID_HEAVY = True   # 6 сделок, 0W/5L, −150.30 ₽
 
 # ============================================================
 # СОХРАНЕНИЕ СВЕЧЕЙ В JSON

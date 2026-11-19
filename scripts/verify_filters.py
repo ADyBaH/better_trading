@@ -161,6 +161,12 @@ def main():
         direction = sig.get("direction")
         kind = sig.get("kind")
 
+        if filter_name == "adx_trend":
+            return (
+                getattr(config, "PAPER_SKIP_ADX_TREND", False)
+                and ind.get("adx") is not None
+                and 20 <= ind.get("adx") < 25
+            )
         if filter_name == "bullish_long":
             return (
                 getattr(config, "PAPER_SKIP_BULLISH_LONG", False)
@@ -187,7 +193,13 @@ def main():
             )
         return False
 
-    filters = ["bullish_long", "normal_breakout", "bullish_short", "adx_flat_breakout"]
+    filters = [
+        "bullish_long",
+        "normal_breakout",
+        "bullish_short",
+        "adx_flat_breakout",
+        "adx_trend",
+    ]
 
     def _stats(signals):
         w = sum(1 for s in signals if s.get("_result") == "win")
