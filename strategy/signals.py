@@ -905,7 +905,11 @@ def detect_signals(
     all_signals.extend(detect_trend_level(result, df))
 
     # Получаем последний сигнал из истории (для cooldown)
-    recent = get_recent_signal(result.symbol, lookback_minutes=180)
+    recent = get_recent_signal(
+        result.symbol,
+        lookback_minutes=180,
+        now=result.timestamp,
+    )
 
     passed_signals: list[Signal] = []
 
