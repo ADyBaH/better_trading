@@ -498,6 +498,28 @@
 - [x] `bullish_short` — OFF (+21.72 ₽, n=8).
 - [x] `adx_flat_breakout` — OFF (+50.28 ₽, n=7).
 
+## Этап 24. Breakout-фильтр (Задача 3) 🚧
+
+### 24.1. Инфраструктура
+
+- [x] `config.py`: `PAPER_SKIP_BREAKOUT` (kill-switch), `BREAKOUT_FILTER` (enum F1–F4).
+- [x] `strategy/signals.py`: `_breakout_passes_filter()` + блоки в `detect_signals`.
+- [x] `core/analyzer.py`: `market_state = "impulse"` (impulse_atr > 2.0, retrace < 0.2 × impulse).
+- [x] `scripts/verify_filters.py`: F1–F4 безусловно, `compute_trade_result` (с комиссией), PF/exp.
+- [x] `tests/test_signals.py`: 5+ кейсов на F1–F4 и kill-switch.
+
+### 24.2. Что нужно
+
+- [ ] **Replay-гейт:** F1–F4 на 5 днях, n ≥ 20, PF ≥ 1.2, exp > 0.
+- [ ] **Match rate ≥ 70%:** `verify_candles.py` сейчас 0% (фильтры Y режут исторические сигналы) — фикс: отключать `PAPER_SKIP_*` на время replay.
+- [ ] **Живой paper (Y, 2 недели):** `PAPER_SKIP_BREAKOUT=True` → сравнить `paper-stats` до/после.
+
+### 24.3. Решение (по итогу)
+
+- Если ни один F1–F4 не даёт PF ≥ 1.2 → `PAPER_SKIP_BREAKOUT=True` навсегда.
+- Если F1–F4 даёт PF ≥ 1.2 на n ≥ 20 → включить фильтр, `PAPER_SKIP_BREAKOUT=False`.
+- В main — не мержить до стабильности 2 недели.
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).

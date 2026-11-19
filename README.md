@@ -307,6 +307,25 @@ Expectancy: +9.9 pts
 python journal_cli.py paper-stats
 ```
 
+## Breakout: статус (Задача 3, 2026-11-19)
+
+Baseline по `paper-stats`: 37 сделок, 10W/23L/1T, −71.54 ₽, exp −0.0.
+Breakout — самый частый (47%) и убыточный; не работает ни в одном разрезе.
+
+| Вариант | n | W | L | T | Rub | PF | Exp | Решение |
+|---|---|---|---|---|---|---|---|---|
+| baseline (сейчас) | 37 | 10 | 23 | 1 | −71.54 | — | −0.0 | — |
+| skip breakout | — | — | — | — | — | — | — | эксперимент Y (2 недели) |
+| F1 ADX≥25 | — | — | — | — | — | — | — | replay (ожидает) |
+| F2 ADX<20 | — | — | — | — | — | — | — | replay (ожидает) |
+| F3 impulse | — | — | — | — | — | — | — | replay (n=0, insufficient data) |
+| F4 week_trend | — | — | — | — | — | — | — | replay (ожидает) |
+
+**Флаги:** `PAPER_SKIP_BREAKOUT` (kill-switch), `BREAKOUT_FILTER` (`"none" | "F1" | "F2" | "F3" | "F4"`).
+
+**Replay-гейт:** `scripts/verify_filters.py --date YYYY-MM-DD` (F1–F4 выводятся безусловно, с комиссией).
+**Match rate:** `scripts/verify_candles.py --date YYYY-MM-DD` — сейчас 0% (replay применяет фильтры Y к историческим сигналам); replay-гейт заблокирован до фикса.
+
 ## Структура проекта
 
 ```
@@ -417,6 +436,59 @@ python journal_cli.py paper-stats
 - **Partial day**: `partial_day_at_open` в `paper_trades`, `by_partial_day` в `paper-stats`.
 - **`DATA_MAX_AGE_MIN = 5`**, **`DATA_MAX_AGE_BLOCK = 15`** (ALOR лаг ~7 мин).
 - **`VOLUME_RATIO_CAP = 5.0`** — клип volume_ratio.
+
+## Фильтры сигналов (config.py)
+
+Фильтры применяются в `strategy/signals.py` → `detect_signals()`. Порядок важен:
+сигнал проходит фильтры **до** `_finalize_signal` (не тратим `compute_rr` на отсечённые)
+и **до** штрафов EMA/пила/late-chase (фильтр работает на «сыром» сигнале).
+
+### Глобальные (по статистике, все kind)
+
+| Флаг | Значение в Y | Что блокирует | Статистика (обоснование) |
+|---|---|---|---|
+| `PAPER_SKIP_BULLISH_LONG` | `True` | LONG при `week_trend == "bullish"` | −103 ₽ (replay 11/13.11) — полезен |
+| `PAPER_SKIP_NORMAL_BREAKOUT` | `True` | `breakout` / `trend_level` при `market_state == "normal"` | −139.72 ₽ (paper_trades, n=17) — полезен |
+| `PAPER_SKIP_BULLISH_SHORT` | `False` | SHORT при `week_trend == "bullish"` | +21.72 ₽ (n=8) — **НЕ включать** |
+| `PAPER_SKIP_ADX_FLAT_BREAKOUT` | `False` | `breakout` при ADX < 20 | +50.28 ₽ (n=7) — **НЕ включать** |
+| `PAPER_SKIP_PULLBACK_BOUNCE` | `True` | `bounce` при `market_state == "pullback"` | 10 сделок, 1W/7L, −81.94 ₽ |
+| `PAPER_SKIP_ADX_TREND` | `True` | все kind при ADX 20–25 | 17 сделок, 1W/12L, −256.36 ₽ |
+| `PAPER_SKIP_BID_HEAVY` | `True` | все kind при `pressure_pct > 60` | 6 сделок, 0W/5L, −150.30 ₽ |
+
+### Breakout: kill-switch и условные фильтры (Задача 3)
+
+| Флаг | Значение | Что делает |
+|---|---|---|
+| `PAPER_SKIP_BREAKOUT` | `False` | `True` — `breakout` не создаётся вообще (kill-switch для эксперимента Y) |
+| `BREAKOUT_FILTER` | `"none"` | Условный фильтр для `breakout`: `"none"` / `"F1"` / `"F2"` / `"F3"` / `"F4"` |
+
+**Условные фильтры `BREAKOUT_FILTER`** (взаимоисключающие, применяются только к `kind == "breakout"`):
+
+| Код | Условие прохождения | Гипотеза |
+|---|---|---|
+| `F1` | `ADX >= 25` (strong) | breakout в trend (20–25) — пила, в strong — импульс |
+| `F2` | `ADX < 20` (flat) | flat — лучший ADX-бакет (+303.82 ₽ на 19 сделках) |
+| `F3` | `market_state == "impulse"` | breakout в normal/pullback убыточен; impulse — не проверен (n=0) |
+| `F4` | `week_trend` не противоречит `direction` (`neutral` пропускаем) | совпадение с недельным трендом |
+
+**Композиция с `PAPER_SKIP_ADX_TREND`:** ADX 20–25 режется `PAPER_SKIP_ADX_TREND` **раньше**, чем доходит до F1/F2. F1 оставляет только ≥ 25, F2 — < 20. Пересечения нет.
+
+**Композиция `PAPER_SKIP_BREAKOUT` и `BREAKOUT_FILTER`:** kill-switch проверяется **первым** (если `True` — breakout не создаётся, `BREAKOUT_FILTER` не имеет значения). Если `PAPER_SKIP_BREAKOUT=False` — работает `BREAKOUT_FILTER`.
+
+### Как проверить эффект фильтров
+
+```bash
+# Replay-эффект F1–F4 на истории (с комиссией, PF/exp)
+python scripts/verify_filters.py --date 2026-11-13
+
+# Сверка replay с живым paper (match rate)
+python scripts/verify_candles.py --date 2026-11-13
+
+# Живой paper (Y): до/после
+python journal_cli.py paper-stats --until=2026-11-19
+python journal_cli.py paper-stats --since=2026-11-19
+```
+---
 
 ## Real-trading (мок-режим)
 
