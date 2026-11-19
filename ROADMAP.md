@@ -498,27 +498,56 @@
 - [x] `bullish_short` — OFF (+21.72 ₽, n=8).
 - [x] `adx_flat_breakout` — OFF (+50.28 ₽, n=7).
 
-## Этап 24. Breakout-фильтр (Задача 3) 🚧
+## Этап 24. Breakout-фильтр + backtest (Задача 3) 🚧
 
-### 24.1. Инфраструктура
+### 24.1. Инфраструктура ✅
 
 - [x] `config.py`: `PAPER_SKIP_BREAKOUT` (kill-switch), `BREAKOUT_FILTER` (enum F1–F4).
 - [x] `strategy/signals.py`: `_breakout_passes_filter()` + блоки в `detect_signals`.
 - [x] `core/analyzer.py`: `market_state = "impulse"` (impulse_atr > 2.0, retrace < 0.2 × impulse).
 - [x] `scripts/verify_filters.py`: F1–F4 безусловно, `compute_trade_result` (с комиссией), PF/exp.
-- [x] `tests/test_signals.py`: 5+ кейсов на F1–F4 и kill-switch.
+- [x] `tests/test_signals.py`: 12 кейсов на F1–F4 + kill-switch.
 
-### 24.2. Что нужно
+### 24.2. Фикс replay ✅
 
-- [ ] **Replay-гейт:** F1–F4 на 5 днях, n ≥ 20, PF ≥ 1.2, exp > 0.
-- [ ] **Match rate ≥ 70%:** `verify_candles.py` сейчас 0% (фильтры Y режут исторические сигналы) — фикс: отключать `PAPER_SKIP_*` на время replay.
+- [x] `strategy/signal_history.py`: `get_recent_signal(..., now=None)` — `cutoff` и `age_min` от `now`.
+- [x] `strategy/signals.py`: `detect_signals` передаёт `now=result.timestamp`.
+- [x] `core/analyzer.py`: `analyze_from_df(write_history=True)` — `False` для backtest/replay.
+
+### 24.3. Бэктестер ✅
+
+- [x] `scripts/backtest.py`: честный replay (`df.iloc[:t+1]`, без look-ahead).
+- [x] `_load_candles`: из `candles_*.json` (склейка snapshots, дедуп), fallback `get_candles_tf`.
+- [x] `--compare`: `current_config` vs `baseline` vs `skip_breakout` vs F1–F4.
+- [x] `run_backtest(skip_filters=True)` — изолированные варианты.
+- [x] `sys.stdout.reconfigure(errors="replace")` — Windows cp1251 не падает.
+
+### 24.4. Результаты (11–19.11, 7 дней, n=15–23)
+
+| Вариант           | n   | W   | L   | T   | Rub        | PF       | Exp      |
+| ----------------- | --- | --- | --- | --- | ---------- | -------- | -------- |
+| baseline          | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     |
+| **skip_breakout** | 17  | 5   | 10  | 2   | **−84.02** | **0.73** | **−3.3** |
+| F1 ADX≥25         | 21  | 5   | 12  | 4   | −161.16    | 0.51     | −6.9     |
+| F2 ADX<20         | 18  | 5   | 11  | 2   | −103.68    | 0.67     | −4.2     |
+| F3 impulse        | 18  | 5   | 10  | 3   | −87.08     | 0.73     | −3.3     |
+| F4 week_trend     | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     |
+| current_config    | 15  | 4   | 10  | 1   | −89.70     | 0.62     | −4.2     |
+
+**Вывод:** `skip_breakout` — лучший (PF 0.73). F1–F4 не доказаны (n мало).
+
+### 24.5. Что нужно
+
+- [ ] **Накопить 30+ сделок** в каждом варианте (сейчас 15–23).
+- [ ] **Replay-гейт:** match rate ≥ 70% (`verify_candles.py` сейчас 0% — фикс отдельно).
 - [ ] **Живой paper (Y, 2 недели):** `PAPER_SKIP_BREAKOUT=True` → сравнить `paper-stats` до/после.
+- [ ] **Issue:** `logger.py` — `stream.reconfigure(errors="replace")` для Windows cp1251 (live **упадёт** на первом `→` в логе).
 
-### 24.3. Решение (по итогу)
+### 24.6. Решение (по итогу)
 
-- Если ни один F1–F4 не даёт PF ≥ 1.2 → `PAPER_SKIP_BREAKOUT=True` навсегда.
-- Если F1–F4 даёт PF ≥ 1.2 на n ≥ 20 → включить фильтр, `PAPER_SKIP_BREAKOUT=False`.
-- В main — не мержить до стабильности 2 недели.
+- Если `PAPER_SKIP_BREAKOUT=True` **улучшает** PF/exp в Y за 2 недели → **оставить**.
+- F1–F4 — **не включать** до 30+ сделок и replay-гейта.
+- В main — **не мержить** до стабильности 2 недели.
 
 ## Идеи на будущее (после статистики)
 
@@ -550,12 +579,12 @@
 ## Текущий статус
 
 **Версия:** 0.11.0
-**Готово:** этапы 1–22 + P0-фиксы (RR, passed_signals, EMA/пила/late-chase, volume клип, дедуп) + MFE/MAE + partial_day + replay.
+**Готово:** этапы 1–24 (breakout-фильтр, backtest, фикс `get_recent_signal`).
 **В работе:** сбор статистики (Y — 69 сделок, F — 84 сделки).
 **Y (feature/real-trading):** winrate **41.4%**, PnL **+300.58 ₽**, PF **1.25**, expectancy **+6.2 pts**.
 **F (main):** winrate **30.0%**, PnL **−273.04 ₽**, PF **0.63**, expectancy **−3.1 pts**.
 **Фильтры Y:** `bullish_long` ON (−103 ₽), `normal_breakout` ON (−139.72 ₽), `bullish_short` OFF (+21.72 ₽), `adx_flat_breakout` OFF (+50.28 ₽).
-**Следующий шаг:** адаптивный take (`take ≤ 0.6 × day_range_atr`), replay на 5 днях (когда накопятся `candles_H1/H4`).
+**Следующий шаг:** накопить 30+ сделок в backtest, replay-гейт (match rate ≥ 70%), 2 недели `PAPER_SKIP_BREAKOUT=True` в Y.
 **Мерж:** Y → main (когда будем готовы) — код Y в main.
 
 ---
@@ -585,11 +614,11 @@
 
 ### Сравнение (17.11)
 
-| Ветка | Сделок | Winrate | PnL | PF | Expectancy | Депозит |
-|---|---|---|---|---|---|---|
-| **F (main)** | 84 | 30.0% | −273.04 ₽ | **0.63** | **−3.1 pts** | — |
-| **Y (real-trading)** | 69 | 41.4% | +300.58 ₽ | **1.25** | **+6.2 pts** | +7.99% |
-| **F (aggressive)** | 0 | — | — | — | — | — |
+| Ветка                | Сделок | Winrate | PnL       | PF       | Expectancy   | Депозит |
+| -------------------- | ------ | ------- | --------- | -------- | ------------ | ------- |
+| **F (main)**         | 84     | 30.0%   | −273.04 ₽ | **0.63** | **−3.1 pts** | —       |
+| **Y (real-trading)** | 69     | 41.4%   | +300.58 ₽ | **1.25** | **+6.2 pts** | +7.99%  |
+| **F (aggressive)**   | 0      | —       | —         | —        | —            | —       |
 
 **Y лучше F** по PF/expectancy — фильтры `bullish/long` и `normal+breakout` работают.
 **F (aggressive)** — только начинает, статистики пока нет.

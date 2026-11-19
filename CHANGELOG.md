@@ -1,4 +1,51 @@
 # CHANGELOG
+## [0.12.0] — 2026-11-19
+
+### Добавлено
+
+- **`PAPER_SKIP_BREAKOUT`** (kill-switch): `True` — `breakout` не создаётся вообще.
+- **`BREAKOUT_FILTER`** (enum): `"none" | "F1" | "F2" | "F3" | "F4"` — условные фильтры для breakout.
+  - F1: ADX ≥ 25 (strong) только.
+  - F2: ADX < 20 (flat) только.
+  - F3: `market_state == "impulse"` только.
+  - F4: `week_trend` не противоречит `direction` (neutral пропускаем).
+- **`strategy/signals.py`**: `_breakout_passes_filter()` + блоки в `detect_signals`.
+- **`core/analyzer.py`**: `market_state = "impulse"` (impulse_atr > 2.0, retrace < 0.2 × impulse).
+- **`core/analyzer.py`**: `analyze_from_df(write_history=True)` — `False` для backtest/replay.
+- **`scripts/backtest.py`**: честный replay paper-логики (без look-ahead, `df.iloc[:t+1]`).
+  - `_load_candles`: из `candles_*.json` (склейка snapshots, дедуп), fallback `get_candles_tf`.
+  - `--compare`: `current_config` vs `baseline` vs `skip_breakout` vs F1–F4.
+  - `run_backtest(skip_filters=True)` — изолированные варианты.
+  - `sys.stdout.reconfigure(errors="replace")` — Windows cp1251 не падает.
+- **`scripts/verify_filters.py`**: F1–F4 безусловно, `compute_trade_result` (с комиссией), PF/exp.
+- **`tests/test_signals.py`**: 12 кейсов на F1–F4 + kill-switch.
+
+### Исправлено
+
+- **`get_recent_signal(..., now=None)`**: `cutoff` и `age_min` от `now` (было `datetime.now()`).
+  Чинит: match rate 0% в `verify_candles.py` (пила на реальной истории), ложный штраф «пила» в тестах.
+- **`detect_signals`**: передаёт `now=result.timestamp` в `get_recent_signal`.
+
+### Статистика (backtest 11–19.11, 7 дней)
+
+| Вариант | n | W | L | T | Rub | PF | Exp |
+|---|---|---|---|---|---|---|---|
+| baseline | 23 | 5 | 14 | 4 | −201.88 | 0.44 | −8.1 |
+| **skip_breakout** | 17 | 5 | 10 | 2 | **−84.02** | **0.73** | **−3.3** |
+| F1 ADX≥25 | 21 | 5 | 12 | 4 | −161.16 | 0.51 | −6.9 |
+| F2 ADX<20 | 18 | 5 | 11 | 2 | −103.68 | 0.67 | −4.2 |
+| F3 impulse | 18 | 5 | 10 | 3 | −87.08 | 0.73 | −3.3 |
+| F4 week_trend | 23 | 5 | 14 | 4 | −201.88 | 0.44 | −8.1 |
+| current_config | 15 | 4 | 10 | 1 | −89.70 | 0.62 | −4.2 |
+
+**Вывод:** `skip_breakout` — лучший (PF 0.73). F1–F4 не доказаны (n=15–23, мало).
+
+### Известные ограничения
+
+- **n=15–23** — мало для статистики. Нужно 30+ сделок и replay-гейт (match rate ≥ 70%).
+- **`verify_candles.py` match rate 0%** — replay применяет фильтры Y к историческим сигналам (фикс отдельно).
+- **`candles_*.json` есть только с 11.11** — backtest возможен на 11–19.11.
+- **Windows cp1251**: `logger.py` падает на `→` в логах (live на Windows). Нужен `stream.reconfigure(errors="replace")` — **отдельный issue**.
 
 ## [0.9.0] — 2026-10-29
 

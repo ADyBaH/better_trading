@@ -194,6 +194,25 @@ ATR(H1) = 0.02574
   Следующий запуск ~21:19:11
 ```
 
+### Бэктестер: `backtest.py`
+
+Честный replay paper-логики на исторических свечах (`candles_*.json`), без look-ahead.
+
+| Команда | Описание |
+| --- | --- |
+| `python scripts/backtest.py --since 2026-11-11 --until 2026-11-19` | Backtest с текущим конфигом |
+| `... --compare` | Сравнить `current_config` vs `baseline` vs `skip_breakout` vs F1–F4 |
+| `... --skip-breakout` | `PAPER_SKIP_BREAKOUT=True` |
+| `... --breakout-filter F1` | Применить `BREAKOUT_FILTER="F1"` |
+
+**Как работает:**
+- читает `candles_M15_*.json` за период (склейка snapshots, дедуп по `begin`);
+- идёт по барам **последовательно** (`df.iloc[:t+1]`, без look-ahead);
+- резолвит через `virtual_pnl` + `compute_trade_result` (с комиссией);
+- `--compare` — `run_backtest(skip_filters=True)` для изолированных вариантов.
+
+**Ограничение:** `candles_*.json` есть только с 11.11 — backtest возможен на 11–19.11.
+
 ### `paper-stats` (с депозитом)
 
 ```
@@ -312,18 +331,29 @@ python journal_cli.py paper-stats
 Baseline по `paper-stats`: 37 сделок, 10W/23L/1T, −71.54 ₽, exp −0.0.
 Breakout — самый частый (47%) и убыточный; не работает ни в одном разрезе.
 
+**Backtest на 11–19.11** (`scripts/backtest.py --compare`, 7 дней, M15):
+
 | Вариант | n | W | L | T | Rub | PF | Exp | Решение |
 |---|---|---|---|---|---|---|---|---|
-| baseline (сейчас) | 37 | 10 | 23 | 1 | −71.54 | — | −0.0 | — |
-| skip breakout | — | — | — | — | — | — | — | эксперимент Y (2 недели) |
-| F1 ADX≥25 | — | — | — | — | — | — | — | replay (ожидает) |
-| F2 ADX<20 | — | — | — | — | — | — | — | replay (ожидает) |
-| F3 impulse | — | — | — | — | — | — | — | replay (n=0, insufficient data) |
-| F4 week_trend | — | — | — | — | — | — | — | replay (ожидает) |
+| baseline (без `PAPER_SKIP_*`) | 23 | 5 | 14 | 4 | −201.88 | 0.44 | −8.1 | — |
+| **skip breakout** (`PAPER_SKIP_BREAKOUT=True`) | 17 | 5 | 10 | 2 | **−84.02** | **0.73** | **−3.3** | **лучший (7 дней)** |
+| F1 ADX≥25 | 21 | 5 | 12 | 4 | −161.16 | 0.51 | −6.9 | не работает |
+| F2 ADX<20 | 18 | 5 | 11 | 2 | −103.68 | 0.67 | −4.2 | слабее skip |
+| F3 impulse | 18 | 5 | 10 | 3 | −87.08 | 0.73 | −3.3 | = skip (нет impulse) |
+| F4 week_trend | 23 | 5 | 14 | 4 | −201.88 | 0.44 | −8.1 | = baseline (бесполезен) |
+| current_config (как в Y) | 15 | 4 | 10 | 1 | −89.70 | 0.62 | −4.2 | база Y |
+
+**Выводы:**
+- `PAPER_SKIP_BREAKOUT=True` — **лучший** результат (PF 0.73). Breakout — главный источник убытка.
+- F1–F4 **не доказаны**: F4 = baseline (бесполезен), F3 = skip (нет impulse), F1 хуже базы, F2 слабее skip.
+- `PAPER_SKIP_*` **работают**: current_config (0.62) > baseline (0.44).
+
+**Оговорка:** n=15–23, 7 дней — **мало для статистики**. Нужно 30+ сделок и replay-гейт (match rate ≥ 70%).
 
 **Флаги:** `PAPER_SKIP_BREAKOUT` (kill-switch), `BREAKOUT_FILTER` (`"none" | "F1" | "F2" | "F3" | "F4"`).
 
-**Replay-гейт:** `scripts/verify_filters.py --date YYYY-MM-DD` (F1–F4 выводятся безусловно, с комиссией).
+**Replay-гейт:** `scripts/verify_filters.py --date YYYY-MM-DD` (F1–F4, с комиссией).
+**Backtest:** `scripts/backtest.py --since YYYY-MM-DD --until YYYY-MM-DD --compare` (честный replay, без look-ahead).
 **Match rate:** `scripts/verify_candles.py --date YYYY-MM-DD` — сейчас 0% (replay применяет фильтры Y к историческим сигналам); replay-гейт заблокирован до фикса.
 
 ## Структура проекта
