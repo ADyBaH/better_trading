@@ -183,6 +183,19 @@ PAPER_SKIP_PULLBACK_BOUNCE = True   # 10 сделок, 1W/7L, −81.94 ₽
 PAPER_SKIP_ADX_TREND = True   # 17 сделок, 1W/12L, −256.36 ₽
 PAPER_SKIP_BID_HEAVY = True   # 6 сделок, 0W/5L, −150.30 ₽
 
+# --- Breakout: статус (Задача 3, paper-stats 2026-11-19, n=37) ---
+# baseline: 10W/23L/1T, −71.54 ₽, exp −0.0 — не работает ни в одном разрезе.
+# kill-switch: True — breakout не создаётся вообще (эксперимент Y на 2 недели).
+PAPER_SKIP_BREAKOUT = False
+
+# Условный фильтр для breakout (взаимоисключающие варианты):
+#   "none" — без фильтра (как сейчас)
+#   "F1"   — ADX >= 25 (strong) только
+#   "F2"   — ADX < 20 (flat) только
+#   "F3"   — market_state == impulse только
+#   "F4"   — week_trend не противоречит direction (neutral пропускаем)
+BREAKOUT_FILTER = "none"
+
 # ============================================================
 # СОХРАНЕНИЕ СВЕЧЕЙ В JSON
 # ============================================================

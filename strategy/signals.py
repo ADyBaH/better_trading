@@ -500,6 +500,35 @@ def _is_direction_allowed(direction: str, trend: str, kind: str) -> bool:
     return True
 
 
+def _breakout_passes_filter(result: AnalysisResult, signal: Signal) -> bool:
+    """
+    Условные фильтры F1–F4 для breakout (config.BREAKOUT_FILTER).
+    Возвращает True, если сигнал проходит фильтр (можно создавать).
+    При BREAKOUT_FILTER == "none" — всегда True.
+    """
+    flt = getattr(config, "BREAKOUT_FILTER", "none")
+    if flt == "none":
+        return True
+
+    ind = result.indicators
+    adx = ind.adx
+    direction = signal.direction
+
+    if flt == "F1":  # ADX >= 25 (strong) только
+        return adx is not None and adx >= config.ADX_STRONG
+    if flt == "F2":  # ADX < 20 (flat) только
+        return adx is not None and adx < config.ADX_THRESHOLD
+    if flt == "F3":  # market_state == impulse только
+        return ind.market_state == "impulse"
+    if flt == "F4":  # week_trend не противоречит direction (neutral пропускаем)
+        if ind.week_trend == "bullish" and direction == "short":
+            return False
+        if ind.week_trend == "bearish" and direction == "long":
+            return False
+        return True
+    return True  # неизвестный фильтр — не блокируем
+
+
 # ============================================================
 # Детектор: Bounce
 # ============================================================
@@ -889,7 +918,6 @@ def detect_signals(
         ):
             log.info("bullish / long заблокирован (фильтр)")
             continue
-
         # --- Фильтр: normal + breakout / trend_level ---
         if (
             config.PAPER_SKIP_NORMAL_BREAKOUT
@@ -906,7 +934,6 @@ def detect_signals(
         ):
             log.info("ADX 20-25 заблокирован (фильтр)")
             continue
-
         # --- Фильтр: bid-heavy > 60% (6 сделок, 0W/5L, −150.30 ₽) ---
         if getattr(config, "PAPER_SKIP_BID_HEAVY", False):
             ob = getattr(result, "order_book", None) or {}
@@ -921,6 +948,21 @@ def detect_signals(
             and s.kind == "bounce"
         ):
             log.info("pullback + bounce заблокирован (фильтр)")
+            continue
+        # --- Фильтр: breakout kill-switch (Задача 3) ---
+        if getattr(config, "PAPER_SKIP_BREAKOUT", False) and s.kind == "breakout":
+            log.info("breakout заблокирован (PAPER_SKIP_BREAKOUT)")
+            continue
+
+        # --- Фильтр: breakout условный F1–F4 (Задача 3) ---
+        if s.kind == "breakout" and not _breakout_passes_filter(result, s):
+            log.info(
+                "breakout заблокирован (BREAKOUT_FILTER=%s, adx=%s, ms=%s, wt=%s)",
+                config.BREAKOUT_FILTER,
+                result.indicators.adx,
+                result.indicators.market_state,
+                result.indicators.week_trend,
+            )
             continue
 
         # Найти уровень по level_price

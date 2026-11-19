@@ -136,8 +136,13 @@ def _build_indicator_snapshot(
             trough = window["low"].min()
             retrace = (current_price - trough) / atr
 
+        # pullback: откат 0.2..0.7 × impulse (как было)
         if impulse_atr > 1.2 and 0.2 < retrace < impulse_atr * 0.7:
             market_state = "pullback"
+        # impulse: сильный импульс (>= 2.0 ATR) и почти нет отката (< 0.2)
+        # пороги из ROADMAP п.18.1: impulse > 2.0, откат < 0.2 × impulse
+        elif impulse_atr > 2.0 and retrace < 0.2 * impulse_atr:
+            market_state = "impulse"
 
     # --- Volume ratio: последняя свеча / среднее за VOLUME_LOOKBACK ---
     volume_ratio = 1.0

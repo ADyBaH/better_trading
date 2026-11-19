@@ -10,12 +10,14 @@ from datetime import datetime, timedelta
 from core.models import AnalysisResult, IndicatorSnapshot, Level, Signal
 from strategy.signals import (
     detect_bounce,
+    detect_signals,
     detect_breakout,
     detect_trend_level,
     _is_rejection_candle,
     _is_engulfing,
     _has_volume_confirmation,
     _compute_strength,
+    _breakout_passes_filter,
 )
 
 PASSED = 0
@@ -212,6 +214,107 @@ def main():
     result = make_result([level], trend="transition", adx=15.0)
     signals = detect_trend_level(result, df_tl)
     check("transition → 0 сигналов", len(signals), 0)
+    # --- Задача 3: breakout kill-switch и F1–F4 ---
+    print("\n_breakout_passes_filter (F1–F4):")
+
+    import config as _cfg
+
+    def _make_signal(direction="short", kind="breakout"):
+        return Signal(
+            direction=direction,
+            kind=kind,
+            strength="medium",
+            strength_score=2.0,
+            entry_price=12.500,
+            stop_price=12.530,
+            take_price=12.440,
+        )
+
+    # Сохраняем оригинальные значения
+    _orig_filter = getattr(_cfg, "BREAKOUT_FILTER", "none")
+
+    # F1: ADX >= 25
+    _cfg.BREAKOUT_FILTER = "F1"
+    r = make_result([], trend="down", adx=30.0)
+    check("F1 ADX=30 → passes", _breakout_passes_filter(r, _make_signal()), True)
+    r = make_result([], trend="down", adx=22.0)
+    check("F1 ADX=22 → blocked", _breakout_passes_filter(r, _make_signal()), False)
+
+    # F2: ADX < 20
+    _cfg.BREAKOUT_FILTER = "F2"
+    r = make_result([], trend="down", adx=15.0)
+    check("F2 ADX=15 → passes", _breakout_passes_filter(r, _make_signal()), True)
+    r = make_result([], trend="down", adx=22.0)
+    check("F2 ADX=22 → blocked", _breakout_passes_filter(r, _make_signal()), False)
+
+    # F3: market_state == impulse
+    _cfg.BREAKOUT_FILTER = "F3"
+    r = make_result([], trend="down", adx=30.0)
+    r.indicators.market_state = "impulse"
+    check("F3 impulse → passes", _breakout_passes_filter(r, _make_signal()), True)
+    r.indicators.market_state = "normal"
+    check("F3 normal → blocked", _breakout_passes_filter(r, _make_signal()), False)
+
+    # F4: week_trend не противоречит direction (neutral пропускаем)
+    _cfg.BREAKOUT_FILTER = "F4"
+    r = make_result([], trend="down", adx=30.0)
+    r.indicators.week_trend = "bullish"
+    check(
+        "F4 bullish+short → blocked",
+        _breakout_passes_filter(r, _make_signal("short")),
+        False,
+    )
+    check(
+        "F4 bullish+long → passes",
+        _breakout_passes_filter(r, _make_signal("long")),
+        True,
+    )
+    r.indicators.week_trend = "bearish"
+    check(
+        "F4 bearish+long → blocked",
+        _breakout_passes_filter(r, _make_signal("long")),
+        False,
+    )
+    check(
+        "F4 bearish+short → passes",
+        _breakout_passes_filter(r, _make_signal("short")),
+        True,
+    )
+    r.indicators.week_trend = "neutral"
+    check(
+        "F4 neutral+long → passes",
+        _breakout_passes_filter(r, _make_signal("long")),
+        True,
+    )
+
+    # "none" — всегда True
+    _cfg.BREAKOUT_FILTER = "none"
+    r = make_result([], trend="down", adx=15.0)
+    check("none → passes", _breakout_passes_filter(r, _make_signal()), True)
+
+    # Восстанавливаем
+    _cfg.BREAKOUT_FILTER = _orig_filter
+
+    # --- PAPER_SKIP_BREAKOUT (kill-switch) ---
+    print("\nPAPER_SKIP_BREAKOUT:")
+    from unittest.mock import patch
+
+    _orig_skip = getattr(_cfg, "PAPER_SKIP_BREAKOUT", False)
+    _cfg.PAPER_SKIP_BREAKOUT = True
+    _cfg.BREAKOUT_FILTER = "none"
+    _saved = {
+        k: getattr(_cfg, k, False)
+        for k in (
+            "PAPER_SKIP_BULLISH_LONG",
+            "PAPER_SKIP_NORMAL_BREAKOUT",
+            "PAPER_SKIP_ADX_TREND",
+            "PAPER_SKIP_BID_HEAVY",
+            "PAPER_SKIP_PULLBACK_BOUNCE",
+        )
+    }
+    for k in _saved:
+        setattr(_cfg, k, False)
+
 
     # --- Сводка ---
     print("\n" + "=" * 60)

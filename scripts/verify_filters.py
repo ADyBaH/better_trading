@@ -53,7 +53,7 @@ def _df_from_snapshot(snapshot: dict) -> pd.DataFrame:
 
 def _resolve_signal(sig: dict, df_m15: pd.DataFrame) -> dict:
     """Резолв сигнала по M15-свечам ПОСЛЕ его timestamp."""
-    from core.instruments import get_instrument
+    from core.instruments import get_instrument, compute_trade_result
 
     ts_str = sig.get("_timestamp") or sig.get("timestamp") or sig.get("saved_at")
     if not ts_str:
@@ -92,11 +92,7 @@ def _resolve_signal(sig: dict, df_m15: pd.DataFrame) -> dict:
     points = 0.0
     rub = 0.0
     if exit_price is not None:
-        if direction == "long":
-            points = round((exit_price - entry) / price_step, 1)
-        else:
-            points = round((entry - exit_price) / price_step, 1)
-        rub = round(points * inst.step_cost, 2)
+        points, rub = compute_trade_result(inst, direction, entry, exit_price)
 
     return {
         "result": pnl.get("result", "unknown"),
@@ -191,6 +187,26 @@ def main():
                 and kind == "breakout"
                 and (ind.get("adx") or 0) < 20
             )
+        # --- F1–F4 (Задача 3): проверяются безусловно, для сравнительной таблицы ---
+        if filter_name == "F1":
+            return kind == "breakout" and (
+                ind.get("adx") is None or ind.get("adx") < config.ADX_STRONG
+            )
+        if filter_name == "F2":
+            return kind == "breakout" and (
+                ind.get("adx") is None or ind.get("adx") >= config.ADX_THRESHOLD
+            )
+        if filter_name == "F3":
+            return kind == "breakout" and ind.get("market_state") != "impulse"
+        if filter_name == "F4":
+            if kind != "breakout":
+                return False
+            wt = ind.get("week_trend")
+            if wt == "bullish" and direction == "short":
+                return True
+            if wt == "bearish" and direction == "long":
+                return True
+            return False
         return False
 
     filters = [
@@ -199,6 +215,10 @@ def main():
         "bullish_short",
         "adx_flat_breakout",
         "adx_trend",
+        "F1",
+        "F2",
+        "F3",
+        "F4",
     ]
 
     def _stats(signals):
@@ -208,6 +228,16 @@ def main():
         o = sum(1 for s in signals if s.get("_result") == "open")
         pts = sum(s.get("_points") or 0 for s in signals)
         rub = sum(s.get("_rub") or 0 for s in signals)
+
+        win_rub = sum(s.get("_rub") or 0 for s in signals if s.get("_result") == "win")
+        loss_rub = abs(
+            sum(s.get("_rub") or 0 for s in signals if s.get("_result") == "loss")
+        )
+        pf = round(win_rub / loss_rub, 2) if loss_rub > 0 else None
+
+        closed_wl = w + l
+        exp = round(pts / closed_wl, 1) if closed_wl > 0 else None
+
         return {
             "total": len(signals),
             "win": w,
@@ -216,12 +246,17 @@ def main():
             "open": o,
             "points": round(pts, 1),
             "rub": round(rub, 2),
+            "pf": pf,
+            "exp": exp,
         }
 
     print("── Все сигналы (без фильтров) ──")
     all_stats = _stats(all_signals)
     print(
-        f"  total={all_stats['total']} W={all_stats['win']} L={all_stats['loss']} T={all_stats['timeout']} O={all_stats['open']} | pts={all_stats['points']:+.1f} rub={all_stats['rub']:+.2f}"
+        f"  total={all_stats['total']} W={all_stats['win']} L={all_stats['loss']} "
+        f"T={all_stats['timeout']} O={all_stats['open']} | "
+        f"pts={all_stats['points']:+.1f} rub={all_stats['rub']:+.2f} "
+        f"PF={all_stats['pf']} exp={all_stats['exp']}"
     )
     print()
 
@@ -239,10 +274,16 @@ def main():
         b_stats = _stats(blocked)
         p_stats = _stats(passed)
         print(
-            f"  отсекает {b_stats['total']}: W={b_stats['win']} L={b_stats['loss']} T={b_stats['timeout']} O={b_stats['open']} | pts={b_stats['points']:+.1f} rub={b_stats['rub']:+.2f}"
+            f"  отсекает {b_stats['total']}: W={b_stats['win']} L={b_stats['loss']} "
+            f"T={b_stats['timeout']} O={b_stats['open']} | "
+            f"pts={b_stats['points']:+.1f} rub={b_stats['rub']:+.2f} "
+            f"PF={b_stats['pf']} exp={b_stats['exp']}"
         )
         print(
-            f"  проходит {p_stats['total']}: W={p_stats['win']} L={p_stats['loss']} T={p_stats['timeout']} O={p_stats['open']} | pts={p_stats['points']:+.1f} rub={p_stats['rub']:+.2f}"
+            f"  проходит {p_stats['total']}: W={p_stats['win']} L={p_stats['loss']} "
+            f"T={p_stats['timeout']} O={p_stats['open']} | "
+            f"pts={p_stats['points']:+.1f} rub={p_stats['rub']:+.2f} "
+            f"PF={p_stats['pf']} exp={p_stats['exp']}"
         )
         print()
 
