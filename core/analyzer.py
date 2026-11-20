@@ -282,6 +282,7 @@ def analyze_from_df(
     order_book: dict | None = None,
     timestamp: datetime | None = None,
     skip_age_check: bool = False,
+    skip_filters: bool = False,
     write_history: bool = True,
 ) -> AnalysisResult | None:
     """
@@ -378,8 +379,29 @@ def analyze_from_df(
     from strategy.signal_history import append_signals
 
     ts = timestamp or datetime.now()
-    
-    signals = detect_signals(result, df, now=ts, skip_age_check=skip_age_check)
+
+    # --- skip_filters: временно отключаем фильтры (для replay) ---
+    _saved_filters = {}
+    if skip_filters:
+        for k in (
+            "PAPER_SKIP_BULLISH_LONG",
+            "PAPER_SKIP_NORMAL_BREAKOUT",
+            "PAPER_SKIP_BULLISH_SHORT",
+            "PAPER_SKIP_ADX_FLAT_BREAKOUT",
+            "PAPER_SKIP_ADX_TREND",
+            "PAPER_SKIP_BID_HEAVY",
+            "PAPER_SKIP_BREAKOUT",
+        ):
+            if hasattr(config, k):
+                _saved_filters[k] = getattr(config, k)
+                setattr(config, k, False)
+
+    try:
+        signals = detect_signals(result, df, now=ts, skip_age_check=skip_age_check)
+    finally:
+        for k, v in _saved_filters.items():
+            setattr(config, k, v)
+
     result.signals = signals
     if write_history:
         append_signals(signals, symbol)
