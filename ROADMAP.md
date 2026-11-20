@@ -581,6 +581,36 @@
 - `mfe_source` — `unavailable` у 50 (до 11.11), `backfill` у 14.
 - `optimize_stops.py` — **оверфит** на 14 сделках, **рекомендация** — «предварительно».
 
+## Этап 26. Адаптивный take 🚧
+
+### 26.1. Инфраструктура ✅
+
+- [x] `config.py`: `ADAPTIVE_TAKE_ENABLED`, `TAKE_DAY_RANGE_FRAC=0.6`, `MIN_TAKE_ATR=0.8`.
+- [x] `signals.py`: `_compute_stops` → 3 значения (stop, take, meta).
+- [x] `core/models.py`: `Signal.take_source`, `take_atr_value`, `day_range_atr_at_open`.
+- [x] `trader/paper.py`: миграция `take_source`/`take_atr_value`/`day_range_atr_at_open`.
+- [x] `paper_stats`: `by_take_source`.
+- [x] `scripts/backtest.py`: `adaptive_take` (A/B).
+
+### 26.2. Результат (11–19.11, n=23)
+
+- **baseline (take=2.0):** PF=0.44, exp=−8.1, rub=−201.88.
+- **adaptive take:** PF=0.44, exp=−8.1, rub=−201.88 — **идентично**.
+- **Причина:** `day_range_atr ~3.5` → `0.6 × 3.5 = 2.1 > 2.0` → `min` даёт `atr`.
+- **Вывод:** адаптивный take **не срабатывает** на высокой волатильности.
+
+### 26.3. Что нужно
+
+- [ ] **Накопить дни с `day_range_atr < 3.33`** (низкая волатильность) — тогда адаптивный take сработает.
+- [ ] **Или** — снизить `TAKE_DAY_RANGE_FRAC` до 0.5 (но это меняет задачу).
+- [ ] **Replay-гейт** (`verify_candles.py` match rate) — пока 0%.
+
+### 26.4. Решение
+
+- `ADAPTIVE_TAKE_ENABLED=True` — **оставить** (для низкой волатильности).
+- Гипотеза **не проверена** на 11–19.11 (высокая волатильность).
+- Пересмотреть через 2 недели (или при накоплении `day_range_atr < 3.33`).
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).

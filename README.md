@@ -355,6 +355,7 @@ Breakout — самый частый (47%) и убыточный; не рабо�
 **Replay-гейт:** `scripts/verify_filters.py --date YYYY-MM-DD` (F1–F4, с комиссией).
 **Backtest:** `scripts/backtest.py --since YYYY-MM-DD --until YYYY-MM-DD --compare` (честный replay, без look-ahead).
 **Match rate:** `scripts/verify_candles.py --date YYYY-MM-DD` — сейчас 0% (replay применяет фильтры Y к историческим сигналам); replay-гейт заблокирован до фикса.
+
 ## MFE/MAE + stop/take (Задачи 4–5, 2026-11-20)
 
 **Что сделано:**
@@ -389,6 +390,39 @@ python scripts/backfill_mfe_mae.py --dry-run   # проверка
 python scripts/backfill_mfe_mae.py             # заполнить MFE/MAE
 python scripts/optimize_stops.py               # сетка stop × take
 python journal_cli.py paper-stats              # блок «Рекомендация stop/take»
+```
+## Адаптивный take (Задача 1, 2026-11-20)
+
+**Формула:** `take = min(2.0×ATR, 0.6×day_range_atr×ATR)`, но не меньше `0.8×ATR`.
+**Fallback:** если `day_range_atr < 0.5` (partial_day) — `take = 2.0×ATR` (baseline).
+
+**Флаги:**
+- `ADAPTIVE_TAKE_ENABLED = True` (в config.py);
+- `TAKE_DAY_RANGE_FRAC = 0.6`;
+- `MIN_TAKE_ATR = 0.8`.
+
+**Миграция `paper_trades`:**
+- `take_source` (`atr` / `day_range`);
+- `take_atr_value` (2.0×ATR в пунктах);
+- `day_range_atr_at_open`.
+
+**`paper-stats`:** разрез `by_take_source`.
+
+**A/B на backtest 11–19.11:**
+
+| Вариант | n | W | L | T | Rub | PF | Exp |
+|---|---|---|---|---|---|---|---|
+| baseline (take=2.0) | 23 | 5 | 14 | 4 | −201.88 | 0.44 | −8.1 |
+| **adaptive take** | 23 | 5 | 14 | 4 | **−201.88** | **0.44** | **−8.1** |
+
+**Вывод:** на 11–19.11 `day_range_atr ~3.5` (высокая волатильность) → `0.6 × 3.5 = 2.1 > 2.0` → `min` даёт `atr` → **адаптивный take = baseline** (не сработал).
+
+**Решение:** `ADAPTIVE_TAKE_ENABLED=True` — **оставить** (для низкой волатильности `day_range_atr < 3.33`). Гипотеза **не проверена** на этих данных. Пересмотреть при накоплении волатильных дней или снизить `TAKE_DAY_RANGE_FRAC` до 0.5.
+
+**CLI:**
+```bash
+python scripts/backtest.py --since 2026-11-11 --until 2026-11-19 --compare
+python journal_cli.py paper-stats | grep -A 5 "take_source"
 ```
 
 ## Структура проекта

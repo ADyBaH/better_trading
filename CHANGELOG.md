@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## [0.14.0] — 2026-11-20
+
+### Добавлено
+
+- **Адаптивный take** (Задача 1): `take = min(2.0×ATR, 0.6×day_range_atr×ATR)`, не меньше `0.8×ATR`.
+- **`ADAPTIVE_TAKE_ENABLED`**, **`TAKE_DAY_RANGE_FRAC=0.6`**, **`MIN_TAKE_ATR=0.8`** в `config.py`.
+- **`_compute_stops`** → 3 значения (stop, take, meta).
+- **`Signal.take_source`**, **`take_atr_value`**, **`day_range_atr_at_open`**.
+- **Миграция `paper_trades`**: `take_source`, `take_atr_value`, `day_range_atr_at_open`.
+- **`paper_stats`**: `by_take_source`.
+- **`scripts/backtest.py`**: `adaptive_take` (A/B: baseline vs adaptive).
+
+### Результат (11–19.11, n=23)
+
+- **baseline (take=2.0):** PF=0.44, exp=−8.1.
+- **adaptive take:** PF=0.44, exp=−8.1 — **идентично**.
+- **Причина:** `day_range_atr ~3.5` → `0.6 × 3.5 = 2.1 > 2.0` → адаптивный **не сработал**.
+
+### Решение
+
+- `ADAPTIVE_TAKE_ENABLED=True` — **оставить** (для низкой волатильности).
+- Гипотеза **не проверена** на высокой волатильности.
+
+### Известные ограничения
+
+- `by_take_source`: `unknown` у старых (80), новые — заполняются.
+- Адаптивный take **не срабатывает** при `day_range_atr > 3.33`.
+
 ## [0.13.0] — 2026-11-20
 
 ### Добавлено
