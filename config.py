@@ -200,7 +200,7 @@ BREAKOUT_FILTER = "none"
 # СОХРАНЕНИЕ СВЕЧЕЙ В JSON
 # ============================================================
 SAVE_CANDLES = True  # глобальный выключатель (вкл/выкл фичу)
-SAVE_CANDLES_ALWAYS = False  # ФЛАГ «ВСЕ СВЕЧИ»: True — писать каждый цикл (A)
+SAVE_CANDLES_ALWAYS = True  # ФЛАГ «ВСЕ СВЕЧИ»: True — писать каждый цикл (A)
 #                    False — только при сигналах (B)
 SAVE_CANDLES_MARK_SIGNALS = (
     True  # ставить has_signals/signals_count в снимке (B-маркер)

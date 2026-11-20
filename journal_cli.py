@@ -430,24 +430,36 @@ def cmd_paper_stats(args) -> int:
         print()
         print(f"── {title} " + "─" * 40)
         rows = []
-        items = sorted(group.items()) if sort_key is None else sorted(group.items(), key=sort_key)
+        items = (
+            sorted(group.items())
+            if sort_key is None
+            else sorted(group.items(), key=sort_key)
+        )
         for key, b in items:
-            rows.append([
-                key,
-                b["total"],
-                b["win"],
-                b["loss"],
-                b["timeout"],
-                f"{b['points']:+.1f}",
-                f"{b['rub']:+.2f}",
-                # --- NEW: expectancy ---
-                f"{b.get('expectancy', 0):+.1f}" if b.get("expectancy") is not None else "—",
-            ])
-        print(tabulate(
-            rows,
-            headers=["", "Всего", "W", "L", "T", "Pts", "Rub", "Exp"],
-            tablefmt="rounded_outline",
-        ))
+            rows.append(
+                [
+                    key,
+                    b["total"],
+                    b["win"],
+                    b["loss"],
+                    b["timeout"],
+                    f"{b['points']:+.1f}",
+                    f"{b['rub']:+.2f}",
+                    # --- NEW: expectancy ---
+                    (
+                        f"{b.get('expectancy', 0):+.1f}"
+                        if b.get("expectancy") is not None
+                        else "—"
+                    ),
+                ]
+            )
+        print(
+            tabulate(
+                rows,
+                headers=["", "Всего", "W", "L", "T", "Pts", "Rub", "Exp"],
+                tablefmt="rounded_outline",
+            )
+        )
 
     _print_group("По типу сигнала", s["by_kind"])
     _print_group("По MFE ratio (тейк)", s["by_mfe_ratio"])
@@ -465,6 +477,8 @@ def cmd_paper_stats(args) -> int:
     _print_group("По RSI на входе", s["by_rsi"])
     _print_group("По волатильности (ATR percentile)", s["by_atr_percentile"])
     _print_group("По partial_day (день завершён?)", s["by_partial_day"])
+    _print_group("По volume ratio", s.get("by_volume_ratio", {}))
+    _print_group("По MAE ratio (стоп)", s.get("by_mae_ratio", {}))
 
     # by_score — сортируем по возрастанию score
     if s["by_score"]:
@@ -548,6 +562,11 @@ def cmd_paper_trades(args) -> int:
                     f"{r['ask_vol']:.0f}" if r["ask_vol"] is not None else "—",
                     f"{r['risk_reward']:.2f}" if r["risk_reward"] is not None else "—",
                     (
+                        f"{r['volume_ratio_at_open']:.2f}"
+                        if r["volume_ratio_at_open"] is not None
+                        else "—"
+                    ),
+                    (
                         f"{r['market_price_at_open']:.3f}"
                         if r["market_price_at_open"] is not None
                         else "—"
@@ -573,7 +592,7 @@ def cmd_paper_trades(args) -> int:
         "Created",
     ]
     if args.wide:
-        headers.extend(["ADX", "Week", "Bid", "Ask", "R:R", "Mkt", "Size"])
+        headers.extend(["ADX", "Week", "Bid", "Ask", "R:R", "Mkt", "Size", "Vol"])
 
     print(
         tabulate(

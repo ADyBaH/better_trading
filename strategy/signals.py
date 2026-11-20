@@ -202,6 +202,7 @@ def _build_context(
         "hour_utc": hour_utc,
         "data_age_minutes": data_age_minutes,
         "last_candle_time": last_candle_time.isoformat() if last_candle_time else None,
+        "volume_ratio": ind.volume_ratio
     }
 
 
