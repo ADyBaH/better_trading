@@ -77,7 +77,6 @@
   - `_load_candles`: из `candles_*.json` (склейка snapshots, дедуп), fallback `get_candles_tf`.
   - `--compare`: `current_config` vs `baseline` vs `skip_breakout` vs F1–F4.
   - `run_backtest(skip_filters=True)` — изолированные варианты.
-  - `sys.stdout.reconfigure(errors="replace")` — Windows cp1251 не падает.
 - **`scripts/verify_filters.py`**: F1–F4 безусловно, `compute_trade_result` (с комиссией), PF/exp.
 - **`tests/test_signals.py`**: 12 кейсов на F1–F4 + kill-switch.
 
@@ -106,7 +105,6 @@
 - **n=15–23** — мало для статистики. Нужно 30+ сделок и replay-гейт (match rate ≥ 70%).
 - **`verify_candles.py` match rate 0%** — replay применяет фильтры Y к историческим сигналам (фикс отдельно).
 - **`candles_*.json` есть только с 11.11** — backtest возможен на 11–19.11.
-- **Windows cp1251**: `logger.py` падает на `→` в логах (live на Windows). Нужен `stream.reconfigure(errors="replace")` — **отдельный issue**.
 
 ## [0.9.0] — 2026-10-29
 

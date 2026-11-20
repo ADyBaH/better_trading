@@ -520,7 +520,6 @@
 - [x] `_load_candles`: из `candles_*.json` (склейка snapshots, дедуп), fallback `get_candles_tf`.
 - [x] `--compare`: `current_config` vs `baseline` vs `skip_breakout` vs F1–F4.
 - [x] `run_backtest(skip_filters=True)` — изолированные варианты.
-- [x] `sys.stdout.reconfigure(errors="replace")` — Windows cp1251 не падает.
 
 ### 24.4. Результаты (11–19.11, 7 дней, n=15–23)
 
@@ -541,7 +540,6 @@
 - [ ] **Накопить 30+ сделок** в каждом варианте (сейчас 15–23).
 - [ ] **Replay-гейт:** match rate ≥ 70% (`verify_candles.py` сейчас 0% — фикс отдельно).
 - [ ] **Живой paper (Y, 2 недели):** `PAPER_SKIP_BREAKOUT=True` → сравнить `paper-stats` до/после.
-- [ ] **Issue:** `logger.py` — `stream.reconfigure(errors="replace")` для Windows cp1251 (live **упадёт** на первом `→` в логе).
 
 ### 24.6. Решение (по итогу)
 
