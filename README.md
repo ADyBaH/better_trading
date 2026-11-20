@@ -355,6 +355,41 @@ Breakout — самый частый (47%) и убыточный; не рабо�
 **Replay-гейт:** `scripts/verify_filters.py --date YYYY-MM-DD` (F1–F4, с комиссией).
 **Backtest:** `scripts/backtest.py --since YYYY-MM-DD --until YYYY-MM-DD --compare` (честный replay, без look-ahead).
 **Match rate:** `scripts/verify_candles.py --date YYYY-MM-DD` — сейчас 0% (replay применяет фильтры Y к историческим сигналам); replay-гейт заблокирован до фикса.
+## MFE/MAE + stop/take (Задачи 4–5, 2026-11-20)
+
+**Что сделано:**
+- `volume_ratio_at_open`, `mfe_source`, `mae_source` в `paper_trades` (миграция).
+- `by_volume_ratio`, `by_mae_ratio` в `paper_stats`.
+- Backfill MFE/MAE по `candles_*.json`: **14 обновлено, 50 unavailable** (файлы с 11.11).
+- `scripts/optimize_stops.py`: сетка 5×6 (stop × take), train/test, PF/exp.
+- `paper-stats` — блок «Рекомендация stop/take» (read-only, `Confidence: low` при n<30).
+
+**Результаты (backfill, n=14):**
+
+| MFE ratio | n | W | L | T | Rub | Exp |
+|---|---|---|---|---|---|---|
+| <0.3 (не дошла) | 11 | 0 | 11 | 0 | −298.06 | −25.0 |
+| 0.3–0.7 | 4 | 0 | 2 | 2 | −38.94 | −15.3 |
+| >0.7 (почти/дошла) | 7 | 5 | 2 | 0 | +156.18 | +24.4 |
+
+| MAE ratio | n | W | L | T | Rub | Exp |
+|---|---|---|---|---|---|---|
+| <0.3 (стоп далеко) | 6 | 4 | 0 | 2 | +180.84 | +48.3 |
+| 0.3–0.7 | 1 | 0 | 1 | 0 | −26.26 | −24.2 |
+| 0.7–1.0 (почти стоп) | 6 | 1 | 5 | 0 | −89.26 | −12.8 |
+| ≥1.0 (был бы пробит) | 9 | 0 | 9 | 0 | −246.14 | −25.3 |
+
+**Вывод:** тейк 2.0 ATR **слишком далёк** (11 сделок MFE < 0.3 — все loss), стоп 1.0 ATR **узок** (9 сделок MAE ≥ 1.0 — все loss). **Но** `optimize_stops.py` на n=14: **все** комбинации PF < 1, train/test **нестабильны** (0.6/2.0: train PF 0.4, test 2.03).
+
+**Решение:** `STOP_ATR_MULT=1.0`, `TAKE_ATR_MULT=2.0` — **НЕ менять** до **n ≥ 30** (оверфит на 14 сделках). Пересмотреть через 2 недели.
+
+**CLI:**
+```bash
+python scripts/backfill_mfe_mae.py --dry-run   # проверка
+python scripts/backfill_mfe_mae.py             # заполнить MFE/MAE
+python scripts/optimize_stops.py               # сетка stop × take
+python journal_cli.py paper-stats              # блок «Рекомендация stop/take»
+```
 
 ## Структура проекта
 

@@ -1,4 +1,37 @@
 # CHANGELOG
+
+## [0.13.0] — 2026-11-20
+
+### Добавлено
+
+- **MFE/MAE + volume_ratio** (Задача 4): `volume_ratio_at_open`, `mfe_source`, `mae_source` в `paper_trades`.
+- **`by_volume_ratio`**, **`by_mae_ratio`** в `paper_stats`.
+- **`scripts/backfill_mfe_mae.py`**: backfill по `candles_*.json` (14 обновлено, 50 unavailable).
+- **`scripts/optimize_stops.py`** (Задача 5): сетка stop × take, train/test, PF/exp.
+- **`paper-stats`** — блок «Рекомендация stop/take» (read-only, `Confidence: low` при n<30).
+- **`tests/test_mfe_backfill.py`**: 12 проверок (PF/exp, grid, ambiguous).
+
+### Исправлено
+
+- `journal_cli.py`: `Vol` после `Size` в `paper-trades --wide` (было сдвиг).
+- `_calc_pf_exp`: timeout = loss (PF и exp согласованы).
+
+### Результаты (n=14, 11–19.11)
+
+- **MFE < 0.3**: 11L (все loss, −298 ₽) — тейк 2.0 ATR далёк.
+- **MAE ≥ 1.0**: 9L (все loss, −246 ₽) — стоп 1.0 ATR узок.
+- **`optimize_stops.py`**: все комбинации PF < 1, train/test нестабильны.
+
+### Решение
+
+- `STOP_ATR_MULT=1.0`, `TAKE_ATR_MULT=2.0` — **НЕ менять** до n ≥ 30 (оверфит).
+
+### Известные ограничения
+
+- `n=14` — мало (нужно 30+).
+- `mfe_source=unavailable` у 50 (до 11.11, нет `candles_*.json`).
+- `volume_ratio_at_open` — `unknown` у старых, новые — заполняются.
+
 ## [0.12.0] — 2026-11-19
 
 ### Добавлено

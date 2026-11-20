@@ -549,6 +549,38 @@
 - F1–F4 — **не включать** до 30+ сделок и replay-гейта.
 - В main — **не мержить** до стабильности 2 недели.
 
+## Этап 25. MFE/MAE + volume_ratio + stop/take (Задачи 4–5) ✅
+
+### 25.1. Инфраструктура
+
+- [x] Миграция `paper_trades`: `volume_ratio_at_open`, `mfe_source`, `mae_source`.
+- [x] `save_signal_as_paper`: пишет `ind.volume_ratio`, `mfe_source="live"`.
+- [x] `paper_stats`: `by_volume_ratio`, `by_mae_ratio`.
+- [x] `journal_cli`: `--wide` колонка `Vol`, `paper-stats` блок «Рекомендация stop/take».
+
+### 25.2. Backfill
+
+- [x] `scripts/backfill_mfe_mae.py`: **14 обновлено, 50 unavailable** (candles_*.json с 11.11).
+- [x] `by_mfe_ratio` unknown: 72 → **58** (цель < 20% — **не достигнута** из-за отсутствия `candles` до 11.11).
+
+### 25.3. Оптимизация stop/take
+
+- [x] `scripts/optimize_stops.py`: сетка 5×6, train/test, PF/exp (timeout = loss).
+- [x] **n=14** — все комбинации PF < 1, train/test нестабильны.
+- [x] **Решение:** `STOP_ATR_MULT=1.0`, `TAKE_ATR_MULT=2.0` — **НЕ менять** до n ≥ 30.
+
+### 25.4. Что нужно
+
+- [ ] **Накопить 30+ сделок** с MFE/MAE (сейчас 14).
+- [ ] **Пересмотреть** stop/take через 2 недели.
+- [ ] **Backfill** — когда `candles_*.json` накопятся (или `SAVE_CANDLES_ALWAYS=True`).
+
+### 25.5. Известные ограничения
+
+- `volume_ratio_at_open` — `unknown` у старых (80), **новые** — заполняются.
+- `mfe_source` — `unavailable` у 50 (до 11.11), `backfill` у 14.
+- `optimize_stops.py` — **оверфит** на 14 сделках, **рекомендация** — «предварительно».
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
