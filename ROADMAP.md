@@ -558,7 +558,7 @@
 
 ### 25.2. Backfill
 
-- [x] `scripts/backfill_mfe_mae.py`: **14 обновлено, 50 unavailable** (candles_*.json с 11.11).
+- [x] `scripts/backfill_mfe_mae.py`: **14 обновлено, 50 unavailable** (candles\_\*.json с 11.11).
 - [x] `by_mfe_ratio` unknown: 72 → **58** (цель < 20% — **не достигнута** из-за отсутствия `candles` до 11.11).
 
 ### 25.3. Оптимизация stop/take
@@ -628,6 +628,35 @@
 
 - **162 passed** (из 168), **96%**.
 - **pytest** **работает**, **CI**-**готов** (после **фикса** `test_paper_end_of_day` и **переписывания** `test_signals`).
+
+## Этап 28. Рефакторинг фильтров (Filter Registry) ✅
+
+### 28.1. Инфраструктура
+
+- [x] `strategy/filters/base.py`: `Filter`, `FilterResult`, `register_filter`, `apply_filters`, `get_filters`.
+- [x] `strategy/filters/trend.py`: `bullish_long`, `normal_breakout`, `bullish_short`.
+- [x] `strategy/filters/adx.py`: `adx_trend`, `adx_flat_breakout`.
+- [x] `strategy/filters/orderbook.py`: `bid_heavy`.
+- [x] `strategy/filters/bounce.py`: `pullback_bounce`.
+- [x] `strategy/filters/breakout.py`: kill-switch (`PAPER_SKIP_BREAKOUT`) + F1–F4 (`BREAKOUT_FILTER`) через `enabled_fn`.
+- [x] `strategy/filters/__init__.py`: импорт всех модулей (декораторы срабатывают).
+
+### 28.2. Интеграция
+
+- [x] `strategy/signals.py`: 7+ `if getattr(config, ...): continue` → `apply_filters(s, result)`.
+- [x] `scripts/verify_filters.py`: `get_filters()` + PF/exp (больше не дублирует логику).
+- [x] `detect_signals` — **только** `apply_filters` (фильтры), штрафы EMA/пила/late-chase — **отдельно** (это не фильтры, а штрафы score).
+
+### 28.3. Тесты
+
+- [x] `tests/test_signals.py` — 12 кейсов F1–F4 + kill-switch (**pytest**).
+- [x] `tests/test_filters.py` — **TODO** (новый файл: по одному тесту на фильтр).
+
+### 28.4. Что нужно
+
+- [ ] **`test_filters.py`** — по одному тесту на каждый фильтр (сейчас только F1–F4 в `test_signals.py`).
+- [ ] **`test_signals.py`** — переписать на **pytest** полностью (сейчас 6 failed из-за `np.True_ is True`).
+- [ ] **`enabled_fn`** — проверить, что `verify_filters.py` учитывает `f.enabled` (сейчас `_filter_blocks` применяет **все** фильтры, `enabled_str` — только для вывода).
 
 ## Идеи на будущее (после статистики)
 

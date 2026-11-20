@@ -1,4 +1,31 @@
 # CHANGELOG
+
+## [0.16.0] — 2026-11-20
+
+### Добавлено
+
+- **Filter Registry** (`strategy/filters/`) — все фильтры в одном месте.
+  - `base.py`: `Filter`, `FilterResult`, `register_filter`, `apply_filters`, `get_filters`.
+  - `trend.py`: `bullish_long`, `normal_breakout`, `bullish_short`.
+  - `adx.py`: `adx_trend`, `adx_flat_breakout`.
+  - `orderbook.py`: `bid_heavy`.
+  - `bounce.py`: `pullback_bounce`.
+  - `breakout.py`: kill-switch (`PAPER_SKIP_BREAKOUT`) + F1–F4 (`BREAKOUT_FILTER`) через `enabled_fn`.
+- **`strategy/signals.py`**: 7+ `if getattr(config, ...): continue` → `apply_filters(s, result)`.
+- **`scripts/verify_filters.py`**: `get_filters()` + PF/exp (больше не дублирует логику).
+- **`tests/test_signals.py`**: 12 кейсов F1–F4 + kill-switch (pytest).
+
+### Исправлено
+
+- `detect_signals` — **только** `apply_filters` (фильтры), штрафы EMA/пила/late-chase — **отдельно** (это не фильтры).
+- `get_recent_signal(..., now=None)` — `cutoff` и `age_min` от `now` (было `datetime.now()`).
+
+### Известные ограничения
+
+- `test_signals.py` — 6 failed (`np.True_ is True`), **фикс**: `return bool(...)` в 3 функциях (`_is_rejection_candle`, `_is_engulfing`, `_has_volume_confirmation`).
+- `test_filters.py` — **TODO** (по одному тесту на фильтр).
+- `verify_filters.py` — `_filter_blocks` применяет **все** фильтры (включая `enabled=False`); `enabled_str` — только для вывода. **Не баг** (для анализа эффекта), но **надо** документировать.
+
 ## [0.15.0] — 2026-11-20
 
 ### Тесты
@@ -107,15 +134,15 @@
 
 ### Статистика (backtest 11–19.11, 7 дней)
 
-| Вариант | n | W | L | T | Rub | PF | Exp |
-|---|---|---|---|---|---|---|---|
-| baseline | 23 | 5 | 14 | 4 | −201.88 | 0.44 | −8.1 |
-| **skip_breakout** | 17 | 5 | 10 | 2 | **−84.02** | **0.73** | **−3.3** |
-| F1 ADX≥25 | 21 | 5 | 12 | 4 | −161.16 | 0.51 | −6.9 |
-| F2 ADX<20 | 18 | 5 | 11 | 2 | −103.68 | 0.67 | −4.2 |
-| F3 impulse | 18 | 5 | 10 | 3 | −87.08 | 0.73 | −3.3 |
-| F4 week_trend | 23 | 5 | 14 | 4 | −201.88 | 0.44 | −8.1 |
-| current_config | 15 | 4 | 10 | 1 | −89.70 | 0.62 | −4.2 |
+| Вариант           | n   | W   | L   | T   | Rub        | PF       | Exp      |
+| ----------------- | --- | --- | --- | --- | ---------- | -------- | -------- |
+| baseline          | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     |
+| **skip_breakout** | 17  | 5   | 10  | 2   | **−84.02** | **0.73** | **−3.3** |
+| F1 ADX≥25         | 21  | 5   | 12  | 4   | −161.16    | 0.51     | −6.9     |
+| F2 ADX<20         | 18  | 5   | 11  | 2   | −103.68    | 0.67     | −4.2     |
+| F3 impulse        | 18  | 5   | 10  | 3   | −87.08     | 0.73     | −3.3     |
+| F4 week_trend     | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     |
+| current_config    | 15  | 4   | 10  | 1   | −89.70     | 0.62     | −4.2     |
 
 **Вывод:** `skip_breakout` — лучший (PF 0.73). F1–F4 не доказаны (n=15–23, мало).
 

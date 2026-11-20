@@ -25,6 +25,8 @@ import pandas as pd
 import config
 from core.logger import setup_logging, get_logger
 from trader.paper import virtual_pnl
+from strategy.filters import get_filters
+from core.models import Signal
 
 log = get_logger(__name__)
 
@@ -150,76 +152,47 @@ def main():
         sig["_points"] = pnl.get("points", 0)
         sig["_rub"] = pnl.get("rub", 0)
 
-    # Применяем фильтры
-    def _filtered_by(sig, filter_name):
-        """Возвращает True, если сигнал отсекается фильтром."""
-        ind = sig.get("_indicators") or {}
-        direction = sig.get("direction")
-        kind = sig.get("kind")
+    def _fake_result_from_dict(ind: dict, sig: dict):
+        """Собирает минимальный AnalysisResult из dict-индикаторов."""
 
-        if filter_name == "adx_trend":
-            return (
-                getattr(config, "PAPER_SKIP_ADX_TREND", False)
-                and ind.get("adx") is not None
-                and 20 <= ind.get("adx") < 25
-            )
-        if filter_name == "bullish_long":
-            return (
-                getattr(config, "PAPER_SKIP_BULLISH_LONG", False)
-                and ind.get("week_trend") == "bullish"
-                and direction == "long"
-            )
-        if filter_name == "normal_breakout":
-            return (
-                getattr(config, "PAPER_SKIP_NORMAL_BREAKOUT", False)
-                and ind.get("market_state") == "normal"
-                and kind in ("breakout", "trend_level")
-            )
-        if filter_name == "bullish_short":
-            return (
-                getattr(config, "PAPER_SKIP_BULLISH_SHORT", False)
-                and ind.get("week_trend") == "bullish"
-                and direction == "short"
-            )
-        if filter_name == "adx_flat_breakout":
-            return (
-                getattr(config, "PAPER_SKIP_ADX_FLAT_BREAKOUT", False)
-                and kind == "breakout"
-                and (ind.get("adx") or 0) < 20
-            )
-        # --- F1–F4 (Задача 3): проверяются безусловно, для сравнительной таблицы ---
-        if filter_name == "F1":
-            return kind == "breakout" and (
-                ind.get("adx") is None or ind.get("adx") < config.ADX_STRONG
-            )
-        if filter_name == "F2":
-            return kind == "breakout" and (
-                ind.get("adx") is None or ind.get("adx") >= config.ADX_THRESHOLD
-            )
-        if filter_name == "F3":
-            return kind == "breakout" and ind.get("market_state") != "impulse"
-        if filter_name == "F4":
-            if kind != "breakout":
-                return False
-            wt = ind.get("week_trend")
-            if wt == "bullish" and direction == "short":
-                return True
-            if wt == "bearish" and direction == "long":
-                return True
-            return False
-        return False
+        class _Ind:
+            pass
 
-    filters = [
-        "bullish_long",
-        "normal_breakout",
-        "bullish_short",
-        "adx_flat_breakout",
-        "adx_trend",
-        "F1",
-        "F2",
-        "F3",
-        "F4",
-    ]
+        class _Res:
+            pass
+
+        r = _Res()
+        r.indicators = _Ind()
+        r.indicators.week_trend = ind.get("week_trend", "unknown")
+        r.indicators.market_state = ind.get("market_state", "normal")
+        r.indicators.adx = ind.get("adx")
+        r.indicators.trend = ind.get("trend", "none")
+        r.indicators.day_trend = ind.get("day_trend", "neutral")
+        r.indicators.structure = ind.get("structure", "mixed")
+        r.indicators.vote_sum = ind.get("vote_sum", 0)
+        r.indicators.rsi = ind.get("rsi")
+        r.order_book = {}
+        return r
+
+    def _signal_from_dict(sig: dict) -> Signal:
+        """Конвертирует dict (из analysis) → Signal (для реестра)."""
+        return Signal(
+            direction=sig.get("direction", ""),
+            kind=sig.get("kind", ""),
+            strength=sig.get("strength", "medium"),
+            strength_score=sig.get("strength_score", 0.0),
+            entry_price=sig.get("entry_price", 0.0),
+            stop_price=sig.get("stop_price", 0.0),
+            take_price=sig.get("take_price", 0.0),
+            level_price=sig.get("level_price"),
+        )
+
+    def _filter_blocks(f, sig: dict) -> bool:
+        """Применяет фильтр к dict-сигналу. Возвращает True, если блокирует."""
+        ind_dict = sig.get("_indicators") or {}
+        result = _fake_result_from_dict(ind_dict, sig)
+        signal = _signal_from_dict(sig)
+        return f.fn(signal, result).blocked
 
     def _stats(signals):
         w = sum(1 for s in signals if s.get("_result") == "win")
@@ -260,12 +233,16 @@ def main():
     )
     print()
 
-    for fname in filters:
-        enabled = "ON" if any(_filtered_by(s, fname) for s in all_signals) else "OFF"
-        blocked = [s for s in all_signals if _filtered_by(s, fname)]
-        passed = [s for s in all_signals if not _filtered_by(s, fname)]
+    for f in get_filters():
+        blocked, passed = [], []
+        for s in all_signals:
+            if _filter_blocks(f, s):
+                blocked.append(s)
+            else:
+                passed.append(s)
 
-        print(f"── Фильтр: {fname} ({enabled}) ──")
+        enabled_str = "ON" if f.enabled else "OFF"
+        print(f"── Фильтр: {f.name} ({enabled_str}) ──")
         if not blocked:
             print(f"  отсекает 0 сигналов")
             print()
@@ -287,40 +264,55 @@ def main():
         )
         print()
 
-    # Итог: все фильтры вместе
+        # --- Все фильтры Y вместе ---
     print("── Все фильтры Y вместе ──")
-    blocked_all = [s for s in all_signals if any(_filtered_by(s, f) for f in filters)]
-    passed_all = [
-        s for s in all_signals if not any(_filtered_by(s, f) for f in filters)
-    ]
-    b_stats = _stats(blocked_all)
-    p_stats = _stats(passed_all)
+    blocked_all, passed_all = [], []
+    for s in all_signals:
+        if any(_filter_blocks(f, s) for f in get_filters()):
+            blocked_all.append(s)
+        else:
+            passed_all.append(s)
+
+    b_stats_all = _stats(blocked_all)
+    p_stats_all = _stats(passed_all)
     print(
-        f"  отсечено {b_stats['total']}: W={b_stats['win']} L={b_stats['loss']} T={b_stats['timeout']} O={b_stats['open']} | pts={b_stats['points']:+.1f} rub={b_stats['rub']:+.2f}"
+        f"  отсечено {b_stats_all['total']}: W={b_stats_all['win']} L={b_stats_all['loss']} "
+        f"T={b_stats_all['timeout']} O={b_stats_all['open']} | "
+        f"pts={b_stats_all['points']:+.1f} rub={b_stats_all['rub']:+.2f}"
     )
     print(
-        f"  прошло   {p_stats['total']}: W={p_stats['win']} L={p_stats['loss']} T={p_stats['timeout']} O={p_stats['open']} | pts={p_stats['points']:+.1f} rub={p_stats['rub']:+.2f}"
+        f"  прошло   {p_stats_all['total']}: W={p_stats_all['win']} L={p_stats_all['loss']} "
+        f"T={p_stats_all['timeout']} O={p_stats_all['open']} | "
+        f"pts={p_stats_all['points']:+.1f} rub={p_stats_all['rub']:+.2f}"
     )
     print()
 
     # Вывод: полезны ли фильтры?
     print("── Вывод ──")
-    if b_stats["total"] > 0:
+    if b_stats_all["total"] > 0:
         b_winrate = round(
-            100 * b_stats["win"] / max(b_stats["win"] + b_stats["loss"], 1), 1
+            100 * b_stats_all["win"] / max(b_stats_all["win"] + b_stats_all["loss"], 1),
+            1,
         )
         p_winrate = (
-            round(100 * p_stats["win"] / max(p_stats["win"] + p_stats["loss"], 1), 1)
-            if p_stats["total"] > 0
+            round(
+                100
+                * p_stats_all["win"]
+                / max(p_stats_all["win"] + p_stats_all["loss"], 1),
+                1,
+            )
+            if p_stats_all["total"] > 0
             else 0
         )
-        print(f"  Отсечённые: winrate={b_winrate}% rub={b_stats['rub']:+.2f}")
-        print(f"  Прошедшие:  winrate={p_winrate}% rub={p_stats['rub']:+.2f}")
-        if b_stats["rub"] < 0:
-            print(f"  ✅ Фильтры режут УБЫТОЧНЫЕ (отсечено {b_stats['rub']:+.2f} ₽)")
+        print(f"  Отсечённые: winrate={b_winrate}% rub={b_stats_all['rub']:+.2f}")
+        print(f"  Прошедшие:  winrate={p_winrate}% rub={p_stats_all['rub']:+.2f}")
+        if b_stats_all["rub"] < 0:
+            print(
+                f"  ✅ Фильтры режут УБЫТОЧНЫЕ (отсечено {b_stats_all['rub']:+.2f} ₽)"
+            )
         else:
             print(
-                f"  ⚠️ Фильтры режут ПРИБЫЛЬНЫЕ (отсечено {b_stats['rub']:+.2f} ₽) — пересмотреть"
+                f"  ⚠️ Фильтры режут ПРИБЫЛЬНЫЕ (отсечено {b_stats_all['rub']:+.2f} ₽) — пересмотреть"
             )
 
 

@@ -202,7 +202,7 @@ def _build_context(
         "hour_utc": hour_utc,
         "data_age_minutes": data_age_minutes,
         "last_candle_time": last_candle_time.isoformat() if last_candle_time else None,
-        "volume_ratio": ind.volume_ratio
+        "volume_ratio": ind.volume_ratio,
     }
 
 
@@ -408,9 +408,7 @@ def _compute_stops(
                 take_day = config.TAKE_DAY_RANGE_FRAC * day_range_atr * atr
                 take_dist = min(take_atr, take_day)
                 take_dist = max(take_dist, config.MIN_TAKE_ATR * atr)
-                meta["take_source"] = (
-                    "day_range" if take_day < take_atr else "atr"
-                )
+                meta["take_source"] = "day_range" if take_day < take_atr else "atr"
             else:
                 # partial_day / day_range_atr = 0 -> baseline
                 take_dist = take_atr
@@ -420,7 +418,9 @@ def _compute_stops(
             if day_range_atr is not None and day_range_atr > 0:
                 take_mult = min(config.TAKE_ATR_MULT, max(1.0, day_range_atr * 0.6))
                 take_dist = take_mult * atr
-                meta["take_source"] = "day_range" if take_mult < config.TAKE_ATR_MULT else "atr"
+                meta["take_source"] = (
+                    "day_range" if take_mult < config.TAKE_ATR_MULT else "atr"
+                )
             else:
                 take_dist = take_atr
     else:
@@ -919,8 +919,9 @@ def detect_signals(
 ) -> list[Signal]:
     """
     Запускает детекторы, обогащает сигналы context/warnings/R:R,
-    дедуплицирует, сортирует.
+    применяет фильтры (реестр strategy.filters), дедуплицирует, сортирует.
     """
+    from strategy.filters import apply_filters
     from strategy.signal_history import get_recent_signal
 
     # --- Блокировка по свежести данных ---
@@ -954,62 +955,13 @@ def detect_signals(
     passed_signals: list[Signal] = []
 
     for s in all_signals:
-        # --- Фильтр: bullish / long ---
-        if (
-            config.PAPER_SKIP_BULLISH_LONG
-            and result.indicators.week_trend == "bullish"
-            and s.direction == "long"
-        ):
-            log.info("bullish / long заблокирован (фильтр)")
-            continue
-        # --- Фильтр: normal + breakout / trend_level ---
-        if (
-            config.PAPER_SKIP_NORMAL_BREAKOUT
-            and result.indicators.market_state == "normal"
-            and s.kind in ("breakout", "trend_level")
-        ):
-            log.info("normal + %s заблокирован (фильтр)", s.kind)
-            continue
-        # --- Фильтр: ADX 20-25 (17 сделок, 1W/12L, −256.36 ₽) ---
-        if (
-            getattr(config, "PAPER_SKIP_ADX_TREND", False)
-            and result.indicators.adx is not None
-            and 20 <= result.indicators.adx < 25
-        ):
-            log.info("ADX 20-25 заблокирован (фильтр)")
-            continue
-        # --- Фильтр: bid-heavy > 60% (6 сделок, 0W/5L, −150.30 ₽) ---
-        if getattr(config, "PAPER_SKIP_BID_HEAVY", False):
-            ob = getattr(result, "order_book", None) or {}
-            pressure = ob.get("pressure_pct")
-            if pressure is not None and pressure > 60:
-                log.info("bid-heavy (%.0f%%) заблокирован (фильтр)", pressure)
-                continue
-        # --- Фильтр: pullback + bounce (10 сделок, 1W/7L, −81.94 ₽) ---
-        if (
-            getattr(config, "PAPER_SKIP_PULLBACK_BOUNCE", False)
-            and result.indicators.market_state == "pullback"
-            and s.kind == "bounce"
-        ):
-            log.info("pullback + bounce заблокирован (фильтр)")
-            continue
-        # --- Фильтр: breakout kill-switch (Задача 3) ---
-        if getattr(config, "PAPER_SKIP_BREAKOUT", False) and s.kind == "breakout":
-            log.info("breakout заблокирован (PAPER_SKIP_BREAKOUT)")
+        # --- 1. Реестр фильтров (7 bool + breakout + F1-F4) ---
+        blocked_by = apply_filters(s, result)
+        if blocked_by:
+            log.info("%s заблокирован (фильтр %s)", s.kind, blocked_by)
             continue
 
-        # --- Фильтр: breakout условный F1–F4 (Задача 3) ---
-        if s.kind == "breakout" and not _breakout_passes_filter(result, s):
-            log.info(
-                "breakout заблокирован (BREAKOUT_FILTER=%s, adx=%s, ms=%s, wt=%s)",
-                config.BREAKOUT_FILTER,
-                result.indicators.adx,
-                result.indicators.market_state,
-                result.indicators.week_trend,
-            )
-            continue
-
-        # Найти уровень по level_price
+        # --- 2. Найти уровень по level_price ---
         level = None
         if s.level_price is not None:
             for lv in result.levels:
@@ -1017,9 +969,10 @@ def detect_signals(
                     level = lv
                     break
 
+        # --- 3. Обогащение (context, warnings, R:R) ---
         _finalize_signal(s, result, df, level, recent, result.symbol)
 
-        # --- Штраф: EMA против direction ---
+        # --- 4. Штраф: EMA против direction ---
         ema_against = (
             s.direction == "long" and s.context.get("ema_alignment") == "bearish"
         ) or (s.direction == "short" and s.context.get("ema_alignment") == "bullish")
@@ -1031,7 +984,7 @@ def detect_signals(
             if s.strength == "none":
                 continue
 
-        # --- Штраф: пила (противоположный сигнал < 30 мин) ---
+        # --- 5. Штраф: пила (противоположный сигнал < 30 мин) ---
         recent_dir = s.context.get("recent_signal_direction")
         recent_age = s.context.get("recent_signal_age_min")
         if (
@@ -1049,11 +1002,12 @@ def detect_signals(
             if s.strength == "none":
                 continue
 
+        # --- 6. RR invalid ---
         if getattr(s, "_rr_invalid", False):
             log.warning("Сигнал отброшен: RR не посчитан (%s)", s.kind)
             continue
 
-        # --- Штраф за late/chase ---
+        # --- 7. Штраф за late/chase ---
         if (
             level is not None
             and level.distance_atr is not None
@@ -1068,10 +1022,10 @@ def detect_signals(
             if s.strength == "none":
                 continue
 
-        # --- Только прошедшие все фильтры ---
+        # --- 8. Прошёл все фильтры ---
         passed_signals.append(s)
 
-    # Дедупликация — ТОЛЬКО по passed_signals
+    # --- Дедупликация — ТОЛЬКО по passed_signals ---
     dedup_window = 0.5 * result.atr if result.atr > 0 else 0.0
     best: list[Signal] = []
     for s in sorted(passed_signals, key=lambda x: x.strength_score, reverse=True):
