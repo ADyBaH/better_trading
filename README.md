@@ -627,6 +627,27 @@ python journal_cli.py paper-stats --since=2026-11-19
 - [ ] **`stale`** — флаг устаревшего уровня (>10 дней).
 - [ ] **`data_age`** — в meta JSON.
 
+## Тесты
+
+Все тесты — на **pytest**. **Конфиг** — в `pyproject.toml` (`[tool.pytest.ini_options]`).
+
+**Команды:**
+
+| Команда | Что делает |
+|---|---|
+| `pytest tests/ -v -m "not integration"` | **Все быстрые тесты** (без сети) — **основная** |
+| `pytest tests/ -v -m integration` | Только интеграционные (ALOR / MOEX ISS, нужна сеть) |
+| `pytest tests/ -v -m ""` | Все тесты (включая интеграционные) |
+| `pytest tests/test_instruments.py -v` | Один файл |
+| `pytest tests/test_instruments.py::TestComputeTradeResult::test_long_profit -v` | Один тест |
+
+**Структура:**
+- **Юнит-тесты** (без сети): `test_instruments`, `test_levels`, `test_indicators`, `test_current_price` (мок), `test_notify`, `test_virtual_pnl`, `test_paper*`, `test_mfe_mae`, `test_real_trading` (мок), `test_alor_trade` (мок).
+- **Интеграционные** (сеть): `test_alor_integration`, `test_alor_orderbook`, `test_iss_lag`, `test_pagination` — помечены `@pytest.mark.integration`.
+- **`test_journal_integrity`** — проверка **реальной** `journal.db` (skip, если нет файла).
+
+**Покрытие** (на 2026-11-20): **162 passed**, **6 failed** (`test_paper_end_of_day` — требует `end_of_day`, **в** **работе**).
+
 ## Дисклеймер
 
 Это **инструмент для анализа**, не торговая система. Сигналы — не рекомендации.

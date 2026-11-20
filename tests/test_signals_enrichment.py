@@ -154,7 +154,7 @@ def test_warnings():
         print(f"  {mark} {name}")
         if not ok:
             all_ok = False
-    return all_ok
+    assert all_ok, "Не все warnings сработали"
 
 
 def test_cooldown_warning():
@@ -182,7 +182,8 @@ def test_cooldown_warning():
     else:
         print("  ❌ Ложное предупреждение при совпадении direction")
 
-    return has_cooldown and not has_wrong_cooldown
+    assert has_cooldown, "Cooldown-предупреждение не сработало"
+    assert not has_wrong_cooldown, "Ложное предупреждение при совпадении direction"
 
 
 def test_rr():
@@ -219,7 +220,8 @@ def test_rr():
 
     print(f"  {'✓' if ok_gross else '❌'} gross R:R ≈ 2.0")
     print(f"  {'✓' if ok_net else '❌'} net R:R в диапазоне 1.75–1.90")
-    return ok_gross and ok_net
+    assert ok_gross, "gross R:R не ≈ 2.0"
+    assert ok_net, "net R:R не в диапазоне 1.75–1.90"
 
 
 def test_finalize():
@@ -254,7 +256,7 @@ def test_finalize():
         print(f"  {mark} {name}")
         if not ok:
             all_ok = False
-    return all_ok
+    assert all_ok, "Не все warnings сработали"
 
 
 def main():

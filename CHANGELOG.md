@@ -1,4 +1,23 @@
 # CHANGELOG
+## [0.15.0] — 2026-11-20
+
+### Тесты
+
+- **Все** `check()`-**тесты** **переписаны** **на** **pytest** (15 **файлов**): `test_instruments` (17), `test_levels` (7), `test_indicators` (22), `test_current_price` (4), `test_notify` (5), `test_virtual_pnl` (8), `test_paper` (14), `test_paper_dedup` (9), `test_paper_resolve` (7), `test_paper_stats` (7), `test_paper_stats_extra` (4), `test_paper_export` (3), `test_real_trading` (5), `test_alor_trade` (4), `test_journal_integrity` (4, интеграционный).
+- **Интеграционные** **помечены** `@pytest.mark.integration`.
+- **`pyproject.toml`** — `[tool.pytest.ini_options]`.
+- **`README.md`** — раздел «Тесты».
+
+### Исправлено
+
+- `_compute_stops` **возвращает** 3 **значения** (stop, take, meta) — **тесты** **обновлены**.
+- `trader/paper.py` — `_columns`/`_placeholders` **согласованы** (SQL syntax).
+
+### Известные ограничения
+
+- `test_paper_end_of_day.py` — 6 **падений** (`virtual_pnl` **не** **имеет** `end_of_day`). **Решение** **в** **работе**.
+- `test_signals.py` — **не** **переписан** **на** **pytest** (**после** **рефактора** `signals.py`).
+- `test_mfe_backfill.py` — **не** **переписан**.
 
 ## [0.14.0] — 2026-11-20
 

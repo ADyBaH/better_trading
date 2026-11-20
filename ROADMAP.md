@@ -609,6 +609,26 @@
 - Гипотеза **не проверена** на 11–19.11 (высокая волатильность).
 - Пересмотреть через 2 недели (или при накоплении `day_range_atr < 3.33`).
 
+## Этап 27. Тесты на pytest (2026-11-20)
+
+### 27.1. Что сделано
+
+- [x] **Все** **`check()`**-**файлы** **переписаны** **на** **pytest** (`test_instruments`, `test_levels`, `test_indicators`, `test_current_price`, `test_notify`, `test_virtual_pnl`, `test_paper*`, `test_signals_enrichment`, `test_trend_conflict`, `test_real_trading`, `test_alor_trade`).
+- [x] **Интеграционные** **помечены** `@pytest.mark.integration` (`test_alor_integration`, `test_alor_orderbook`, `test_iss_lag`, `test_pagination`).
+- [x] **`pyproject.toml`** — `[tool.pytest.ini_options]` с `testpaths`, `addopts`, `markers`.
+- [x] **`README.md`** — раздел «Тесты» с командами.
+
+### 27.2. Что осталось
+
+- [ ] **`test_paper_end_of_day.py`** (6 **падений**): `virtual_pnl` **не** **имеет** `end_of_day`. **Решение:** **вернуть** `end_of_day` **в** `virtual_pnl` (**А**) **или** **удалить** **тест** (**Б**).
+- [ ] **`test_signals.py`** (35 **проверок**): **не** **переписан** **на** **pytest** — **сделаем** **после** **рефактора** `signals.py`.
+- [ ] **`test_mfe_backfill.py`** (12): **не** **переписан** (наш новый).
+
+### 27.3. Результат
+
+- **162 passed** (из 168), **96%**.
+- **pytest** **работает**, **CI**-**готов** (после **фикса** `test_paper_end_of_day` и **переписывания** `test_signals`).
+
 ## Идеи на будущее (после статистики)
 
 - Штрафы к score: ADX > 30 / RSI экстремум (max, не сумма).
