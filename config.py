@@ -175,17 +175,32 @@ RISK_PER_TRADE_PCT = 0.01  # 1% риска на сделку
 # --- Фильтры (по статистике) ---
 # Y (feature/real-trading): bullish_long + normal_breakout — ON
 # F (experiment/aggressive-signals): все OFF (полигон)
-PAPER_SKIP_BULLISH_LONG = True          # −103 ₽ (replay 11/13.11) — полезен
-PAPER_SKIP_NORMAL_BREAKOUT = True       # −139.72 ₽ (paper_trades, n=17) — полезен
-PAPER_SKIP_BULLISH_SHORT = False        # +21.72 ₽ (paper_trades, n=8) — НЕ включать
-PAPER_SKIP_ADX_FLAT_BREAKOUT = False    # +50.28 ₽ (paper_trades, n=7) — НЕ включать
-PAPER_SKIP_PULLBACK_BOUNCE = True   # 10 сделок, 1W/7L, −81.94 ₽
+PAPER_SKIP_BULLISH_LONG = True  # −103 ₽ (replay 11/13.11) — полезен
+PAPER_SKIP_NORMAL_BREAKOUT = True  # −139.72 ₽ (paper_trades, n=17) — полезен
+PAPER_SKIP_BULLISH_SHORT = False  # +21.72 ₽ (paper_trades, n=8) — НЕ включать
+PAPER_SKIP_ADX_FLAT_BREAKOUT = False  # +50.28 ₽ (paper_trades, n=7) — НЕ включать
+PAPER_SKIP_PULLBACK_BOUNCE = True  # 10 сделок, 1W/7L, −81.94 ₽
+PAPER_SKIP_ADX_TREND = True  # 17 сделок, 1W/12L, −256.36 ₽
+PAPER_SKIP_BID_HEAVY = True  # 6 сделок, 0W/5L, −150.30 ₽
+
+# --- Breakout: статус (Задача 3, paper-stats 2026-11-19, n=37) ---
+# baseline: 10W/23L/1T, −71.54 ₽, exp −0.0 — не работает ни в одном разрезе.
+# kill-switch: True — breakout не создаётся вообще (эксперимент Y на 2 недели).
+PAPER_SKIP_BREAKOUT = False
+
+# Условный фильтр для breakout (взаимоисключающие варианты):
+#   "none" — без фильтра (как сейчас)
+#   "F1"   — ADX >= 25 (strong) только
+#   "F2"   — ADX < 20 (flat) только
+#   "F3"   — market_state == impulse только
+#   "F4"   — week_trend не противоречит direction (neutral пропускаем)
+BREAKOUT_FILTER = "none"
 
 # ============================================================
 # СОХРАНЕНИЕ СВЕЧЕЙ В JSON
 # ============================================================
 SAVE_CANDLES = True  # глобальный выключатель (вкл/выкл фичу)
-SAVE_CANDLES_ALWAYS = False  # ФЛАГ «ВСЕ СВЕЧИ»: True — писать каждый цикл (A)
+SAVE_CANDLES_ALWAYS = True  # ФЛАГ «ВСЕ СВЕЧИ»: True — писать каждый цикл (A)
 #                    False — только при сигналах (B)
 SAVE_CANDLES_MARK_SIGNALS = (
     True  # ставить has_signals/signals_count в снимке (B-маркер)
@@ -193,4 +208,9 @@ SAVE_CANDLES_MARK_SIGNALS = (
 SAVE_CANDLES_TIMEFRAMES = ["M15", "H1", "H4"]  # какие ТФ сохранять
 SAVE_CANDLES_COUNT = 300  # сколько свечей брать
 SAVE_CANDLES_MAX_SNAPSHOTS = 300  # защита от разрастания
-VOLUME_RATIO_CAP = 5.0 # глобальный cap, чтобы выбросы (17–20x) не завышали score
+VOLUME_RATIO_CAP = 5.0  # глобальный cap, чтобы выбросы (17–20x) не завышали score
+
+# --- Адаптивный take: take = min(2.0×ATR, 0.6×day_range×ATR) ---
+ADAPTIVE_TAKE_ENABLED = True  # эксперимент; False = baseline (2.0×ATR)
+TAKE_DAY_RANGE_FRAC = 0.6  # доля дневного диапазона
+MIN_TAKE_ATR = 0.8  # защита от слишком близкого тейка (partial_day)

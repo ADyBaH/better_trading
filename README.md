@@ -40,6 +40,7 @@
 - **`partial_day`** — день не завершён (до 18:00), `day_open`/`day_atr_base`/`day_range_atr`.
 - **Replay** (`analyze_from_df` + `verify_candles.py`) — прогон истории из `candles_*.json`.
 - **`verify_filters.py`** — эффект фильтров Y на истории (win/loss/timeout).
+- **Filter Registry** (`strategy/filters/`) — все фильтры в одном месте, `apply_filters` в `detect_signals`.
 
 ## Установка
 
@@ -194,6 +195,26 @@ ATR(H1) = 0.02574
   Следующий запуск ~21:19:11
 ```
 
+### Бэктестер: `backtest.py`
+
+Честный replay paper-логики на исторических свечах (`candles_*.json`), без look-ahead.
+
+| Команда                                                            | Описание                                                            |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `python scripts/backtest.py --since 2026-11-11 --until 2026-11-19` | Backtest с текущим конфигом                                         |
+| `... --compare`                                                    | Сравнить `current_config` vs `baseline` vs `skip_breakout` vs F1–F4 |
+| `... --skip-breakout`                                              | `PAPER_SKIP_BREAKOUT=True`                                          |
+| `... --breakout-filter F1`                                         | Применить `BREAKOUT_FILTER="F1"`                                    |
+
+**Как работает:**
+
+- читает `candles_M15_*.json` за период (склейка snapshots, дедуп по `begin`);
+- идёт по барам **последовательно** (`df.iloc[:t+1]`, без look-ahead);
+- резолвит через `virtual_pnl` + `compute_trade_result` (с комиссией);
+- `--compare` — `run_backtest(skip_filters=True)` для изолированных вариантов.
+
+**Ограничение:** `candles_*.json` есть только с 11.11 — backtest возможен на 11–19.11.
+
 ### `paper-stats` (с депозитом)
 
 ```
@@ -244,7 +265,7 @@ Expectancy: +9.9 pts
 
 **Формат:**
 
-````json
+```json
 {
   "symbol": "CNYRUBF",
   "timeframe": "M15",
@@ -257,27 +278,39 @@ Expectancy: +9.9 pts
       "has_signals": true,
       "signals_count": 1,
       "count": 300,
-      "candles": [{"begin": "...", "open": 12.275, "high": 12.283, "low": 12.273, "close": 12.279, "volume": 21579}]
+      "candles": [
+        {
+          "begin": "...",
+          "open": 12.275,
+          "high": 12.283,
+          "low": 12.273,
+          "close": 12.279,
+          "volume": 21579
+        }
+      ]
     }
   ]
 }
-````
+```
 
 ## Ветки и их роли
 
 ### `main` (F)
+
 - **Роль:** основная ветка (reference).
 - **Настройки:** без фильтров, 120 сделок.
 - **База:** `storage/journal.db`.
 - **Цель:** сравнение с `experiment/aggressive-signals` и `feature/real-trading`.
 
 ### `experiment/aggressive-signals` (F)
+
 - **Роль:** агрессивный полигон.
 - **Настройки:** без фильтров, сниженные пороги (`BOUNCE_TOLERANCE_ATR = 0.4`, `TREND_LEVEL_TOLERANCE_ATR = 0.5`, `BREAKOUT_BUFFER_ATR = 0.1`, `ADX_BREAKOUT_THRESHOLD = 20`), расширенные часы (`PAPER_TRADING_HOURS` 09:00–20:00), `PAPER_DEDUP_MINUTES = 5`, `PAPER_MAX_OPEN = 0`.
 - **База:** `storage/journal_aggressive.db`.
 - **Цель:** накопить статистику быстрее (больше сигналов).
 
 ### `feature/real-trading` (Y)
+
 - **Роль:** актуальная ветка (торгуем по ней).
 - **Настройки:** с фильтрами (`PAPER_SKIP_BULLISH_LONG = True`, `PAPER_SKIP_NORMAL_BREAKOUT = True`), лимит 1, `PAPER_TRADING_HOURS` 09:00–18:00.
 - **База:** `storage/journal.db` (в Y).
@@ -285,19 +318,19 @@ Expectancy: +9.9 pts
 
 ### Сравнение (17.11)
 
-| Ветка | Сделок | Winrate | PnL | PF | Expectancy | Депозит |
-|---|---|---|---|---|---|---|
-| **Y (real-trading)** | 69 | 41.4% | +300.58 ₽ | **1.25** | **+6.2 pts** | +7.99% |
-| **F (main)** | 84 | 30.0% | −273.04 ₽ | **0.63** | **−3.1 pts** | — |
+| Ветка                | Сделок | Winrate | PnL       | PF       | Expectancy   | Депозит |
+| -------------------- | ------ | ------- | --------- | -------- | ------------ | ------- |
+| **Y (real-trading)** | 69     | 41.4%   | +300.58 ₽ | **1.25** | **+6.2 pts** | +7.99%  |
+| **F (main)**         | 84     | 30.0%   | −273.04 ₽ | **0.63** | **−3.1 pts** | —       |
 
 **Y лучше F** по PF/expectancy — фильтры `bullish/long` и `normal+breakout` работают.
 
 ### Сравнение (11.11)
 
-| Ветка | Сделок | Winrate | PnL | PF | Expectancy | Депозит |
-|---|---|---|---|---|---|---|
-| **Y (real-trading)** | 62 | 43.1% | +357.36 ₽ | **1.35** | **+7.8 pts** | +9.75% |
-| **F (main)** | 56 | 29.5% | −172.48 ₽ | **0.61** | **−3.9 pts** | — |
+| Ветка                | Сделок | Winrate | PnL       | PF       | Expectancy   | Депозит |
+| -------------------- | ------ | ------- | --------- | -------- | ------------ | ------- |
+| **Y (real-trading)** | 62     | 43.1%   | +357.36 ₽ | **1.35** | **+7.8 pts** | +9.75%  |
+| **F (main)**         | 56     | 29.5%   | −172.48 ₽ | **0.61** | **−3.9 pts** | —       |
 
 **Y лучше F** по всем метрикам — фильтры `bullish/long` и `normal+breakout` работают.
 
@@ -305,6 +338,112 @@ Expectancy: +9.9 pts
 
 ```bash
 python journal_cli.py paper-stats
+```
+
+## Breakout: статус (Задача 3, 2026-11-19)
+
+Baseline по `paper-stats`: 37 сделок, 10W/23L/1T, −71.54 ₽, exp −0.0.
+Breakout — самый частый (47%) и убыточный; не работает ни в одном разрезе.
+
+**Backtest на 11–19.11** (`scripts/backtest.py --compare`, 7 дней, M15):
+
+| Вариант                                        | n   | W   | L   | T   | Rub        | PF       | Exp      | Решение                 |
+| ---------------------------------------------- | --- | --- | --- | --- | ---------- | -------- | -------- | ----------------------- |
+| baseline (без `PAPER_SKIP_*`)                  | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     | —                       |
+| **skip breakout** (`PAPER_SKIP_BREAKOUT=True`) | 17  | 5   | 10  | 2   | **−84.02** | **0.73** | **−3.3** | **лучший (7 дней)**     |
+| F1 ADX≥25                                      | 21  | 5   | 12  | 4   | −161.16    | 0.51     | −6.9     | не работает             |
+| F2 ADX<20                                      | 18  | 5   | 11  | 2   | −103.68    | 0.67     | −4.2     | слабее skip             |
+| F3 impulse                                     | 18  | 5   | 10  | 3   | −87.08     | 0.73     | −3.3     | = skip (нет impulse)    |
+| F4 week_trend                                  | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     | = baseline (бесполезен) |
+| current_config (как в Y)                       | 15  | 4   | 10  | 1   | −89.70     | 0.62     | −4.2     | база Y                  |
+
+**Выводы:**
+
+- `PAPER_SKIP_BREAKOUT=True` — **лучший** результат (PF 0.73). Breakout — главный источник убытка.
+- F1–F4 **не доказаны**: F4 = baseline (бесполезен), F3 = skip (нет impulse), F1 хуже базы, F2 слабее skip.
+- `PAPER_SKIP_*` **работают**: current_config (0.62) > baseline (0.44).
+
+**Оговорка:** n=15–23, 7 дней — **мало для статистики**. Нужно 30+ сделок и replay-гейт (match rate ≥ 70%).
+
+**Флаги:** `PAPER_SKIP_BREAKOUT` (kill-switch), `BREAKOUT_FILTER` (`"none" | "F1" | "F2" | "F3" | "F4"`).
+
+**Replay-гейт:** `scripts/verify_filters.py --date YYYY-MM-DD` (F1–F4, с комиссией).
+**Backtest:** `scripts/backtest.py --since YYYY-MM-DD --until YYYY-MM-DD --compare` (честный replay, без look-ahead).
+**Match rate:** `scripts/verify_candles.py --date YYYY-MM-DD` — сейчас 0% (replay применяет фильтры Y к историческим сигналам); replay-гейт заблокирован до фикса.
+
+## MFE/MAE + stop/take (Задачи 4–5, 2026-11-20)
+
+**Что сделано:**
+
+- `volume_ratio_at_open`, `mfe_source`, `mae_source` в `paper_trades` (миграция).
+- `by_volume_ratio`, `by_mae_ratio` в `paper_stats`.
+- Backfill MFE/MAE по `candles_*.json`: **14 обновлено, 50 unavailable** (файлы с 11.11).
+- `scripts/optimize_stops.py`: сетка 5×6 (stop × take), train/test, PF/exp.
+- `paper-stats` — блок «Рекомендация stop/take» (read-only, `Confidence: low` при n<30).
+
+**Результаты (backfill, n=14):**
+
+| MFE ratio          | n   | W   | L   | T   | Rub     | Exp   |
+| ------------------ | --- | --- | --- | --- | ------- | ----- |
+| <0.3 (не дошла)    | 11  | 0   | 11  | 0   | −298.06 | −25.0 |
+| 0.3–0.7            | 4   | 0   | 2   | 2   | −38.94  | −15.3 |
+| >0.7 (почти/дошла) | 7   | 5   | 2   | 0   | +156.18 | +24.4 |
+
+| MAE ratio            | n   | W   | L   | T   | Rub     | Exp   |
+| -------------------- | --- | --- | --- | --- | ------- | ----- |
+| <0.3 (стоп далеко)   | 6   | 4   | 0   | 2   | +180.84 | +48.3 |
+| 0.3–0.7              | 1   | 0   | 1   | 0   | −26.26  | −24.2 |
+| 0.7–1.0 (почти стоп) | 6   | 1   | 5   | 0   | −89.26  | −12.8 |
+| ≥1.0 (был бы пробит) | 9   | 0   | 9   | 0   | −246.14 | −25.3 |
+
+**Вывод:** тейк 2.0 ATR **слишком далёк** (11 сделок MFE < 0.3 — все loss), стоп 1.0 ATR **узок** (9 сделок MAE ≥ 1.0 — все loss). **Но** `optimize_stops.py` на n=14: **все** комбинации PF < 1, train/test **нестабильны** (0.6/2.0: train PF 0.4, test 2.03).
+
+**Решение:** `STOP_ATR_MULT=1.0`, `TAKE_ATR_MULT=2.0` — **НЕ менять** до **n ≥ 30** (оверфит на 14 сделках). Пересмотреть через 2 недели.
+
+**CLI:**
+
+```bash
+python scripts/backfill_mfe_mae.py --dry-run   # проверка
+python scripts/backfill_mfe_mae.py             # заполнить MFE/MAE
+python scripts/optimize_stops.py               # сетка stop × take
+python journal_cli.py paper-stats              # блок «Рекомендация stop/take»
+```
+
+## Адаптивный take (Задача 1, 2026-11-20)
+
+**Формула:** `take = min(2.0×ATR, 0.6×day_range_atr×ATR)`, но не меньше `0.8×ATR`.
+**Fallback:** если `day_range_atr < 0.5` (partial_day) — `take = 2.0×ATR` (baseline).
+
+**Флаги:**
+
+- `ADAPTIVE_TAKE_ENABLED = True` (в config.py);
+- `TAKE_DAY_RANGE_FRAC = 0.6`;
+- `MIN_TAKE_ATR = 0.8`.
+
+**Миграция `paper_trades`:**
+
+- `take_source` (`atr` / `day_range`);
+- `take_atr_value` (2.0×ATR в пунктах);
+- `day_range_atr_at_open`.
+
+**`paper-stats`:** разрез `by_take_source`.
+
+**A/B на backtest 11–19.11:**
+
+| Вариант             | n   | W   | L   | T   | Rub         | PF       | Exp      |
+| ------------------- | --- | --- | --- | --- | ----------- | -------- | -------- |
+| baseline (take=2.0) | 23  | 5   | 14  | 4   | −201.88     | 0.44     | −8.1     |
+| **adaptive take**   | 23  | 5   | 14  | 4   | **−201.88** | **0.44** | **−8.1** |
+
+**Вывод:** на 11–19.11 `day_range_atr ~3.5` (высокая волатильность) → `0.6 × 3.5 = 2.1 > 2.0` → `min` даёт `atr` → **адаптивный take = baseline** (не сработал).
+
+**Решение:** `ADAPTIVE_TAKE_ENABLED=True` — **оставить** (для низкой волатильности `day_range_atr < 3.33`). Гипотеза **не проверена** на этих данных. Пересмотреть при накоплении волатильных дней или снизить `TAKE_DAY_RANGE_FRAC` до 0.5.
+
+**CLI:**
+
+```bash
+python scripts/backtest.py --since 2026-11-11 --until 2026-11-19 --compare
+python journal_cli.py paper-stats | grep -A 5 "take_source"
 ```
 
 ## Структура проекта
@@ -418,6 +557,86 @@ python journal_cli.py paper-stats
 - **`DATA_MAX_AGE_MIN = 5`**, **`DATA_MAX_AGE_BLOCK = 15`** (ALOR лаг ~7 мин).
 - **`VOLUME_RATIO_CAP = 5.0`** — клип volume_ratio.
 
+## Фильтры сигналов (config.py)
+
+Фильтры применяются в `strategy/signals.py` → `detect_signals()`. Порядок важен:
+сигнал проходит фильтры **до** `_finalize_signal` (не тратим `compute_rr` на отсечённые)
+и **до** штрафов EMA/пила/late-chase (фильтр работает на «сыром» сигнале).
+
+### Filter Registry (strategy/filters/)
+
+Фильтры вынесены в **реестр** (`strategy/filters/`), а не размазаны по `detect_signals`:
+
+```
+strategy/filters/
+├── base.py # Filter, FilterResult, register_filter, apply_filters, get_filters
+├── trend.py # bullish_long, normal_breakout, bullish_short
+├── adx.py # adx_trend, adx_flat_breakout
+├── orderbook.py # bid_heavy
+├── bounce.py # pullback_bounce
+├── breakout.py # kill-switch + F1-F4 (enabled_fn)
+└── init.py # импорт всех модулей (декораторы)
+```
+
+**Как добавить новый фильтр:**
+
+1. Создать функцию в `strategy/filters/<категория>.py`:
+   ```python
+   @register_filter("my_filter", "описание")
+   def _filter_my(sig, result) -> FilterResult:
+       if <условие>:
+           return FilterResult(blocked=True, reason="...")
+       return FilterResult(blocked=False)
+  ```
+
+### Глобальные (по статистике, все kind)
+
+| Флаг                           | Значение в Y | Что блокирует                                             | Статистика (обоснование)                 |
+| ------------------------------ | ------------ | --------------------------------------------------------- | ---------------------------------------- |
+| `PAPER_SKIP_BULLISH_LONG`      | `True`       | LONG при `week_trend == "bullish"`                        | −103 ₽ (replay 11/13.11) — полезен       |
+| `PAPER_SKIP_NORMAL_BREAKOUT`   | `True`       | `breakout` / `trend_level` при `market_state == "normal"` | −139.72 ₽ (paper_trades, n=17) — полезен |
+| `PAPER_SKIP_BULLISH_SHORT`     | `False`      | SHORT при `week_trend == "bullish"`                       | +21.72 ₽ (n=8) — **НЕ включать**         |
+| `PAPER_SKIP_ADX_FLAT_BREAKOUT` | `False`      | `breakout` при ADX < 20                                   | +50.28 ₽ (n=7) — **НЕ включать**         |
+| `PAPER_SKIP_PULLBACK_BOUNCE`   | `True`       | `bounce` при `market_state == "pullback"`                 | 10 сделок, 1W/7L, −81.94 ₽               |
+| `PAPER_SKIP_ADX_TREND`         | `True`       | все kind при ADX 20–25                                    | 17 сделок, 1W/12L, −256.36 ₽             |
+| `PAPER_SKIP_BID_HEAVY`         | `True`       | все kind при `pressure_pct > 60`                          | 6 сделок, 0W/5L, −150.30 ₽               |
+
+### Breakout: kill-switch и условные фильтры (Задача 3)
+
+| Флаг                  | Значение | Что делает                                                                   |
+| --------------------- | -------- | ---------------------------------------------------------------------------- |
+| `PAPER_SKIP_BREAKOUT` | `False`  | `True` — `breakout` не создаётся вообще (kill-switch для эксперимента Y)     |
+| `BREAKOUT_FILTER`     | `"none"` | Условный фильтр для `breakout`: `"none"` / `"F1"` / `"F2"` / `"F3"` / `"F4"` |
+
+**Условные фильтры `BREAKOUT_FILTER`** (взаимоисключающие, применяются только к `kind == "breakout"`):
+
+| Код  | Условие прохождения                                             | Гипотеза                                                         |
+| ---- | --------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `F1` | `ADX >= 25` (strong)                                            | breakout в trend (20–25) — пила, в strong — импульс              |
+| `F2` | `ADX < 20` (flat)                                               | flat — лучший ADX-бакет (+303.82 ₽ на 19 сделках)                |
+| `F3` | `market_state == "impulse"`                                     | breakout в normal/pullback убыточен; impulse — не проверен (n=0) |
+| `F4` | `week_trend` не противоречит `direction` (`neutral` пропускаем) | совпадение с недельным трендом                                   |
+
+**Композиция с `PAPER_SKIP_ADX_TREND`:** ADX 20–25 режется `PAPER_SKIP_ADX_TREND` **раньше**, чем доходит до F1/F2. F1 оставляет только ≥ 25, F2 — < 20. Пересечения нет.
+
+**Композиция `PAPER_SKIP_BREAKOUT` и `BREAKOUT_FILTER`:** kill-switch проверяется **первым** (если `True` — breakout не создаётся, `BREAKOUT_FILTER` не имеет значения). Если `PAPER_SKIP_BREAKOUT=False` — работает `BREAKOUT_FILTER`.
+
+### Как проверить эффект фильтров
+
+```bash
+# Replay-эффект F1–F4 на истории (с комиссией, PF/exp)
+python scripts/verify_filters.py --date 2026-11-13
+
+# Сверка replay с живым paper (match rate)
+python scripts/verify_candles.py --date 2026-11-13
+
+# Живой paper (Y): до/после
+python journal_cli.py paper-stats --until=2026-11-19
+python journal_cli.py paper-stats --since=2026-11-19
+```
+
+---
+
 ## Real-trading (мок-режим)
 
 **Важно:** реальные ордера **НЕ** ставятся (`_MOCK_MODE = True`).
@@ -455,6 +674,28 @@ python journal_cli.py paper-stats
 - [ ] **`volume_ratio`** — объём на входе / средний объём.
 - [ ] **`stale`** — флаг устаревшего уровня (>10 дней).
 - [ ] **`data_age`** — в meta JSON.
+
+## Тесты
+
+Все тесты — на **pytest**. **Конфиг** — в `pyproject.toml` (`[tool.pytest.ini_options]`).
+
+**Команды:**
+
+| Команда                                                                         | Что делает                                          |
+| ------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `pytest tests/ -v -m "not integration"`                                         | **Все быстрые тесты** (без сети) — **основная**     |
+| `pytest tests/ -v -m integration`                                               | Только интеграционные (ALOR / MOEX ISS, нужна сеть) |
+| `pytest tests/ -v -m ""`                                                        | Все тесты (включая интеграционные)                  |
+| `pytest tests/test_instruments.py -v`                                           | Один файл                                           |
+| `pytest tests/test_instruments.py::TestComputeTradeResult::test_long_profit -v` | Один тест                                           |
+
+**Структура:**
+
+- **Юнит-тесты** (без сети): `test_instruments`, `test_levels`, `test_indicators`, `test_current_price` (мок), `test_notify`, `test_virtual_pnl`, `test_paper*`, `test_mfe_mae`, `test_real_trading` (мок), `test_alor_trade` (мок).
+- **Интеграционные** (сеть): `test_alor_integration`, `test_alor_orderbook`, `test_iss_lag`, `test_pagination` — помечены `@pytest.mark.integration`.
+- **`test_journal_integrity`** — проверка **реальной** `journal.db` (skip, если нет файла).
+
+**Покрытие** (на 2026-11-20): **162 passed**, **6 failed** (`test_paper_end_of_day` — требует `end_of_day`, **в** **работе**).
 
 ## Дисклеймер
 

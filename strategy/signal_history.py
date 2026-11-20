@@ -78,13 +78,19 @@ def append_signals(signals: list[Signal], symbol: str) -> None:
 def get_recent_signal(
     symbol: str,
     lookback_minutes: int = 120,
+    now: datetime | None = None,
 ) -> dict | None:
     """
     Возвращает последний сигнал за последние `lookback_minutes` минут.
-    Если ничего не найдено — None.
+
+    now — точка отсчёта (по умолчанию datetime.now()).
+    Для replay/backtest ОБЯЗАТЕЛЬНО передавать result.timestamp,
+    иначе «пила» срабатывает на реальной истории, а не на исторической
+    (баг: match rate 0% в verify_candles.py, ложные штрафы в тестах).
     """
     history = _load_history()
-    cutoff = datetime.now() - timedelta(minutes=lookback_minutes)
+    now = now or datetime.now()
+    cutoff = now - timedelta(minutes=lookback_minutes)
 
     candidates = []
     for entry in history:
@@ -104,7 +110,7 @@ def get_recent_signal(
     candidates.sort(key=lambda x: x[0], reverse=True)
     ts, entry = candidates[0]
 
-    age_min = int((datetime.now() - ts).total_seconds() / 60)
+    age_min = int((now - ts).total_seconds() / 60)
     return {
         "direction": entry.get("direction"),
         "kind": entry.get("kind"),

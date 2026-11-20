@@ -102,6 +102,18 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_points REAL")
     if "partial_day_at_open" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN partial_day_at_open INTEGER")
+    if "volume_ratio_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN volume_ratio_at_open REAL")
+    if "mfe_source" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_source TEXT")
+    if "mae_source" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_source TEXT")
+    if "take_source" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN take_source TEXT")
+    if "take_atr_value" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN take_atr_value REAL")
+    if "day_range_atr_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN day_range_atr_at_open REAL")
     conn.commit()
 
 
@@ -165,8 +177,12 @@ def virtual_pnl(
     import pandas as pd
 
     empty = {
-        "result": "no_data", "exit_price": None, "bars": 0,
-        "ambiguous": False, "mfe_points": 0.0, "mae_points": 0.0,
+        "result": "no_data",
+        "exit_price": None,
+        "bars": 0,
+        "ambiguous": False,
+        "mfe_points": 0.0,
+        "mae_points": 0.0,
     }
 
     if max_bars is None:
@@ -184,11 +200,11 @@ def virtual_pnl(
 
         # --- MFE/MAE по этой свече ---
         if direction == "long":
-            fav = (high - entry) / price_step      # в пользу long
-            adv = (entry - low) / price_step       # против long
+            fav = (high - entry) / price_step  # в пользу long
+            adv = (entry - low) / price_step  # против long
         else:  # short
-            fav = (entry - low) / price_step       # в пользу short
-            adv = (high - entry) / price_step      # против short
+            fav = (entry - low) / price_step  # в пользу short
+            adv = (high - entry) / price_step  # против short
 
         if fav > mfe:
             mfe = fav
@@ -205,7 +221,9 @@ def virtual_pnl(
 
         if hit_take and hit_stop:
             return {
-                "result": "loss", "exit_price": stop, "bars": i,
+                "result": "loss",
+                "exit_price": stop,
+                "bars": i,
                 "ambiguous": True,
                 "mfe_points": round(mfe, 1),
                 "mae_points": round(mae, 1),
@@ -213,7 +231,9 @@ def virtual_pnl(
 
         if hit_take:
             return {
-                "result": "win", "exit_price": take, "bars": i,
+                "result": "win",
+                "exit_price": take,
+                "bars": i,
                 "ambiguous": False,
                 "mfe_points": round(mfe, 1),
                 "mae_points": round(mae, 1),
@@ -221,7 +241,9 @@ def virtual_pnl(
 
         if hit_stop:
             return {
-                "result": "loss", "exit_price": stop, "bars": i,
+                "result": "loss",
+                "exit_price": stop,
+                "bars": i,
                 "ambiguous": False,
                 "mfe_points": round(mfe, 1),
                 "mae_points": round(mae, 1),
@@ -229,14 +251,18 @@ def virtual_pnl(
 
         if i >= max_bars:
             return {
-                "result": "timeout", "exit_price": float(row.close), "bars": i,
+                "result": "timeout",
+                "exit_price": float(row.close),
+                "bars": i,
                 "ambiguous": False,
                 "mfe_points": round(mfe, 1),
                 "mae_points": round(mae, 1),
             }
 
     return {
-        "result": "open", "exit_price": None, "bars": len(df_future),
+        "result": "open",
+        "exit_price": None,
+        "bars": len(df_future),
         "ambiguous": False,
         "mfe_points": round(mfe, 1),
         "mae_points": round(mae, 1),
@@ -388,9 +414,11 @@ def save_signal_as_paper(
                 "trend_at_open, adx_at_open, day_trend_at_open, structure_at_open, "
                 "partial_day_at_open, "
                 "week_trend_at_open, market_state_at_open, "
-                "rsi_at_open, atr_percentile_at_open, "
+                "rsi_at_open, atr_percentile_at_open, volume_ratio_at_open, "
                 "created_at, result, warnings, context, "
-                "bid_vol, ask_vol, market_price_at_open, size, balance_after"
+                "bid_vol, ask_vol, market_price_at_open, size, balance_after, "
+                "mfe_source, mae_source, "
+                "take_source, take_atr_value, day_range_atr_at_open"
             )
             _placeholders = ", ".join(["?"] * len(_columns.split(",")))
             changes_before = conn.total_changes
@@ -419,6 +447,7 @@ def save_signal_as_paper(
                     ind.market_state,
                     ind.rsi,
                     sig.context.get("atr_percentile"),
+                    ind.volume_ratio,
                     result.timestamp.isoformat(),
                     "open",
                     (
@@ -436,6 +465,11 @@ def save_signal_as_paper(
                     market_price_at_open,
                     size,
                     None,  # balance_after
+                    "live",  # ← mfe_source
+                    "live",  # ← mae_source
+                    sig.take_source,
+                    sig.take_atr_value,
+                    sig.day_range_atr_at_open,
                 ),
             )
             inserted = conn.total_changes - changes_before
@@ -866,7 +900,7 @@ def paper_stats(
     for v in by_rsi.values():
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
-    
+
     # --- by_partial_day ---
     by_partial_day = {}
     for r in rows:
@@ -879,8 +913,12 @@ def paper_stats(
             bucket = "full day"
         if bucket not in by_partial_day:
             by_partial_day[bucket] = {
-                "total": 0, "win": 0, "loss": 0, "timeout": 0,
-                "points": 0.0, "rub": 0.0,
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
             }
         b = by_partial_day[bucket]
         b["total"] += 1
@@ -891,7 +929,7 @@ def paper_stats(
     for v in by_partial_day.values():
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
-    
+
     # --- by_atr_percentile ---
     def _atr_pct_bucket(pct):
         if pct is None:
@@ -1038,7 +1076,9 @@ def paper_stats(
         elif pct > 60:
             return "bid-heavy (>60)"
         return "balanced (40-60)"
-
+    
+    # --- by_take_source ---
+    by_take_source = _group("take_source")
     by_pressure = {}
     for r in rows:
         bucket = _pressure_bucket(r["bid_vol"], r["ask_vol"])
@@ -1058,6 +1098,83 @@ def paper_stats(
         b["points"] += r["result_points"] or 0
         b["rub"] += r["result_rub"] or 0
     for v in by_pressure.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
+    # --- by_volume_ratio ---
+    def _volume_bucket(vr):
+        if vr is None:
+            return "unknown"
+        if vr < 0.8:
+            return "<0.8 (низкий)"
+        elif vr <= 1.2:
+            return "0.8-1.2 (средний)"
+        elif vr <= 2.0:
+            return "1.2-2.0 (высокий)"
+        return ">2.0 (очень высокий)"
+
+    by_volume_ratio = {}
+    for r in rows:
+        bucket = _volume_bucket(r["volume_ratio_at_open"])
+        if bucket not in by_volume_ratio:
+            by_volume_ratio[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_volume_ratio[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_volume_ratio.values():
+        v["points"] = round(v["points"], 1)
+        v["rub"] = round(v["rub"], 2)
+
+    # --- by_mae_ratio ---
+    def _mae_ratio_bucket(ratio):
+        if ratio is None:
+            return "unknown"
+        if ratio < 0.3:
+            return "<0.3 (стоп далеко)"
+        elif ratio <= 0.7:
+            return "0.3-0.7 (норм)"
+        elif ratio < 1.0:
+            return "0.7-1.0 (почти стоп)"
+        return ">=1.0 (был бы пробит)"
+
+    by_mae_ratio = {}
+    for r in rows:
+        mae = r["mae_points"]
+        entry = r["entry_price"]
+        stop = r["stop_price"]
+        # stop_dist в пунктах
+        stop_dist = abs(entry - stop) / 0.001  # price_step
+        if mae is None or stop_dist <= 0:
+            bucket = "unknown"
+        else:
+            bucket = _mae_ratio_bucket(mae / stop_dist)
+
+        if bucket not in by_mae_ratio:
+            by_mae_ratio[bucket] = {
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
+            }
+        b = by_mae_ratio[bucket]
+        b["total"] += 1
+        if r["result"] in ("win", "loss", "timeout"):
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+    for v in by_mae_ratio.values():
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
@@ -1163,7 +1280,7 @@ def paper_stats(
     final_pnl_pct = (
         (balance_after - config.VIRTUAL_DEPOSIT) / config.VIRTUAL_DEPOSIT * 100
     )
-    
+
     def _enrich(bucket_dict: dict) -> dict:
         for v in bucket_dict.values():
             wins = v.get("win", 0)
@@ -1181,6 +1298,7 @@ def paper_stats(
         return _filter_min_n(_enrich(bucket_dict), min_n)
 
         # --- by_mfe_ratio: MFE / take_distance ---
+
     def _mfe_bucket(ratio):
         if ratio is None:
             return "unknown"
@@ -1202,8 +1320,12 @@ def paper_stats(
 
         if bucket not in by_mfe_ratio:
             by_mfe_ratio[bucket] = {
-                "total": 0, "win": 0, "loss": 0, "timeout": 0,
-                "points": 0.0, "rub": 0.0,
+                "total": 0,
+                "win": 0,
+                "loss": 0,
+                "timeout": 0,
+                "points": 0.0,
+                "rub": 0.0,
             }
         b = by_mfe_ratio[bucket]
         b["total"] += 1
@@ -1214,7 +1336,7 @@ def paper_stats(
     for v in by_mfe_ratio.values():
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
-        
+
     return {
         "total": total,
         "open": open_count,
@@ -1250,6 +1372,9 @@ def paper_stats(
         "expectancy": expectancy,
         "by_mfe_ratio": _process(by_mfe_ratio),
         "by_partial_day": _process(by_partial_day),
+        "by_volume_ratio": _process(by_volume_ratio),
+        "by_mae_ratio": _process(by_mae_ratio),
+        "by_take_source": _process(by_take_source),
     }
 
 

@@ -1,92 +1,65 @@
 """Тесты на ui/notify.py."""
 
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+import pytest
 
-import tempfile
-from ui.notify import notify_signal
+import config
 from core.models import Signal
-
-PASSED = 0
-FAILED = 0
+from ui.notify import notify_signal
 
 
-def check(name, actual, expected):
-    global PASSED, FAILED
-    if hasattr(actual, "item"):
-        actual = actual.item()
-    if actual == expected:
-        PASSED += 1
-        print(f"  ✅ {name}")
-    else:
-        FAILED += 1
-        print(f"  ❌ {name}: expected {expected!r}, got {actual!r}")
-
-
+@pytest.fixture
 def make_signal():
-    return Signal(
-        direction="short",
-        kind="breakout",
-        strength="medium",
-        strength_score=2.0,
-        entry_price=12.500,
-        stop_price=12.530,
-        take_price=12.440,
-        matched_criteria=["A1", "B2"],
-        reasons=[],
-        level_price=12.500,
-    )
+    def _make():
+        return Signal(
+            direction="short",
+            kind="breakout",
+            strength="medium",
+            strength_score=2.0,
+            entry_price=12.500,
+            stop_price=12.530,
+            take_price=12.440,
+            matched_criteria=["A1", "B2"],
+            reasons=[],
+            level_price=12.500,
+        )
+
+    return _make
 
 
-def main():
-    print("=" * 60)
-    print("Тест: ui/notify.py")
-    print("=" * 60)
+@pytest.fixture
+def notify_file(tmp_path, monkeypatch):
+    """Подменяет config.NOTIFY_FILE на tmp_path/notifications.txt."""
+    path = tmp_path / "notifications.txt"
+    monkeypatch.setattr(config, "NOTIFY_FILE", str(path))
+    return path
 
-    # Временный файл для notifications
-    import config
 
-    old_notify = config.NOTIFY_FILE
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w")
-    tmp.close()
-    config.NOTIFY_FILE = tmp.name
+class TestNotifySignal:
+    def test_file_not_empty(self, make_signal, notify_file):
+        notify_signal(make_signal())
+        content = notify_file.read_text(encoding="utf-8")
+        assert len(content) > 0
 
-    try:
-        # notify_signal
-        print("\nnotify_signal:")
-        sig = make_signal()
-        notify_signal(sig)
+    def test_contains_short(self, make_signal, notify_file):
+        notify_signal(make_signal())
+        content = notify_file.read_text(encoding="utf-8")
+        assert "SHORT" in content
 
-        # Проверяем, что файл существует и не пустой
-        content = Path(tmp.name).read_text(encoding="utf-8")
-        check("файл не пустой", len(content) > 0, True)
-        check("содержит SHORT", "SHORT" in content, True)
-        check("содержит breakout", "breakout" in content, True)
-        check("содержит entry=12.500", "entry=12.500" in content, True)
+    def test_contains_breakout(self, make_signal, notify_file):
+        notify_signal(make_signal())
+        content = notify_file.read_text(encoding="utf-8")
+        assert "breakout" in content
 
-        # Второй сигнал — дописывается
-        print("\nвторой сигнал:")
-        notify_signal(sig)
-        content = Path(tmp.name).read_text(encoding="utf-8")
+    def test_contains_entry(self, make_signal, notify_file):
+        notify_signal(make_signal())
+        content = notify_file.read_text(encoding="utf-8")
+        assert "entry=12.500" in content
+
+    def test_two_signals_two_lines(self, make_signal, notify_file):
+        notify_signal(make_signal())
+        notify_signal(make_signal())
+        content = notify_file.read_text(encoding="utf-8")
         lines = [l for l in content.strip().split("\n") if l]
-        check("2 строки", len(lines), 2)
-
-    finally:
-        config.NOTIFY_FILE = old_notify
-        Path(tmp.name).unlink(missing_ok=True)
-
-    # Сводка
-    print("\n" + "=" * 60)
-    total = PASSED + FAILED
-    print(f"Прoйдено: {PASSED} / {total}")
-    if FAILED:
-        sys.exit(1)
-    else:
-        print("✅ Все проверки пройдены")
-        sys.exit(0)
-
-
-if __name__ == "__main__":
-    main()
+        assert len(lines) == 2

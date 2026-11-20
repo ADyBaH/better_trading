@@ -136,8 +136,13 @@ def _build_indicator_snapshot(
             trough = window["low"].min()
             retrace = (current_price - trough) / atr
 
+        # pullback: откат 0.2..0.7 × impulse (как было)
         if impulse_atr > 1.2 and 0.2 < retrace < impulse_atr * 0.7:
             market_state = "pullback"
+        # impulse: сильный импульс (>= 2.0 ATR) и почти нет отката (< 0.2)
+        # пороги из ROADMAP п.18.1: impulse > 2.0, откат < 0.2 × impulse
+        elif impulse_atr > 2.0 and retrace < 0.2 * impulse_atr:
+            market_state = "impulse"
 
     # --- Volume ratio: последняя свеча / среднее за VOLUME_LOOKBACK ---
     volume_ratio = 1.0
@@ -277,6 +282,8 @@ def analyze_from_df(
     order_book: dict | None = None,
     timestamp: datetime | None = None,
     skip_age_check: bool = False,
+    skip_filters: bool = False,
+    write_history: bool = True,
 ) -> AnalysisResult | None:
     """
     Собирает AnalysisResult из готовых DataFrame. Без сети.
@@ -287,6 +294,12 @@ def analyze_from_df(
     df_atr   — H1 — для ATR. Если None, используется df_h1.
 
     Возвращает AnalysisResult или None, если данных нет.
+    
+    write_history — писать ли сигналы в signals_history.json.
+        True (по умолчанию) — для live/runner (cooldown, «пила»).
+        False — для backtest/replay: иначе исторические сигналы
+        засоряют live-историю (пишутся с datetime.now(), а не
+        с result.timestamp) и ломают cooldown в раннере.
     """
     import pandas as pd
 
@@ -366,10 +379,32 @@ def analyze_from_df(
     from strategy.signal_history import append_signals
 
     ts = timestamp or datetime.now()
-    
-    signals = detect_signals(result, df, now=ts, skip_age_check=skip_age_check)
+
+    # --- skip_filters: временно отключаем фильтры (для replay) ---
+    _saved_filters = {}
+    if skip_filters:
+        for k in (
+            "PAPER_SKIP_BULLISH_LONG",
+            "PAPER_SKIP_NORMAL_BREAKOUT",
+            "PAPER_SKIP_BULLISH_SHORT",
+            "PAPER_SKIP_ADX_FLAT_BREAKOUT",
+            "PAPER_SKIP_ADX_TREND",
+            "PAPER_SKIP_BID_HEAVY",
+            "PAPER_SKIP_BREAKOUT",
+        ):
+            if hasattr(config, k):
+                _saved_filters[k] = getattr(config, k)
+                setattr(config, k, False)
+
+    try:
+        signals = detect_signals(result, df, now=ts, skip_age_check=skip_age_check)
+    finally:
+        for k, v in _saved_filters.items():
+            setattr(config, k, v)
+
     result.signals = signals
-    append_signals(signals, symbol)
+    if write_history:
+        append_signals(signals, symbol)
 
     return result
 

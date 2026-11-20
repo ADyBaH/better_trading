@@ -1,60 +1,50 @@
 """Тест get_current_price_sync (мок-режим)."""
 
-import sys
-from pathlib import Path
+import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from data.api_alor import get_current_price_sync
-
-PASSED = 0
-FAILED = 0
+from data import api_alor
 
 
-def check(name, actual, expected):
-    global PASSED, FAILED
-    if hasattr(actual, "item"):
-        actual = actual.item()
-    if actual == expected:
-        PASSED += 1
-        print(f"  ✅ {name}")
-    else:
-        FAILED += 1
-        print(f"  ❌ {name}: expected {expected!r}, got {actual!r}")
+@pytest.fixture
+def mock_current_price(monkeypatch):
+    """Мок _get_current_price — возвращает bid/ask/mid."""
+
+    async def _fake(symbol):
+        return {"bid": 12.500, "ask": 12.510, "mid": 12.505}
+
+    monkeypatch.setattr(api_alor, "_get_current_price", _fake)
+    return _fake
 
 
-def main():
-    print("=" * 60)
-    print("Тест: get_current_price_sync")
-    print("=" * 60)
+@pytest.fixture
+def mock_current_price_empty(monkeypatch):
+    """Мок _get_current_price — пустой стакан (None)."""
 
-    result = get_current_price_sync("CNYRUBF")
+    async def _fake(symbol):
+        return {"bid": None, "ask": None, "mid": None}
 
-    check("есть ключ bid", "bid" in result, True)
-    check("есть ключ ask", "ask" in result, True)
-    check("есть ключ mid", "mid" in result, True)
-
-    if result["bid"] is not None and result["ask"] is not None:
-        check("bid < ask", result["bid"] < result["ask"], True)
-        check(
-            "mid ≈ (bid+ask)/2",
-            result["mid"],
-            round((result["bid"] + result["ask"]) / 2, 5),
-        )
-        print(f"  bid={result['bid']}, ask={result['ask']}, mid={result['mid']}")
-    else:
-        print("  ⚠️ bid/ask = None (ALOR не отвечает?)")
-
-    # Сводка
-    print("\n" + "=" * 60)
-    total = PASSED + FAILED
-    print(f"Прoйдено: {PASSED} / {total}")
-    if FAILED:
-        sys.exit(1)
-    else:
-        print("✅ Все проверки пройдены")
-        sys.exit(0)
+    monkeypatch.setattr(api_alor, "_get_current_price", _fake)
+    return _fake
 
 
-if __name__ == "__main__":
-    main()
+class TestGetCurrentPrice:
+    def test_keys_present(self, mock_current_price):
+        result = api_alor.get_current_price_sync("CNYRUBF")
+        assert "bid" in result
+        assert "ask" in result
+        assert "mid" in result
+
+    def test_bid_less_than_ask(self, mock_current_price):
+        result = api_alor.get_current_price_sync("CNYRUBF")
+        assert result["bid"] < result["ask"]
+
+    def test_mid_is_average(self, mock_current_price):
+        result = api_alor.get_current_price_sync("CNYRUBF")
+        expected = round((result["bid"] + result["ask"]) / 2, 5)
+        assert result["mid"] == expected
+
+    def test_empty_orderbook_returns_none(self, mock_current_price_empty):
+        result = api_alor.get_current_price_sync("CNYRUBF")
+        assert result["bid"] is None
+        assert result["ask"] is None
+        assert result["mid"] is None

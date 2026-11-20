@@ -8,6 +8,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from data.api_moex import get_candles_range
 import config
 
+import pytest
+
+pytestmark = pytest.mark.integration
+
 
 def main():
     day = "2026-10-14"

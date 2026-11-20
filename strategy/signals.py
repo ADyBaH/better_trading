@@ -202,6 +202,7 @@ def _build_context(
         "hour_utc": hour_utc,
         "data_age_minutes": data_age_minutes,
         "last_candle_time": last_candle_time.isoformat() if last_candle_time else None,
+        "volume_ratio": ind.volume_ratio,
     }
 
 
@@ -384,14 +385,44 @@ def _commission_in_price(symbol: str) -> float:
 
 def _compute_stops(
     entry: float, direction: str, atr: float, day_range_atr: float | None = None
-) -> tuple[float, float]:
+) -> tuple[float, float, dict]:
+    """
+    Возвращает (stop, take, meta).
+    meta: take_source, take_atr_value, day_range_atr_at_open.
+    """
+    meta = {
+        "take_source": "atr",
+        "take_atr_value": None,
+        "day_range_atr_at_open": day_range_atr,
+    }
+
     if config.USE_ATR_STOPS:
         stop_dist = config.STOP_ATR_MULT * atr
-        # take ≤ 0.6 × day_range, но не меньше 1.0 ATR
-        take_mult = config.TAKE_ATR_MULT
-        if day_range_atr is not None and day_range_atr > 0:
-            take_mult = min(take_mult, max(1.0, day_range_atr * 0.6))
-        take_dist = take_mult * atr
+
+        take_atr = config.TAKE_ATR_MULT * atr
+        meta["take_atr_value"] = round(take_atr, 5)
+
+        if getattr(config, "ADAPTIVE_TAKE_ENABLED", False):
+            # --- Адаптивный take (Задача 1) ---
+            if day_range_atr is not None and day_range_atr >= 0.5:
+                take_day = config.TAKE_DAY_RANGE_FRAC * day_range_atr * atr
+                take_dist = min(take_atr, take_day)
+                take_dist = max(take_dist, config.MIN_TAKE_ATR * atr)
+                meta["take_source"] = "day_range" if take_day < take_atr else "atr"
+            else:
+                # partial_day / day_range_atr = 0 -> baseline
+                take_dist = take_atr
+                meta["take_source"] = "atr"
+        else:
+            # --- baseline (2.0×ATR, но ≤ 0.6×day_range) ---
+            if day_range_atr is not None and day_range_atr > 0:
+                take_mult = min(config.TAKE_ATR_MULT, max(1.0, day_range_atr * 0.6))
+                take_dist = take_mult * atr
+                meta["take_source"] = (
+                    "day_range" if take_mult < config.TAKE_ATR_MULT else "atr"
+                )
+            else:
+                take_dist = take_atr
     else:
         stop_dist = config.STOP_POINTS * config.PRICE_STEP
         take_dist = config.TAKE_POINTS * config.PRICE_STEP
@@ -403,9 +434,9 @@ def _compute_stops(
         take_dist = config.TAKE_POINTS * config.PRICE_STEP
 
     if direction == "long":
-        return entry - stop_dist, entry + take_dist
+        return entry - stop_dist, entry + take_dist, meta
     else:
-        return entry + stop_dist, entry - take_dist
+        return entry + stop_dist, entry - take_dist, meta
 
 
 def _finalize_signal(
@@ -500,6 +531,35 @@ def _is_direction_allowed(direction: str, trend: str, kind: str) -> bool:
     return True
 
 
+def _breakout_passes_filter(result: AnalysisResult, signal: Signal) -> bool:
+    """
+    Условные фильтры F1–F4 для breakout (config.BREAKOUT_FILTER).
+    Возвращает True, если сигнал проходит фильтр (можно создавать).
+    При BREAKOUT_FILTER == "none" — всегда True.
+    """
+    flt = getattr(config, "BREAKOUT_FILTER", "none")
+    if flt == "none":
+        return True
+
+    ind = result.indicators
+    adx = ind.adx
+    direction = signal.direction
+
+    if flt == "F1":  # ADX >= 25 (strong) только
+        return adx is not None and adx >= config.ADX_STRONG
+    if flt == "F2":  # ADX < 20 (flat) только
+        return adx is not None and adx < config.ADX_THRESHOLD
+    if flt == "F3":  # market_state == impulse только
+        return ind.market_state == "impulse"
+    if flt == "F4":  # week_trend не противоречит direction (neutral пропускаем)
+        if ind.week_trend == "bullish" and direction == "short":
+            return False
+        if ind.week_trend == "bearish" and direction == "long":
+            return False
+        return True
+    return True  # неизвестный фильтр — не блокируем
+
+
 # ============================================================
 # Детектор: Bounce
 # ============================================================
@@ -572,7 +632,7 @@ def detect_bounce(
                 continue
 
         entry = price
-        stop, take = _compute_stops(
+        stop, take, stop_meta = _compute_stops(
             entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
         )
 
@@ -588,6 +648,9 @@ def detect_bounce(
             reasons=reasons,
             level_price=lv.price,
         )
+        signal.take_source = stop_meta["take_source"]
+        signal.take_atr_value = stop_meta["take_atr_value"]
+        signal.day_range_atr_at_open = stop_meta["day_range_atr_at_open"]
         signals.append(signal)
 
     return signals
@@ -684,7 +747,7 @@ def detect_breakout(
                 continue
 
         entry = price
-        stop, take = _compute_stops(
+        stop, take, stop_meta = _compute_stops(
             entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
         )
 
@@ -700,6 +763,9 @@ def detect_breakout(
             reasons=reasons,
             level_price=lv.price,
         )
+        signal.take_source = stop_meta["take_source"]
+        signal.take_atr_value = stop_meta["take_atr_value"]
+        signal.day_range_atr_at_open = stop_meta["day_range_atr_at_open"]
         signals.append(signal)
 
     return signals
@@ -773,7 +839,7 @@ def detect_trend_level(
             continue
 
         entry = price
-        stop, take = _compute_stops(
+        stop, take, stop_meta = _compute_stops(
             entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
         )
 
@@ -789,6 +855,9 @@ def detect_trend_level(
             reasons=reasons,
             level_price=lv.price,
         )
+        signal.take_source = stop_meta["take_source"]
+        signal.take_atr_value = stop_meta["take_atr_value"]
+        signal.day_range_atr_at_open = stop_meta["day_range_atr_at_open"]
         signals.append(signal)
 
     return signals
@@ -850,8 +919,9 @@ def detect_signals(
 ) -> list[Signal]:
     """
     Запускает детекторы, обогащает сигналы context/warnings/R:R,
-    дедуплицирует, сортирует.
+    применяет фильтры (реестр strategy.filters), дедуплицирует, сортирует.
     """
+    from strategy.filters import apply_filters
     from strategy.signal_history import get_recent_signal
 
     # --- Блокировка по свежести данных ---
@@ -876,39 +946,22 @@ def detect_signals(
     all_signals.extend(detect_trend_level(result, df))
 
     # Получаем последний сигнал из истории (для cooldown)
-    recent = get_recent_signal(result.symbol, lookback_minutes=180)
+    recent = get_recent_signal(
+        result.symbol,
+        lookback_minutes=180,
+        now=result.timestamp,
+    )
 
     passed_signals: list[Signal] = []
 
     for s in all_signals:
-        # --- Фильтр: bullish / long ---
-        if (
-            config.PAPER_SKIP_BULLISH_LONG
-            and result.indicators.week_trend == "bullish"
-            and s.direction == "long"
-        ):
-            log.info("bullish / long заблокирован (фильтр)")
+        # --- 1. Реестр фильтров (7 bool + breakout + F1-F4) ---
+        blocked_by = apply_filters(s, result)
+        if blocked_by:
+            log.info("%s заблокирован (фильтр %s)", s.kind, blocked_by)
             continue
 
-        # --- Фильтр: normal + breakout / trend_level ---
-        if (
-            config.PAPER_SKIP_NORMAL_BREAKOUT
-            and result.indicators.market_state == "normal"
-            and s.kind in ("breakout", "trend_level")
-        ):
-            log.info("normal + %s заблокирован (фильтр)", s.kind)
-            continue
-
-        # --- Фильтр: pullback + bounce (10 сделок, 1W/7L, −81.94 ₽) ---
-        if (
-            getattr(config, "PAPER_SKIP_PULLBACK_BOUNCE", False)
-            and result.indicators.market_state == "pullback"
-            and s.kind == "bounce"
-        ):
-            log.info("pullback + bounce заблокирован (фильтр)")
-            continue
-
-        # Найти уровень по level_price
+        # --- 2. Найти уровень по level_price ---
         level = None
         if s.level_price is not None:
             for lv in result.levels:
@@ -916,9 +969,10 @@ def detect_signals(
                     level = lv
                     break
 
+        # --- 3. Обогащение (context, warnings, R:R) ---
         _finalize_signal(s, result, df, level, recent, result.symbol)
 
-        # --- Штраф: EMA против direction ---
+        # --- 4. Штраф: EMA против direction ---
         ema_against = (
             s.direction == "long" and s.context.get("ema_alignment") == "bearish"
         ) or (s.direction == "short" and s.context.get("ema_alignment") == "bullish")
@@ -930,7 +984,7 @@ def detect_signals(
             if s.strength == "none":
                 continue
 
-        # --- Штраф: пила (противоположный сигнал < 30 мин) ---
+        # --- 5. Штраф: пила (противоположный сигнал < 30 мин) ---
         recent_dir = s.context.get("recent_signal_direction")
         recent_age = s.context.get("recent_signal_age_min")
         if (
@@ -948,11 +1002,12 @@ def detect_signals(
             if s.strength == "none":
                 continue
 
+        # --- 6. RR invalid ---
         if getattr(s, "_rr_invalid", False):
             log.warning("Сигнал отброшен: RR не посчитан (%s)", s.kind)
             continue
 
-        # --- Штраф за late/chase ---
+        # --- 7. Штраф за late/chase ---
         if (
             level is not None
             and level.distance_atr is not None
@@ -967,10 +1022,10 @@ def detect_signals(
             if s.strength == "none":
                 continue
 
-        # --- Только прошедшие все фильтры ---
+        # --- 8. Прошёл все фильтры ---
         passed_signals.append(s)
 
-    # Дедупликация — ТОЛЬКО по passed_signals
+    # --- Дедупликация — ТОЛЬКО по passed_signals ---
     dedup_window = 0.5 * result.atr if result.atr > 0 else 0.0
     best: list[Signal] = []
     for s in sorted(passed_signals, key=lambda x: x.strength_score, reverse=True):

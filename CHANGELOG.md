@@ -1,5 +1,157 @@
 # CHANGELOG
 
+## [0.16.0] — 2026-11-20
+
+### Добавлено
+
+- **Filter Registry** (`strategy/filters/`) — все фильтры в одном месте.
+  - `base.py`: `Filter`, `FilterResult`, `register_filter`, `apply_filters`, `get_filters`.
+  - `trend.py`: `bullish_long`, `normal_breakout`, `bullish_short`.
+  - `adx.py`: `adx_trend`, `adx_flat_breakout`.
+  - `orderbook.py`: `bid_heavy`.
+  - `bounce.py`: `pullback_bounce`.
+  - `breakout.py`: kill-switch (`PAPER_SKIP_BREAKOUT`) + F1–F4 (`BREAKOUT_FILTER`) через `enabled_fn`.
+- **`strategy/signals.py`**: 7+ `if getattr(config, ...): continue` → `apply_filters(s, result)`.
+- **`scripts/verify_filters.py`**: `get_filters()` + PF/exp (больше не дублирует логику).
+- **`tests/test_signals.py`**: 12 кейсов F1–F4 + kill-switch (pytest).
+
+### Исправлено
+
+- `detect_signals` — **только** `apply_filters` (фильтры), штрафы EMA/пила/late-chase — **отдельно** (это не фильтры).
+- `get_recent_signal(..., now=None)` — `cutoff` и `age_min` от `now` (было `datetime.now()`).
+
+### Известные ограничения
+
+- `test_signals.py` — 6 failed (`np.True_ is True`), **фикс**: `return bool(...)` в 3 функциях (`_is_rejection_candle`, `_is_engulfing`, `_has_volume_confirmation`).
+- `test_filters.py` — **TODO** (по одному тесту на фильтр).
+- `verify_filters.py` — `_filter_blocks` применяет **все** фильтры (включая `enabled=False`); `enabled_str` — только для вывода. **Не баг** (для анализа эффекта), но **надо** документировать.
+
+## [0.15.0] — 2026-11-20
+
+### Тесты
+
+- **Все** `check()`-**тесты** **переписаны** **на** **pytest** (15 **файлов**): `test_instruments` (17), `test_levels` (7), `test_indicators` (22), `test_current_price` (4), `test_notify` (5), `test_virtual_pnl` (8), `test_paper` (14), `test_paper_dedup` (9), `test_paper_resolve` (7), `test_paper_stats` (7), `test_paper_stats_extra` (4), `test_paper_export` (3), `test_real_trading` (5), `test_alor_trade` (4), `test_journal_integrity` (4, интеграционный).
+- **Интеграционные** **помечены** `@pytest.mark.integration`.
+- **`pyproject.toml`** — `[tool.pytest.ini_options]`.
+- **`README.md`** — раздел «Тесты».
+
+### Исправлено
+
+- `_compute_stops` **возвращает** 3 **значения** (stop, take, meta) — **тесты** **обновлены**.
+- `trader/paper.py` — `_columns`/`_placeholders` **согласованы** (SQL syntax).
+
+### Известные ограничения
+
+- `test_paper_end_of_day.py` — 6 **падений** (`virtual_pnl` **не** **имеет** `end_of_day`). **Решение** **в** **работе**.
+- `test_signals.py` — **не** **переписан** **на** **pytest** (**после** **рефактора** `signals.py`).
+- `test_mfe_backfill.py` — **не** **переписан**.
+
+## [0.14.0] — 2026-11-20
+
+### Добавлено
+
+- **Адаптивный take** (Задача 1): `take = min(2.0×ATR, 0.6×day_range_atr×ATR)`, не меньше `0.8×ATR`.
+- **`ADAPTIVE_TAKE_ENABLED`**, **`TAKE_DAY_RANGE_FRAC=0.6`**, **`MIN_TAKE_ATR=0.8`** в `config.py`.
+- **`_compute_stops`** → 3 значения (stop, take, meta).
+- **`Signal.take_source`**, **`take_atr_value`**, **`day_range_atr_at_open`**.
+- **Миграция `paper_trades`**: `take_source`, `take_atr_value`, `day_range_atr_at_open`.
+- **`paper_stats`**: `by_take_source`.
+- **`scripts/backtest.py`**: `adaptive_take` (A/B: baseline vs adaptive).
+
+### Результат (11–19.11, n=23)
+
+- **baseline (take=2.0):** PF=0.44, exp=−8.1.
+- **adaptive take:** PF=0.44, exp=−8.1 — **идентично**.
+- **Причина:** `day_range_atr ~3.5` → `0.6 × 3.5 = 2.1 > 2.0` → адаптивный **не сработал**.
+
+### Решение
+
+- `ADAPTIVE_TAKE_ENABLED=True` — **оставить** (для низкой волатильности).
+- Гипотеза **не проверена** на высокой волатильности.
+
+### Известные ограничения
+
+- `by_take_source`: `unknown` у старых (80), новые — заполняются.
+- Адаптивный take **не срабатывает** при `day_range_atr > 3.33`.
+
+## [0.13.0] — 2026-11-20
+
+### Добавлено
+
+- **MFE/MAE + volume_ratio** (Задача 4): `volume_ratio_at_open`, `mfe_source`, `mae_source` в `paper_trades`.
+- **`by_volume_ratio`**, **`by_mae_ratio`** в `paper_stats`.
+- **`scripts/backfill_mfe_mae.py`**: backfill по `candles_*.json` (14 обновлено, 50 unavailable).
+- **`scripts/optimize_stops.py`** (Задача 5): сетка stop × take, train/test, PF/exp.
+- **`paper-stats`** — блок «Рекомендация stop/take» (read-only, `Confidence: low` при n<30).
+- **`tests/test_mfe_backfill.py`**: 12 проверок (PF/exp, grid, ambiguous).
+
+### Исправлено
+
+- `journal_cli.py`: `Vol` после `Size` в `paper-trades --wide` (было сдвиг).
+- `_calc_pf_exp`: timeout = loss (PF и exp согласованы).
+
+### Результаты (n=14, 11–19.11)
+
+- **MFE < 0.3**: 11L (все loss, −298 ₽) — тейк 2.0 ATR далёк.
+- **MAE ≥ 1.0**: 9L (все loss, −246 ₽) — стоп 1.0 ATR узок.
+- **`optimize_stops.py`**: все комбинации PF < 1, train/test нестабильны.
+
+### Решение
+
+- `STOP_ATR_MULT=1.0`, `TAKE_ATR_MULT=2.0` — **НЕ менять** до n ≥ 30 (оверфит).
+
+### Известные ограничения
+
+- `n=14` — мало (нужно 30+).
+- `mfe_source=unavailable` у 50 (до 11.11, нет `candles_*.json`).
+- `volume_ratio_at_open` — `unknown` у старых, новые — заполняются.
+
+## [0.12.0] — 2026-11-19
+
+### Добавлено
+
+- **`PAPER_SKIP_BREAKOUT`** (kill-switch): `True` — `breakout` не создаётся вообще.
+- **`BREAKOUT_FILTER`** (enum): `"none" | "F1" | "F2" | "F3" | "F4"` — условные фильтры для breakout.
+  - F1: ADX ≥ 25 (strong) только.
+  - F2: ADX < 20 (flat) только.
+  - F3: `market_state == "impulse"` только.
+  - F4: `week_trend` не противоречит `direction` (neutral пропускаем).
+- **`strategy/signals.py`**: `_breakout_passes_filter()` + блоки в `detect_signals`.
+- **`core/analyzer.py`**: `market_state = "impulse"` (impulse_atr > 2.0, retrace < 0.2 × impulse).
+- **`core/analyzer.py`**: `analyze_from_df(write_history=True)` — `False` для backtest/replay.
+- **`scripts/backtest.py`**: честный replay paper-логики (без look-ahead, `df.iloc[:t+1]`).
+  - `_load_candles`: из `candles_*.json` (склейка snapshots, дедуп), fallback `get_candles_tf`.
+  - `--compare`: `current_config` vs `baseline` vs `skip_breakout` vs F1–F4.
+  - `run_backtest(skip_filters=True)` — изолированные варианты.
+- **`scripts/verify_filters.py`**: F1–F4 безусловно, `compute_trade_result` (с комиссией), PF/exp.
+- **`tests/test_signals.py`**: 12 кейсов на F1–F4 + kill-switch.
+
+### Исправлено
+
+- **`get_recent_signal(..., now=None)`**: `cutoff` и `age_min` от `now` (было `datetime.now()`).
+  Чинит: match rate 0% в `verify_candles.py` (пила на реальной истории), ложный штраф «пила» в тестах.
+- **`detect_signals`**: передаёт `now=result.timestamp` в `get_recent_signal`.
+
+### Статистика (backtest 11–19.11, 7 дней)
+
+| Вариант           | n   | W   | L   | T   | Rub        | PF       | Exp      |
+| ----------------- | --- | --- | --- | --- | ---------- | -------- | -------- |
+| baseline          | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     |
+| **skip_breakout** | 17  | 5   | 10  | 2   | **−84.02** | **0.73** | **−3.3** |
+| F1 ADX≥25         | 21  | 5   | 12  | 4   | −161.16    | 0.51     | −6.9     |
+| F2 ADX<20         | 18  | 5   | 11  | 2   | −103.68    | 0.67     | −4.2     |
+| F3 impulse        | 18  | 5   | 10  | 3   | −87.08     | 0.73     | −3.3     |
+| F4 week_trend     | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     |
+| current_config    | 15  | 4   | 10  | 1   | −89.70     | 0.62     | −4.2     |
+
+**Вывод:** `skip_breakout` — лучший (PF 0.73). F1–F4 не доказаны (n=15–23, мало).
+
+### Известные ограничения
+
+- **n=15–23** — мало для статистики. Нужно 30+ сделок и replay-гейт (match rate ≥ 70%).
+- **`verify_candles.py` match rate 0%** — replay применяет фильтры Y к историческим сигналам (фикс отдельно).
+- **`candles_*.json` есть только с 11.11** — backtest возможен на 11–19.11.
+
 ## [0.9.0] — 2026-10-29
 
 ### Добавлено

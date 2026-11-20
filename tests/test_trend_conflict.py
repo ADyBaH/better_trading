@@ -74,7 +74,7 @@ def test_warnings_conflict():
         print(f"  {'✓' if c else '❌'} {name}")
         if not c:
             ok = False
-    return ok
+    assert ok, "Не все warnings сработали"
 
 
 def test_trend_level_block():
@@ -108,7 +108,7 @@ def test_trend_level_block():
     print(f"  Сигналов: {len(signals)} (ожидалось 0)")
     ok = len(signals) == 0
     print(f"  {'✓' if ok else '❌'} SHORT trend_level заблокирован")
-    return ok
+    assert ok, "trend_level не заблокирован"
 
 
 def main():

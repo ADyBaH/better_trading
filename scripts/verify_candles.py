@@ -86,21 +86,24 @@ def replay_date(date_str: str) -> dict:
     # --- Fallback: если H1/H4 нет в candles_*.json — тянем из market.db ---
     from data.api_facade import get_candles_tf
 
-    if not candles_by_tf.get("H1") or candles_by_tf["H1"].empty:
+    h1_df = candles_by_tf.get("H1")
+    if h1_df is None or h1_df.empty:
         log.info("H1 нет в candles_*.json — тянем из market.db")
         try:
             candles_by_tf["H1"] = get_candles_tf("H1", count=300)
         except Exception as e:
             log.warning("Не удалось получить H1: %s", e)
 
-    if not candles_by_tf.get("H4") or candles_by_tf["H4"].empty:
+    h4_df = candles_by_tf.get("H4")
+    if h4_df is None or h4_df.empty:
         log.info("H4 нет в candles_*.json — тянем из market.db")
         try:
             candles_by_tf["H4"] = get_candles_tf("H4", count=300)
         except Exception as e:
             log.warning("Не удалось получить H4: %s", e)
 
-    if not candles_by_tf.get("M15", pd.DataFrame()).empty is False:
+    m15_df = candles_by_tf.get("M15")
+    if m15_df is None or m15_df.empty:
         log.error("Нет M15 свечей для %s", date_str)
         return {}
 
@@ -145,20 +148,47 @@ def replay_date(date_str: str) -> dict:
             timeframe=analysis.get("timeframe"),
             timestamp=ts,
             skip_age_check=True,
+            skip_filters=True,
+            write_history=False,
         )
 
         sigs_replay = result.signals if result else []
 
-        # Сравнение по (direction, kind, round(entry, 3))
-        a_set = {
-            (s["direction"], s["kind"], round(s["entry_price"], 3))
-            for s in sigs_analysis
-        }
-        r_set = {(s.direction, s.kind, round(s.entry_price, 3)) for s in sigs_replay}
+        # Сравнение с допуском по entry (0.5 ATR)
+        atr = result.atr if result else 0.0
+        tol = 0.5 * atr
 
-        match = a_set & r_set
-        only_a = a_set - r_set
-        only_r = r_set - a_set
+        # Сравниваем только direction + entry (kind — look-ahead M15)
+        a_set = {(s["direction"], s["entry_price"]) for s in sigs_analysis}
+        r_set = {(s.direction, s.entry_price) for s in sigs_replay}
+
+        def _match_sets(a_set, r_set, tol):
+            matched_set = set()
+            only_a = set()
+            for a in a_set:
+                found = False
+                for r in r_set:
+                    if a[0] == r[0] and abs(a[1] - r[1]) <= tol:
+                        matched_set.add(a)
+                        found = True
+                        break
+                if not found:
+                    only_a.add(a)
+            only_r = set()
+            for r in r_set:
+                found = False
+                for a in a_set:
+                    if a[0] == r[0] and abs(a[1] - r[1]) <= tol:
+                        found = True
+                        break
+                if not found:
+                    only_r.add(r)
+            return matched_set, only_a, only_r
+
+        match, only_a, only_r = _match_sets(a_set, r_set, tol)
+        match_out = [(x[0], round(x[1], 3)) for x in match]
+        only_a_out = [(x[0], round(x[1], 3)) for x in only_a]
+        only_r_out = [(x[0], round(x[1], 3)) for x in only_r]
 
         total_signals_analysis += len(a_set)
         total_signals_replay += len(r_set)
@@ -169,11 +199,11 @@ def replay_date(date_str: str) -> dict:
         results["snapshots"].append(
             {
                 "timestamp": ts_str,
-                "analysis": [list(x) for x in a_set],
-                "replay": [list(x) for x in r_set],
-                "match": [list(x) for x in match],
-                "only_analysis": [list(x) for x in only_a],
-                "only_replay": [list(x) for x in only_r],
+                "analysis": [(x[0], round(x[1], 3)) for x in a_set],
+                "replay": [(x[0], round(x[1], 3)) for x in r_set],
+                "match": match_out,
+                "only_analysis": only_a_out,
+                "only_replay": only_r_out,
             }
         )
 

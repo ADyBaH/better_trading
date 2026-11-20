@@ -15,6 +15,10 @@ import requests
 from data.api_moex import get_candles, get_candles_range
 import config
 
+import pytest
+
+pytestmark = pytest.mark.integration
+
 
 def test_1_current():
     print("\n=== Тест 1: Что отдаёт ISS прямо сейчас ===")
