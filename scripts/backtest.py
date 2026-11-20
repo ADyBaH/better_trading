@@ -156,6 +156,7 @@ def run_backtest(
     filter_name: str | None = None,
     skip_breakout: bool = False,
     skip_filters: bool = False,
+    adaptive_take: bool | None = None,
 ) -> dict:
     """
     Прогоняет detect_signals по барам последовательно (без look-ahead).
@@ -192,7 +193,9 @@ def run_backtest(
         config.PAPER_SKIP_BREAKOUT = True
     if filter_name:
         config.BREAKOUT_FILTER = filter_name
-
+    if adaptive_take is not None:
+        saved.setdefault("ADAPTIVE_TAKE_ENABLED", getattr(config, "ADAPTIVE_TAKE_ENABLED", False))
+        config.ADAPTIVE_TAKE_ENABLED = adaptive_take
     try:
         # Начинаем с n_impulse=12 + запас для индикаторов
         start_idx = max(250, 12 + 50)
@@ -334,20 +337,24 @@ def main():
 
     if args.compare:
         variants = [
-            # (name, filter_name, skip_breakout, skip_filters)
-            ("current_config", None, False, False),  # как в Y (с PAPER_SKIP_*)
-            ("baseline", None, False, True),  # чисто, без PAPER_SKIP_*
-            ("skip_breakout", None, True, True),  # без breakout, чисто
-            ("F1 ADX>=25", "F1", False, True),
-            ("F2 ADX<20", "F2", False, True),
-            ("F3 impulse", "F3", False, True),
-            ("F4 week_trend", "F4", False, True),
+            # (name, filter_name, skip_breakout, skip_filters, adaptive_take)
+            ("current_config", None, False, False, None),
+            ("baseline (take=2.0)", None, False, True, False),
+            ("adaptive take", None, False, True, True),
+            ("skip_breakout", None, True, True, None),
+            ("F1 ADX>=25", "F1", False, True, None),
+            ("F2 ADX<20", "F2", False, True, None),
+            ("F3 impulse", "F3", False, True, None),
+            ("F4 week_trend", "F4", False, True, None),
         ]
         rows = []
-        for name, flt, skip, skip_f in variants:
+        for name, flt, skip, skip_f, ad_take in variants:
             res = run_backtest(
                 df_m15, df_h1, df_h4, args.symbol,
-                filter_name=flt, skip_breakout=skip, skip_filters=skip_f,
+                filter_name=flt,
+                skip_breakout=skip,
+                skip_filters=skip_f,
+                adaptive_take=ad_take,
             )
             rows.append((name, res))
 

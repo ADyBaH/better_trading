@@ -385,14 +385,44 @@ def _commission_in_price(symbol: str) -> float:
 
 def _compute_stops(
     entry: float, direction: str, atr: float, day_range_atr: float | None = None
-) -> tuple[float, float]:
+) -> tuple[float, float, dict]:
+    """
+    Возвращает (stop, take, meta).
+    meta: take_source, take_atr_value, day_range_atr_at_open.
+    """
+    meta = {
+        "take_source": "atr",
+        "take_atr_value": None,
+        "day_range_atr_at_open": day_range_atr,
+    }
+
     if config.USE_ATR_STOPS:
         stop_dist = config.STOP_ATR_MULT * atr
-        # take ≤ 0.6 × day_range, но не меньше 1.0 ATR
-        take_mult = config.TAKE_ATR_MULT
-        if day_range_atr is not None and day_range_atr > 0:
-            take_mult = min(take_mult, max(1.0, day_range_atr * 0.6))
-        take_dist = take_mult * atr
+
+        take_atr = config.TAKE_ATR_MULT * atr
+        meta["take_atr_value"] = round(take_atr, 5)
+
+        if getattr(config, "ADAPTIVE_TAKE_ENABLED", False):
+            # --- Адаптивный take (Задача 1) ---
+            if day_range_atr is not None and day_range_atr >= 0.5:
+                take_day = config.TAKE_DAY_RANGE_FRAC * day_range_atr * atr
+                take_dist = min(take_atr, take_day)
+                take_dist = max(take_dist, config.MIN_TAKE_ATR * atr)
+                meta["take_source"] = (
+                    "day_range" if take_day < take_atr else "atr"
+                )
+            else:
+                # partial_day / day_range_atr = 0 -> baseline
+                take_dist = take_atr
+                meta["take_source"] = "atr"
+        else:
+            # --- baseline (2.0×ATR, но ≤ 0.6×day_range) ---
+            if day_range_atr is not None and day_range_atr > 0:
+                take_mult = min(config.TAKE_ATR_MULT, max(1.0, day_range_atr * 0.6))
+                take_dist = take_mult * atr
+                meta["take_source"] = "day_range" if take_mult < config.TAKE_ATR_MULT else "atr"
+            else:
+                take_dist = take_atr
     else:
         stop_dist = config.STOP_POINTS * config.PRICE_STEP
         take_dist = config.TAKE_POINTS * config.PRICE_STEP
@@ -404,9 +434,9 @@ def _compute_stops(
         take_dist = config.TAKE_POINTS * config.PRICE_STEP
 
     if direction == "long":
-        return entry - stop_dist, entry + take_dist
+        return entry - stop_dist, entry + take_dist, meta
     else:
-        return entry + stop_dist, entry - take_dist
+        return entry + stop_dist, entry - take_dist, meta
 
 
 def _finalize_signal(
@@ -602,7 +632,7 @@ def detect_bounce(
                 continue
 
         entry = price
-        stop, take = _compute_stops(
+        stop, take, stop_meta = _compute_stops(
             entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
         )
 
@@ -618,6 +648,9 @@ def detect_bounce(
             reasons=reasons,
             level_price=lv.price,
         )
+        signal.take_source = stop_meta["take_source"]
+        signal.take_atr_value = stop_meta["take_atr_value"]
+        signal.day_range_atr_at_open = stop_meta["day_range_atr_at_open"]
         signals.append(signal)
 
     return signals
@@ -714,7 +747,7 @@ def detect_breakout(
                 continue
 
         entry = price
-        stop, take = _compute_stops(
+        stop, take, stop_meta = _compute_stops(
             entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
         )
 
@@ -730,6 +763,9 @@ def detect_breakout(
             reasons=reasons,
             level_price=lv.price,
         )
+        signal.take_source = stop_meta["take_source"]
+        signal.take_atr_value = stop_meta["take_atr_value"]
+        signal.day_range_atr_at_open = stop_meta["day_range_atr_at_open"]
         signals.append(signal)
 
     return signals
@@ -803,7 +839,7 @@ def detect_trend_level(
             continue
 
         entry = price
-        stop, take = _compute_stops(
+        stop, take, stop_meta = _compute_stops(
             entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
         )
 
@@ -819,6 +855,9 @@ def detect_trend_level(
             reasons=reasons,
             level_price=lv.price,
         )
+        signal.take_source = stop_meta["take_source"]
+        signal.take_atr_value = stop_meta["take_atr_value"]
+        signal.day_range_atr_at_open = stop_meta["day_range_atr_at_open"]
         signals.append(signal)
 
     return signals

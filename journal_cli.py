@@ -479,6 +479,7 @@ def cmd_paper_stats(args) -> int:
     _print_group("По partial_day (день завершён?)", s["by_partial_day"])
     _print_group("По volume ratio", s.get("by_volume_ratio", {}))
     _print_group("По MAE ratio (стоп)", s.get("by_mae_ratio", {}))
+    _print_group("По take_source", s.get("by_take_source", {}))
 
     # by_score — сортируем по возрастанию score
     if s["by_score"]:

@@ -108,6 +108,12 @@ def init_paper_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_source TEXT")
     if "mae_source" not in existing:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_source TEXT")
+    if "take_source" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN take_source TEXT")
+    if "take_atr_value" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN take_atr_value REAL")
+    if "day_range_atr_at_open" not in existing:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN day_range_atr_at_open REAL")
     conn.commit()
 
 
@@ -412,6 +418,7 @@ def save_signal_as_paper(
                 "created_at, result, warnings, context, "
                 "bid_vol, ask_vol, market_price_at_open, size, balance_after, "
                 "mfe_source, mae_source"
+                "take_source, take_atr_value, day_range_atr_at_open, "
             )
             _placeholders = ", ".join(["?"] * len(_columns.split(",")))
             changes_before = conn.total_changes
@@ -460,6 +467,9 @@ def save_signal_as_paper(
                     None,  # balance_after
                     "live",  # ← mfe_source
                     "live",  # ← mae_source
+                    sig.take_source,
+                    sig.take_atr_value,
+                    sig.day_range_atr_at_open,
                 ),
             )
             inserted = conn.total_changes - changes_before
@@ -1066,7 +1076,9 @@ def paper_stats(
         elif pct > 60:
             return "bid-heavy (>60)"
         return "balanced (40-60)"
-
+    
+    # --- by_take_source ---
+    by_take_source = _group("take_source")
     by_pressure = {}
     for r in rows:
         bucket = _pressure_bucket(r["bid_vol"], r["ask_vol"])
@@ -1362,6 +1374,7 @@ def paper_stats(
         "by_partial_day": _process(by_partial_day),
         "by_volume_ratio": _process(by_volume_ratio),
         "by_mae_ratio": _process(by_mae_ratio),
+        "by_take_source": _process(by_take_source),
     }
 
 
