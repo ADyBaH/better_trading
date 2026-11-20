@@ -417,8 +417,8 @@ def save_signal_as_paper(
                 "rsi_at_open, atr_percentile_at_open, volume_ratio_at_open, "
                 "created_at, result, warnings, context, "
                 "bid_vol, ask_vol, market_price_at_open, size, balance_after, "
-                "mfe_source, mae_source"
-                "take_source, take_atr_value, day_range_atr_at_open, "
+                "mfe_source, mae_source, "
+                "take_source, take_atr_value, day_range_atr_at_open"
             )
             _placeholders = ", ".join(["?"] * len(_columns.split(",")))
             changes_before = conn.total_changes
