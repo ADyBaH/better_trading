@@ -811,6 +811,56 @@ def main() -> int:
 
     journal.init_db()
 
+    # --- Рекомендация stop/take (по MFE/MAE, Задача 5) ---
+    try:
+        from scripts.optimize_stops import STOP_GRID, TAKE_GRID, run_grid
+        from core.instruments import get_instrument
+        from trader.paper import init_paper_table
+
+        # Достаём сделки с MFE/MAE
+        with journal.connect_journal() as conn:
+            init_paper_table(conn)
+            rows = conn.execute("""
+                SELECT * FROM paper_trades
+                WHERE mfe_points IS NOT NULL AND mae_points IS NOT NULL
+                  AND result IN ('win', 'loss', 'timeout')
+                  AND mfe_source IN ('live', 'backfill')
+                """).fetchall()
+
+        if len(rows) >= 5:
+            inst = get_instrument(config.DEFAULT_INSTRUMENT)
+            rows_dict = [dict(r) for r in rows]
+
+            # Текущее
+            cur = run_grid(rows_dict, inst, config.STOP_ATR_MULT, config.TAKE_ATR_MULT)
+
+            # Лучшее из сетки
+            best = None
+            for stop in STOP_GRID:
+                for take in TAKE_GRID:
+                    res = run_grid(rows_dict, inst, stop, take)
+                    if res["pf"] is not None and (
+                        best is None or (res["pf"] or 0) > (best["pf"] or 0)
+                    ):
+                        best = res
+
+            print()
+            print("── Рекомендация stop/take (по MFE/MAE) ──")
+            print(
+                f"  Текущее:   stop={config.STOP_ATR_MULT:.1f}, take={config.TAKE_ATR_MULT:.1f} | "
+                f"n={cur['n']} | PF={cur['pf']} | Exp={cur['exp']}"
+            )
+            if best:
+                print(
+                    f"  Best(grid): stop={best['stop']:.1f}, take={best['take']:.1f} | "
+                    f"n={best['n']} | PF={best['pf']} | Exp={best['exp']}"
+                )
+
+            conf = "low (n<30, предварительно)" if len(rows) < 30 else "medium (n>=30)"
+            print(f"  Confidence: {conf} — НЕ менять config автоматически")
+    except Exception as e:
+        print(f"\n(Рекомендация stop/take недоступна: {e})")
+
     return args.func(args)
 
 
