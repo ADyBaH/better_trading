@@ -116,20 +116,8 @@ def test_context():
     missing = expected_keys - actual_keys
     extra = actual_keys - expected_keys
 
-    if missing:
-        print(f"  ❌ Отсутствуют ключи: {missing}")
-        return False
-    if extra:
-        print(f"  ⚠ Лишние ключи: {extra}")
-
+    assert not missing, f"Отсутствуют ключи: {missing}"
     print(f"  ✓ Все {len(expected_keys)} полей на месте")
-    print(f"  adx_state = {ctx['adx_state']}")
-    print(f"  rsi_state = {ctx['rsi_state']}")
-    print(f"  ema_alignment = {ctx['ema_alignment']}")
-    print(f"  session = {ctx['session']}, hour_utc = {ctx['hour_utc']}")
-    print(f"  level_tags = {ctx['level_tags']}")
-    print(f"  distance_to_level_atr = {ctx['distance_to_level_atr']}")
-    return True
 
 
 def test_warnings():
@@ -308,15 +296,15 @@ def test_atr_stops():
     entry = 12.500
     atr = 0.0300
 
-    # Long
-    stop, take = _compute_stops(entry, "long", atr)
+    # Long — _compute_stops возвращает (stop, take, meta)
+    stop, take, _meta = _compute_stops(entry, "long", atr)
     expected_stop = entry - config.STOP_ATR_MULT * atr
     expected_take = entry + config.TAKE_ATR_MULT * atr
 
     ok_long = abs(stop - expected_stop) < 0.0001 and abs(take - expected_take) < 0.0001
 
     # Short
-    stop_s, take_s = _compute_stops(entry, "short", atr)
+    stop_s, take_s, _meta_s = _compute_stops(entry, "short", atr)
     expected_stop_s = entry + config.STOP_ATR_MULT * atr
     expected_take_s = entry - config.TAKE_ATR_MULT * atr
 
@@ -330,7 +318,8 @@ def test_atr_stops():
     print(f"  {'✓' if ok_long else '❌'} LONG (стоп ниже, тейк выше)")
     print(f"  {'✓' if ok_short else '❌'} SHORT (стоп выше, тейк ниже)")
 
-    return ok_long and ok_short
+    assert ok_long, "LONG: стоп/тейк не совпали с ожиданием"
+    assert ok_short, "SHORT: стоп/тейк не совпали с ожиданием"
 
 
 if __name__ == "__main__":
