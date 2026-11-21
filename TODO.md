@@ -1,262 +1,157 @@
 # TODO — активные баги и задачи
 
 Активные баги и задачи. История экспериментов — в `EXPERIMENTS.md`.
-Архитектурные улучшения — в задачах T-01…T-23 (см. трекер).
-Закрытые — в `CHANGELOG.md` и в конце файла.
+Архитектурные улучшения — T-01…T-23 (см. трекер). Закрытые — в `CHANGELOG.md`.
 
 **Последнее обновление:** 2026-11-21
 **Состояние:** `pytest` — 262+ passed, 9 deselected, 0 failed; `pytest -m integration` — 9 passed.
-**⚠️ Важно:** статистика 17.11 (PF 1.25) — **до** фикса look-ahead H1/H4 (T-01). **После** фикса — **другая** (PF 0.24–0.53, убыточно). **Не** использовать старые цифры для решений.
+**⚠️ Важно:** статистика 17.11 (PF 1.25) — **до** фикса look-ahead H1/H4 (T-01).
+**После** фикса — **другая** (PF 0.24–0.53, убыточно). **Не** использовать старые цифры.
 
 ---
 
-## 🔴 P0 — блокирует CI / ломает тесты
+## 🔴 P0 — блокеры (сделано)
 
-_(сейчас пусто — BUG-01 закрыт, T-20 закрыт)_
-
----
-
-## 🟠 P1 — нестабильный integration (флаки)
-
-### BUG-02. `test_iss_lag.py::test_4_direct_trades` — таймаут `iss.moex.com`
-
-**Обнаружено:** 2026-11-21, `pytest -m integration`.
-**Статус:** ⚠️ **флаки** (2026-11-21 — 9/9 passed, но ранее падал).
-**Тип:** флаки-тест (сеть + таймаут).
-**Приоритет:** P1.
-**Реальные данные:** не нужны.
-
-### Симптом
-
-```
-tests\test_iss_lag.py:83: in test_4_direct_trades
-    r = requests.get(url, params=params, timeout=30)
-E   requests.exceptions.ConnectionError: HTTPSConnectionPool(host='iss.moex.com', port=443): Read timed out.
-```
-
-`test_4_direct_trades` — единственный, кто бьёт в `trades.json` (лента сделок). Остальные 4 — проходят.
-
-### Причина
-
-1. `timeout=30` — на `trades.json` с большим диапазоном мало.
-2. Нет retry.
-3. Возможен rate-limit / большой объём.
-
-### Что сделать (минимальный фикс)
-
-1. `timeout=60` для `trades.json`.
-2. Сузить диапазон: последние 10 минут (`from = now - 10min`).
-3. Обернуть в `try/except ConnectionError → pytest.skip(...)`.
-4. `pytest-rerunfailures` уже в `requirements.txt` (`--reruns 2 --reruns-delay 5` в `addopts`).
-
-### Приёмка
-
-- [ ] `pytest tests/test_iss_lag.py::test_4_direct_trades -v` — passed или SKIPPED.
-- [ ] `pytest -m integration` — 0 failed (флаки переживаются rerun'ом).
-- [ ] `pytest -m integration` — < 60 с.
-
-### Оценка
-
-0.2 / 0.5 д.
+✅ **T-02**, **T-03** (не актуально), **T-15**, **T-16**, **T-17**, **T-19**, **T-20**, **T-21**, **T-18**.
 
 ---
 
-### T-01b. Live без look-ahead (ALOR текущая M15)
+## 🟠 P1 — статистическая честность / стабильность
 
-**Обнаружено:** 2026-11-21, при фиксе T-01 (H1/H4 без look-ahead).
-**Тип:** архитектурная задача (live использует текущую M15 — look-ahead).
-**Приоритет:** P1.
-**Реальные данные:** нужны (ALOR).
+### T-04. Bootstrap CI для PF/exp/winrate в paper-stats
 
-### Симптом
-
-`runner.py` (`analyze()`) → `get_candles_tf("M15", ...)` → ALOR отдаёт **текущую** M15 (`close` = последняя цена, **не** закрытая). Live **использует** её → **look-ahead** (в replay **не** воспроизводится, match rate 0–20%).
-
-`analysis_*.json` на `09:40` **содержит** сигнал → live **видит** `close[09:30]` (текущая). Replay **видит** `close[09:15]` (закрытая).
-
-### Причина
-
-ALOR WebSocket `BarsGetAndSubscribe` отдаёт **текущую** M15 (не закрытую). `runner.py` **не** фильтрует `begin + 15min <= now`.
-
-### Что сделать (минимальный фикс)
-
-1. `data/api_facade.py::get_candles_tf` — **добавить** `closed_only=True` (по умолчанию `False` для backward-compat).
-2. `runner.py` — `get_candles_tf("M15", closed_only=True)` (только закрытые).
-3. **Или** — `analyze()` — **отрезать** последнюю M15 (`df[begin + 15min <= now]`).
-4. **Проверить**: `pytest -m integration` — 9 passed.
-5. **Перезапустить** `verify_candles.py --date 2026-11-13` → match rate **≥ 70%** (если live **без** look-ahead).
-
-### Приёмка
-
-- [ ] `runner.py` — **не** использует текущую M15.
-- [ ] `verify_candles.py --date 2026-11-13` — match rate **≥ 70%**.
-- [ ] `pytest -m integration` — 9 passed.
-- [ ] `backtest.py --compare` — **новая** таблица (сравнить с `EXPERIMENTS.md`).
-
-### Оценка
-
-0.5 д.
+**Приоритет:** P1. **Оценка:** 1 д.
+**Симптом:** решения по n=14–23, без CI. PF 0.73 при n=17 — ±0.4.
+**Фикс:** `_bootstrap_ci(values, stat_fn, n_iter=1000, alpha=0.05)` в `trader/stats.py`; вывод в `paper-stats`.
+**Приёмка:** `paper-stats` показывает `PF 1.46 [1.02, 1.91]`; тест на 1000 выборок — coverage ≈ 95%.
 
 ---
 
-## 🟡 P2 — баги в коде (не тестах)
+### T-05. `paper_skipped` с reason (ablation «в живую»)
 
-### BUG-03. `partial_day` через `datetime.now() + 3` — хрупко
+**Приоритет:** P1. **Оценка:** 1.5 д. **Зависит:** T-01.
+**Симптом:** «runner блокировал по data_age=14» — следа нет.
+**Фикс:** миграция `paper_skipped(...)`; `journal_cli.py paper-skipped --by-reason`.
+**Приёмка:** на 1 дне live — counts по фильтрам; `paper_trades` не изменилась.
 
-**Обнаружено:** 2026-11-21, код-ревью.
-**Тип:** баг кода (хрупкость, не поломка сейчас).
-**Приоритет:** P2.
+---
 
-### Симптом
+### T-06. `schema_version` + миграции + **рефакторинг работы с БД**
 
-`indicators/calc.py::get_trend_context`:
+**Приоритет:** P1. **Оценка:** **2 д** (было 1 д — расширено).
+**Симптом:**
 
-```
-now = datetime.now()
-hour_msk = (now.utctimetuple().tm_hour + 3) % 24
-partial_day = hour_msk < 18
-```
+- Десяток ручных `ALTER TABLE`, был баг SQL syntax (0.15.0). `_columns/_placeholders` рассинхронизируются.
+- `trader/paper.py` **раздут** (~700+ строк): схема, миграции, `save_signal_as_paper`, `resolve_open_trades`, `virtual_pnl`, `paper_stats` — всё **в одном файле**.
+- **Работа с БД** (SQL, миграции, `_columns`, `_placeholders`, `conn.execute`) **перемешана** с **бизнес-логикой** (PnL, статистика).
 
-**Сейчас корректно** (компенсация `+3`), но **хрупко**:
+**Что сделать:**
 
-- если сервер в UTC → `datetime.now()` = UTC, `+3` = МСК ✅
-- если сервер в МСК → `datetime.now()` = МСК, `utctimetuple()` = МСК−3, `+3` = МСК ✅
-- **но** если кто-то поменяет на `datetime.utcnow()` → **сломается**.
+1. **`schema_version`** (`PRAGMA user_version`).
+2. **`MIGRATIONS: list[tuple[int, Callable]]`** — `init_paper_table()` применяет по порядку, в транзакции, обновляет `user_version`.
+3. **`_columns/_placeholders`** — генерировать из `PRAGMA table_info` (или dataclass).
+4. **Вынести работу с БД в отдельный блок** — `trader/paper_db.py` (или `storage/paper_db.py`):
+   - `init_paper_table(conn)` — схема + миграции.
+   - `MIGRATIONS` — список миграций.
+   - `insert_paper_trade(conn, ...)` — INSERT с `_columns/_placeholders`.
+   - `select_open_trades(conn, symbol)` — SELECT.
+   - `update_paper_trade_resolve(conn, id, ...)` — UPDATE.
+   - `_columns`, `_placeholders` — генерация.
+5. **`trader/paper.py`** — **только бизнес-логика**:
+   - `virtual_pnl(...)` — PnL по свечам.
+   - `save_signal_as_paper(...)` — вызывает `paper_db.insert_paper_trade`.
+   - `resolve_open_trades(...)` — вызывает `paper_db.select_open_trades` + `paper_db.update_paper_trade_resolve`.
+   - `paper_stats(...)` — вызывает `paper_db.*` (или остаётся с SQL — **опционально** вынести в `paper_stats_db.py`).
+6. **`tests/test_paper_db.py`** — тесты на миграции (идемпотентность, `user_version`), `insert`/`select`/`update`.
 
-### Причина
+**Приёмка:**
 
-Нет единой функции `now_msk()`. `partial_day` зависит от локального времени сервера.
+- [ ] `PRAGMA user_version` растёт при миграциях.
+- [ ] Новый столбец — одна строка в `MIGRATIONS`.
+- [ ] `trader/paper_db.py` — **вся** работа с БД (`conn.execute`).
+- [ ] `trader/paper.py` — **только** бизнес-логика (нет `conn.execute`).
+- [ ] `pytest tests/test_paper*.py tests/test_paper_db.py -v` — зелёные.
+- [ ] Тест идемпотентности миграций.
 
-### Что сделать (минимальный фикс, без T-14)
+**Оценка:** 2 д.
 
-1. `core/time_utils.py`:
-   ```
-   from datetime import datetime, timedelta, timezone
-   def now_msk() -> datetime:
-       return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=3)
-   ```
-2. `calc.py`:
-   ```
-   from core.time_utils import now_msk
-   now = now_msk()
-   partial_day = now.hour < 18
-   ```
+---
 
-**НЕ делать** T-14 (миграция `paper_trades`, `partial_day_at_resolve`) — **отменено**.
+### T-07. Pre-registration экспериментов
 
-### Приёмка
+**Приоритет:** P1. **Оценка:** 0.5 д.
+**Фикс:** `EXPERIMENTS.md` (шаблон — уже есть); `config.EXPERIMENT_ID`; `paper_trades.experiment_id`.
+**Приёмка:** 1 пилотный эксперимент зарегистрирован; `experiment_id` заполнен.
 
-- [ ] `pytest tests/test_partial_day.py -v` — зелёные.
-- [ ] `pytest tests/test_indicators.py -v` — зелёные.
-- [ ] `now_msk()` — naive datetime, близкий к реальному МСК.
+---
 
-### Оценка
+### T-08. Ablation study фильтров
 
-0.1 д (10 минут).
+**Приоритет:** P1. **Оценка:** 1.5 д. **Зависит:** T-01b, T-02.
+**Фикс:** `scripts/ablation.py --since --until --base=current_config`; ΔPF/Δexp/Δn с CI.
+**Приёмка:** `ablation.py` на 11–19.11; таблица с ΔPF + CI; пересечения указаны.
+
+---
+
+## 🟡 P2 — архитектура и надёжность
+
+---
+
+### T-02b. Пересмотр фильтров (13.11: режут прибыль)
+
+**Приоритет:** P2 (после T-01b). **Оценка:** 0.5 д.
+**Симптом:** 5 фильтров отсекают 9 из 10 сигналов (+39.58 ₽ прибыльных), проходит 1 (−28.96 ₽).
+**Фикс:** `verify_filters.py` на 7 днях; `normal_breakout` / `pullback_bounce` — пересмотреть (OFF?).
 
 ---
 
 ### T-12. Единый `REAL_TRADING_MODE`
 
-**Обнаружено:** 2026-11-21, код-ревью.
-**Тип:** архитектурный долг (два `_MOCK_MODE`).
-**Приоритет:** P2.
-
-### Симптом
-
-`data/api_alor_trade.py::_MOCK_MODE` и `trader/real.py::_MOCK_MODE` — **два** флага. `REAL_TRADING_MODE` **нет** в `config.py`.
-
-### Причина
-
-Нет **единого** источника истины. Легко **рассинхронизировать**.
-
-### Что сделать
-
-1. `config.py`: `REAL_TRADING_MODE = "mock"` (значения: `"mock"` | `"live"`).
-2. `core/real_mode.py` (новый): `check_real_mode(cli_flag=False)` — если `"live"` без `--i-understand-risk` / `I_UNDERSTAND_RISK=1` → `sys.exit(1)`.
-3. `api_alor_trade.py` / `trader/real.py` → `_is_mock()` (читает `config.REAL_TRADING_MODE`).
-4. `runner.py` / `main.py` — `argparse` + `check_real_mode()`.
-5. `tests/test_real_mode.py` — 7 тестов.
-
-### Приёмка
-
-- [ ] `grep "REAL_TRADING_MODE" config.py` — есть.
-- [ ] `grep "_MOCK_MODE" data/api_alor_trade.py trader/real.py` — нет (или backward-compat).
-- [ ] `pytest tests/test_real_mode.py -v` — 7 passed.
-- [ ] `live` без флага → `sys.exit(1)`.
-
-### Оценка
-
-0.5 д.
-
-### T-02b. Пересмотр фильтров (13.11: режут прибыль)
-
-**Обнаружено:** 2026-11-21, `verify_filters.py --date 2026-11-13` (после T-02).
-**Тип:** стратегический (фильтры вредят).
-**Приоритет:** P1.
-
-### Симптом
-
-Включённые 5 фильтров (`adx_trend`, `pullback_bounce`, `bid_heavy`, `bullish_long`, `normal_breakout`) отсекают **9 из 10** сигналов:
-
-- отсечено: **+39.58 ₽** (прибыльные);
-- прошло: **−28.96 ₽** (убыточный).
-
-**`normal_breakout`** — режет +17.40. **`pullback_bounce`** — режет +50.54 (win).
-
-### Что сделать
-
-1. **1 день — мало** (10 сигналов). Прогнать `verify_filters.py` на **7 днях** (11–19.11).
-2. **Сравнить** эффект на **7 днях** (стабильно ли).
-3. **`normal_breakout`** / **`pullback_bounce`** — **пересмотреть** (может, **OFF**).
-4. **T-01b** (live без look-ahead) — **сначала** (иначе цифры **недостоверны**).
-
-### Оценка
-
-0.5 д (после T-01b).
+**Приоритет:** P2. **Оценка:** 0.5 д.
+**Фикс:** `config.REAL_TRADING_MODE`; `core/real_mode.py::check_real_mode()`; `tests/test_real_mode.py`.
+**Приёмка:** один источник истины; live без флага — не запускается.
 
 ---
 
-## 🟢 P3 — архитектурный долг
+### T-13. `--by-score` + гипотеза «score не коррелирует с winrate»
 
-### T-06. `schema_version` + `make_mock_ind`
-
-**Приоритет:** P3 (не блокирует, но **класс** багов).
-**Симптом:** BUG-01 (`MockInd.partial_day`, `week_trend`) — **симптом** того, что мок устаревает после каждой миграции.
-**Решение:** `tests/conftest.py::make_mock_ind()` через `dataclasses.fields(IndicatorSnapshot)`.
-**Оценка:** 0.5 д.
+**Приоритет:** P2. **Оценка:** 0.5 д. **Зависит:** T-04.
+**Фикс:** `paper_stats.by_score` (бакеты <2, 2–3, 3–4, 4+); CI для winrate.
+**Приёмка:** `--by-score` с CI; решение в `EXPERIMENTS.md`.
 
 ---
 
-## ⏸ Отложено / отменено
+## 🟢 P3 — полировка
+
+### T-23. ADAPTIVE_TAKE — проверить
+
+**Приоритет:** P3. **Оценка:** 0.3 д. **Зависит:** T-04.
+**Фикс:** `paper-stats --by-day-range-atr` (<2.5, 2.5–3.33, >3.33); если нет дней <3.33 — `ADAPTIVE_TAKE_ENABLED=False`.
+
+---
+
+## ⏸ Отложено (не сейчас)
+
+### T-09. Heartbeat + health-check
+
+**Причина:** не первая необходимость. Вернуться после P1.
+
+### T-10. JSONL для уведомлений
+
+**Причина:** не нужен сейчас. `notifications.txt` + звук — работают.
+
+### T-11. Retention логов
+
+**Причина:** не нужен сейчас. Диск не критичен.
 
 ### T-14. `partial_day` open vs resolve — **ОТМЕНЕНО**
 
-**Причина:** слишком много кода (миграция `paper_trades`, `by_partial_day_at_resolve`, CLI, тесты). **Не стоит 0.5 дня** сейчас.
-**Когда вернуться:** если `partial_day` начнёт влиять на статистику. Сейчас — **не влияет**.
-**Альтернатива:** BUG-03 (`now_msk()`) — минимальный фикс таймзоны, без миграции.
+Слишком много кода. **Альтернатива:** BUG-03 (`now_msk()`).
 
-### T-01. Replay look-ahead — **ЧАСТИЧНО ЗАКРЫТ**
+### T-01. look-ahead — **частично**
 
-**Сделано:**
-
-- `core/analyzer.py`: `result.timestamp = timestamp` (не `datetime.now()`).
-- `scripts/verify_candles.py::_df_before`: H1/H4 — `begin + duration <= ts` (без look-ahead); M15 — `begin < ts` (как live).
-- `scripts/backtest.py`: H1/H4 — `begin + duration <= bar_ts`; M15 — `[:t+1]` (как live).
-- `tests/test_no_lookahead.py`: 2 теста.
-
-**Не достигнуто:**
-
-- Match rate ≥ 70% — **0–20%** (live сам имеет look-ahead: ALOR отдаёт текущую M15).
-
-**Причина:**
-
-- Live (`runner.py`) использует `close[текущей M15]` (ALOR). Replay — `close[закрытой]`. **Не** совпадает.
-
-**Решение:**
-
-- Принять: H1/H4 — без look-ahead (правильные уровни). M15 — как live.
-- **T-01b** (live без look-ahead) — **отдельная задача** (P1, 0.5 д).
+**Сделано:** `timestamp=ts`; H1/H4 `begin+duration<=ts`; `backtest.py` H1/H4; 2 теста.
+**Не достигнуто:** match rate ≥ 70% (live сам look-ahead). **T-01b** — отдельно.
 
 **Backtest (11–19.11, без look-ahead H1/H4):**
 | Вариант | n | PF | exp |
@@ -269,41 +164,59 @@ partial_day = hour_msk < 18
 | F4 week_trend | 17 | 0.24 | −11.8 |
 | current_config | 10 | 0.45 | −7.1 |
 
-**Все варианты убыточны (PF < 1).** Старые цифры (skip_breakout PF 0.73) — **look-ahead**, недостоверны.
+**Все убыточны (PF < 1).** Старые цифры (0.73) — look-ahead, недостоверны.
 
 ---
 
 ## ✅ Закрыто (архив)
 
-| ID         | Задача                                       | Статус                                                         |
-| ---------- | -------------------------------------------- | -------------------------------------------------------------- |
-| **BUG-01** | `MockInd.partial_day` / `week_trend`         | ✅ (262 passed; `test_paper_bid_ask.py` собирается, 0 тестов)  |
-| **BUG-04** | `price_step` хардкод `0.001` в `paper_stats` | ✅ (`get_instrument` + `try/except` → unknown)                 |
-| **BUG-05** | `PAPER_MAX_OPEN` — нет в `config.py`         | ✅ (`PAPER_MAX_OPEN = 1` + `getattr`)                          |
-| **BUG-06** | `PAPER_TIMEOUT_BARS` 20 vs 60                | ✅ (`CONFIG.md` 60 → 20)                                       |
-| **T-01**   | Replay look-ahead — **частично**             | ⚠️ H1/H4 без look-ahead; M15 — как live. **T-01b** — отдельно. |
-| **T-15**   | `vote()` в `indicators/vote.py`              | ✅ (19 тестов)                                                 |
-| **T-16**   | README → EXPERIMENTS/BRANCHES/CONFIG         | ✅ (README ≤ 302 строки)                                       |
-| **T-17**   | `test_filters.py`                            | ✅ (50 тестов, 99% покрытие)                                   |
-| **T-19**   | `test_instruments.py`                        | ✅ (28 тестов, 98% покрытие)                                   |
-| **T-20**   | CI (pyproject + GitHub Actions)              | ✅ (`ci.yml`, `pyproject.toml`, `requirements.txt`)            |
-| **T-02** | `verify_filters.py::_filter_blocks` — `enabled=False` | ✅ (`if not f.enabled: return False`). **Цифры эффекта пересчитаны** (13.11: фильтры режут прибыль +39.58 ₽). |
+| ID         | Задача                               | Статус                                                                                                                           |
+| ---------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **T-01**   | Replay look-ahead — частично         | ⚠️ H1/H4 без look-ahead; M15 как live; skip_filters; direction+kind. Match rate 43.8% (17.11), 33.3% (20.11). 22.11+ — проверка. |
+| **T-01b**  | Live без look-ahead M15              | ✅ analyze(): df[begin + tf <= now].                                                                                             |
+| **T-01c**  | H1/H4 с историей                     | ✅ save_candles_snapshots уже 300 (не нужен).                                                                                    |
+| **T-02**   | `verify_filters` `enabled=False`     | ✅ `if not f.enabled: return False`                                                                                              |
+| **T-03**   | 12 failed тестов                     | ✅ не актуально (262 passed)                                                                                                     |
+| **T-15**   | `vote()`                             | ✅ 19 тестов                                                                                                                     |
+| **T-16**   | README → EXPERIMENTS/BRANCHES/CONFIG | ✅ README ≤ 302                                                                                                                  |
+| **T-17**   | `test_filters.py`                    | ✅ 50 тестов                                                                                                                     |
+| **T-18**   | NOTES.md — целостность               | ✅ проверено, всё цело                                                                                                           |
+| **T-19**   | `test_instruments.py`                | ✅ 28 тестов                                                                                                                     |
+| **T-20**   | pyproject markers + CI               | ✅ `ci.yml`                                                                                                                      |
+| **T-21**   | Пустые заглушки                      | ✅ сделано                                                                                                                       |
+| **BUG-01** | `MockInd.partial_day`                | ✅ 262 passed                                                                                                                    |
+| **BUG-02** | `test_4_direct_trades`               | ✅                                                                                                                               |
+| **BUG-03** | `partial_day`                        | ✅                                                                                                                               |
+| **BUG-04** | `price_step` хардкод                 | ✅                                                                                                                               |
+| **BUG-05** | `PAPER_MAX_OPEN`                     | ✅                                                                                                                               |
+| **BUG-06** | `PAPER_TIMEOUT_BARS`                 | ✅                                                                                                                               |
 
 ---
 
 ## Сводка
 
-| ID     | Задача                                       | P     | Оценка      |
-| ------ | -------------------------------------------- | ----- | ----------- |
-| BUG-02 | `test_4_direct_trades` — таймаут ISS (флаки) | 🟠 P1 | 0.2 / 0.5 д |
-| T-01b  | Live без look-ahead (ALOR текущая M15)       | 🟠 P1 | 0.5 д       |
-| BUG-03 | `partial_day` — `now_msk()`                  | 🟡 P2 | 0.1 д       |
-| T-12   | `REAL_TRADING_MODE`                          | 🟡 P2 | 0.5 д       |
-| T-06   | `schema_version` + `make_mock_ind`           | 🟢 P3 | 0.5 д       |
+| ID       | Задача                                           | P     | Оценка    |
+| -------- | ------------------------------------------------ | ----- | --------- |
+| BUG-02   | `test_4_direct_trades` (флаки)                   | 🟠 P1 | 0.2/0.5 д |
+| T-01b    | Live без look-ahead                              | 🟠 P1 | 0.5 д     |
+| T-04     | Bootstrap CI                                     | 🟠 P1 | 1 д       |
+| T-05     | `paper_skipped`                                  | 🟠 P1 | 1.5 д     |
+| **T-06** | **`schema_version` + миграции + рефакторинг БД** | 🟠 P1 | **2 д**   |
+| T-07     | Pre-registration                                 | 🟠 P1 | 0.5 д     |
+| T-08     | Ablation study                                   | 🟠 P1 | 1.5 д     |
+| BUG-03   | `now_msk()`                                      | 🟡 P2 | 0.1 д     |
+| T-02b    | Пересмотр фильтров                               | 🟡 P2 | 0.5 д     |
+| T-12     | `REAL_TRADING_MODE`                              | 🟡 P2 | 0.5 д     |
+| T-13     | `--by-score`                                     | 🟡 P2 | 0.5 д     |
+| T-23     | ADAPTIVE_TAKE                                    | 🟢 P3 | 0.3 д     |
 
-**Рекомендуемый порядок:** BUG-03 (10 мин) → BUG-02 (10 мин) → T-12 (0.5 д) → T-01b (0.5 д) → T-06 (0.5 д).
+**Рекомендуемый порядок:** BUG-03 (10 мин) → BUG-02 (10 мин) → T-12 (0.5 д) → T-01b (0.5 д) → T-04 (1 д) → T-07 (0.5 д) → T-06 (2 д) → T-05 (1.5 д) → T-08 (1.5 д) → T-02b (0.5 д) → T-13 (0.5 д) → T-23 (0.3 д).
 
-**Итого P1–P3:** ~2.1 дня.
+**Итого P1–P3:** ~11 дней.
+
+**Отложено:** T-09, T-10, T-11, T-14 (отменено), T-01 (частично).
+
+**Закрыто:** T-02, T-03, T-15, T-16, T-17, T-18, T-19, T-20, T-21, BUG-01, BUG-04, BUG-05, BUG-06.
 
 ---
 
@@ -311,8 +224,8 @@ partial_day = hour_msk < 18
 
 | Период                             | PF (skip_breakout) | Достоверность                        |
 | ---------------------------------- | ------------------ | ------------------------------------ |
-| **До фикса** (с look-ahead H1/H4)  | 0.73               | ❌ **недостоверно**                  |
+| **До фикса** (look-ahead H1/H4)    | 0.73               | ❌ **недостоверно**                  |
 | **После фикса** (T-01, 2026-11-21) | 0.53               | ✅ реально (всё убыточно)            |
 | **17.11** (live, PF 1.25)          | 1.25               | ❌ **до** фикса, **не** использовать |
 
-**Вывод:** стратегия **убыточна** (PF < 1 во **всех** вариантах **без** look-ahead). **Не** внедрять в live **до** T-01b (live без look-ahead) и **пересмотра** стратегии.
+**Вывод:** стратегия **убыточна** (PF < 1 без look-ahead). **Не** внедрять в live **до** T-01b + пересмотра.

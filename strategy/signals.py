@@ -916,6 +916,7 @@ def detect_signals(
     df: pd.DataFrame,
     now: datetime | None = None,
     skip_age_check: bool = False,
+    skip_filters: bool = False,
 ) -> list[Signal]:
     """
     Запускает детекторы, обогащает сигналы context/warnings/R:R,
@@ -972,55 +973,60 @@ def detect_signals(
         # --- 3. Обогащение (context, warnings, R:R) ---
         _finalize_signal(s, result, df, level, recent, result.symbol)
 
-        # --- 4. Штраф: EMA против direction ---
-        ema_against = (
-            s.direction == "long" and s.context.get("ema_alignment") == "bearish"
-        ) or (s.direction == "short" and s.context.get("ema_alignment") == "bullish")
-        if ema_against:
-            penalty = 1.0
-            s.strength_score = max(0.0, s.strength_score - penalty)
-            s.reasons.append(f"штраф EMA-конфликт: -{penalty}")
-            s.strength = _recalc_strength(s.strength_score)
-            if s.strength == "none":
-                continue
-
-        # --- 5. Штраф: пила (противоположный сигнал < 30 мин) ---
-        recent_dir = s.context.get("recent_signal_direction")
-        recent_age = s.context.get("recent_signal_age_min")
-        if (
-            recent_dir
-            and recent_dir != s.direction
-            and recent_age is not None
-            and recent_age < 30
-        ):
-            penalty = 1.5
-            s.strength_score = max(0.0, s.strength_score - penalty)
-            s.reasons.append(
-                f"штраф пила: -{penalty} ({recent_age} мин назад {recent_dir})"
+        # --- 4. Штраф: EMA против direction (только если не replay) ---
+        if not skip_filters:
+            ema_against = (
+                s.direction == "long" and s.context.get("ema_alignment") == "bearish"
+            ) or (
+                s.direction == "short" and s.context.get("ema_alignment") == "bullish"
             )
-            s.strength = _recalc_strength(s.strength_score)
-            if s.strength == "none":
-                continue
+            if ema_against:
+                penalty = 1.0
+                s.strength_score = max(0.0, s.strength_score - penalty)
+                s.reasons.append(f"штраф EMA-конфликт: -{penalty}")
+                s.strength = _recalc_strength(s.strength_score)
+                if s.strength == "none":
+                    continue
+
+        # --- 5. Штраф: пила (только если не replay) ---
+        if not skip_filters:
+            recent_dir = s.context.get("recent_signal_direction")
+            recent_age = s.context.get("recent_signal_age_min")
+            if (
+                recent_dir
+                and recent_dir != s.direction
+                and recent_age is not None
+                and recent_age < 30
+            ):
+                penalty = 1.5
+                s.strength_score = max(0.0, s.strength_score - penalty)
+                s.reasons.append(
+                    f"штраф пила: -{penalty} ({recent_age} мин назад {recent_dir})"
+                )
+                s.strength = _recalc_strength(s.strength_score)
+                if s.strength == "none":
+                    continue
 
         # --- 6. RR invalid ---
         if getattr(s, "_rr_invalid", False):
             log.warning("Сигнал отброшен: RR не посчитан (%s)", s.kind)
             continue
 
-        # --- 7. Штраф за late/chase ---
-        if (
-            level is not None
-            and level.distance_atr is not None
-            and level.distance_atr > 1.0
-        ):
-            penalty = 1.0
-            s.strength_score = max(0.0, s.strength_score - penalty)
-            s.reasons.append(
-                f"штраф late/chase: -{penalty} (distance={level.distance_atr:.1f} ATR)"
-            )
-            s.strength = _recalc_strength(s.strength_score)
-            if s.strength == "none":
-                continue
+        # --- 7. Штраф late/chase (только если не replay) ---
+        if not skip_filters:
+            if (
+                level is not None
+                and level.distance_atr is not None
+                and level.distance_atr > 1.0
+            ):
+                penalty = 1.0
+                s.strength_score = max(0.0, s.strength_score - penalty)
+                s.reasons.append(
+                    f"штраф late/chase: -{penalty} (distance={level.distance_atr:.1f} ATR)"
+                )
+                s.strength = _recalc_strength(s.strength_score)
+                if s.strength == "none":
+                    continue
 
         # --- 8. Прошёл все фильтры ---
         passed_signals.append(s)

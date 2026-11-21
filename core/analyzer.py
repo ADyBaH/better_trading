@@ -398,7 +398,13 @@ def analyze_from_df(
                 setattr(config, k, False)
 
     try:
-        signals = detect_signals(result, df, now=ts, skip_age_check=skip_age_check)
+        signals = detect_signals(
+            result,
+            df,
+            now=ts,
+            skip_age_check=skip_age_check,
+            skip_filters=skip_filters,
+        )
     finally:
         for k, v in _saved_filters.items():
             setattr(config, k, v)
@@ -420,8 +426,30 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
 
     # 1. M15
     df = get_candles_tf(timeframe, count=300)
+
+    # T-01b: live без look-ahead — отбрасываем незакрытую M15.
+    # ALOR отдаёт текущую свечу (close = последняя цена). В replay её нет.
+    # Оставляем только свечи, которые ЗАКРЫТЫ к моменту now.
+    if df is not None and not df.empty:
+        from core.time_utils import now_msk
+
+        now = now_msk()
+        # Свеча закрыта, если begin + 15min <= now
+        df = df[df["begin"] + pd.Timedelta(minutes=15) <= now].reset_index(drop=True)
+
     if df.empty:
         log.error("Нет данных для %s %s", symbol, timeframe)
+        return None
+
+    # T-01b: live без look-ahead — отбрасываем незакрытую M15.
+    from datetime import timedelta
+    from core.time_utils import now_msk
+    _now = now_msk()
+    _tf_min = {"M5": 5, "M15": 15, "H1": 60}.get(timeframe, 15)
+    _tf_delta = timedelta(minutes=_tf_min)
+    df = df[df["begin"] + _tf_delta <= _now].reset_index(drop=True)
+    if df.empty:
+        log.warning("T-01b: после отбрасывания незакрытых M15 пусто")
         return None
 
     # Логируем лаг данных (наблюдаемость)

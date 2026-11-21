@@ -1,0 +1,201 @@
+2026-11-21 21:55:13 | INFO    | core.logger | Логирование инициализировано (version=0.11.0, symbol=CNYRUBF)
+2026-11-21 21:55:13 | INFO    | __main__ | H1 нет в candles_*.json — тянем из market.db
+2026-11-21 21:55:14 | INFO    | data.api_alor | ALOR WS: подписка на CNYRUBF H1
+2026-11-21 21:55:15 | INFO    | data.api_alor | ALOR WS: получено 392 свечей CNYRUBF (H1), последняя: 2026-11-21 18:00:00
+2026-11-21 21:55:15 | INFO    | __main__ | H4 нет в candles_*.json — тянем из market.db
+2026-11-21 21:55:15 | INFO    | data.api_alor | ALOR WS: подписка на CNYRUBF H4
+2026-11-21 21:55:16 | INFO    | data.api_alor | ALOR WS: получено 493 свечей CNYRUBF (H4), последняя: 2026-11-21 15:00:00
+[2026-11-13T09:40:00.364807] M15=257 H1=166 H4=256 | m15_last=2026-11-13 09:30:00 | h1_last=2026-11-13 08:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 37 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 37 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 66 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 66 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 176 фракталов → 60 уровней (tolerance=0.00609, merge=0.00609, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.06091 (12.37000 ± 0.06091): 60 → 14 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 4 (диапазон ±0.06091)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 66 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | bounce заблокирован (фильтр pullback_bounce)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 1, прошло фильтры 0)
+[2026-11-13T09:45:19.889971] M15=258 H1=166 H4=256 | m15_last=2026-11-13 09:45:00 | h1_last=2026-11-13 08:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 37 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 37 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 66 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 66 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 176 фракталов → 60 уровней (tolerance=0.00609, merge=0.00609, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.06091 (12.35200 ± 0.06091): 60 → 14 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 5 (диапазон ±0.06091)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 66 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | breakout заблокирован (фильтр normal_breakout)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 1, прошло фильтры 0)
+[2026-11-13T09:50:32.910720] M15=258 H1=166 H4=256 | m15_last=2026-11-13 09:45:00 | h1_last=2026-11-13 08:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 37 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 37 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 66 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 66 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 176 фракталов → 60 уровней (tolerance=0.00609, merge=0.00609, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.06091 (12.35200 ± 0.06091): 60 → 14 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 5 (диапазон ±0.06091)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 66 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | breakout заблокирован (фильтр normal_breakout)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 1, прошло фильтры 0)
+[2026-11-13T09:55:47.973594] M15=258 H1=166 H4=256 | m15_last=2026-11-13 09:45:00 | h1_last=2026-11-13 08:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 37 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 37 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 66 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 66 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 176 фракталов → 60 уровней (tolerance=0.00609, merge=0.00609, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.06091 (12.35200 ± 0.06091): 60 → 14 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 5 (диапазон ±0.06091)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 66 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | breakout заблокирован (фильтр normal_breakout)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 1, прошло фильтры 0)
+[2026-11-13T10:06:45.960730] M15=259 H1=167 H4=256 | m15_last=2026-11-13 10:00:00 | h1_last=2026-11-13 09:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 37 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 37 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 67 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 67 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 177 фракталов → 59 уровней (tolerance=0.00626, merge=0.00626, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.06263 (12.33500 ± 0.06263): 59 → 14 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 5 (диапазон ±0.06263)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 67 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | breakout заблокирован (фильтр normal_breakout)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 1, прошло фильтры 0)
+[2026-11-13T12:02:36.282920] M15=267 H1=169 H4=257 | m15_last=2026-11-13 12:00:00 | h1_last=2026-11-13 11:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 38 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 38 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 68 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 68 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 179 фракталов → 56 уровней (tolerance=0.00669, merge=0.00669, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.06686 (12.30700 ± 0.06686): 56 → 12 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 5 (диапазон ±0.06686)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 68 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 0, прошло фильтры 0)
+[2026-11-13T12:07:48.894629] M15=267 H1=169 H4=257 | m15_last=2026-11-13 12:00:00 | h1_last=2026-11-13 11:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 38 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 38 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 68 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 68 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 179 фракталов → 56 уровней (tolerance=0.00669, merge=0.00669, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.06686 (12.30700 ± 0.06686): 56 → 12 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 5 (диапазон ±0.06686)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 68 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 0, прошло фильтры 0)
+[2026-11-13T14:02:37.262429] M15=275 H1=171 H4=257 | m15_last=2026-11-13 14:00:00 | h1_last=2026-11-13 13:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 38 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 38 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 70 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 70 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 181 фракталов → 56 уровней (tolerance=0.00679, merge=0.00679, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.06793 (12.31200 ± 0.06793): 56 → 13 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 6 (диапазон ±0.06793)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 70 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 0, прошло фильтры 0)
+[2026-11-13T16:28:50.517342] M15=284 H1=173 H4=258 | m15_last=2026-11-13 16:15:00 | h1_last=2026-11-13 15:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 39 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 39 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 73 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 185 фракталов → 56 уровней (tolerance=0.00695, merge=0.00695, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.06948 (12.30600 ± 0.06948): 56 → 13 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 5 (диапазон ±0.06948)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 0, прошло фильтры 0)
+[2026-11-13T18:07:59.300130] M15=291 H1=175 H4=258 | m15_last=2026-11-13 18:00:00 | h1_last=2026-11-13 17:00:00
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 73 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H4: 73 фракталов (вес=3)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 40 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | H1: 40 фракталов (вес=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 76 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.levels | M15: 76 фракталов (вес=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кластеризация: 189 фракталов → 53 уровней (tolerance=0.00729, merge=0.00729, min_weight=1)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Фильтр по диапазону ±0.07294 (12.30200 ± 0.07294): 53 → 12 уровней
+2026-11-21 21:55:16 | INFO    | strategy.levels | Кап LEVELS_MAX_SHOW=7 применён
+2026-11-21 21:55:16 | INFO    | strategy.references | Round numbers: 7 уровней (шаг 0.050)
+2026-11-21 21:55:16 | INFO    | strategy.references | PDH/PDL: 2 уровней (за 1 дней)
+2026-11-21 21:55:16 | INFO    | strategy.references | PWH/PWL: 2 уровней (за 1 недель)
+2026-11-21 21:55:16 | INFO    | strategy.references | Референсные уровни: 11 → 5 (диапазон ±0.07294)
+2026-11-21 21:55:16 | INFO    | strategy.levels | Найдено фракталов: 76 (period=2)
+2026-11-21 21:55:16 | INFO    | strategy.signals | Сигналов: 0 (из 0, прошло фильтры 0)
+
+═══ Replay 2026-11-13 ═══
+  Snapshots with signals: 10
+  Mismatches:             10
+  Signals analysis:       10
+  Signals replay:         0
+  Matched:                0
+  Match rate:             0.0%
+
+  [2026-11-13T09:40:00.364807]
+    only analysis: [('short', 12.37)]
+  [2026-11-13T09:45:19.889971]
+    only analysis: [('long', 12.37)]
+  [2026-11-13T09:50:32.910720]
+    only analysis: [('short', 12.357)]
+  [2026-11-13T09:55:47.973594]
+    only analysis: [('short', 12.351)]
+  [2026-11-13T10:06:45.960730]
+    only analysis: [('long', 12.352)]
+  [2026-11-13T12:02:36.282920]
+    only analysis: [('short', 12.288)]
+  [2026-11-13T12:07:48.894629]
+    only analysis: [('short', 12.293)]
+  [2026-11-13T14:02:37.262429]
+    only analysis: [('short', 12.294)]
+  [2026-11-13T16:28:50.517342]
+    only analysis: [('long', 12.301)]
+  [2026-11-13T18:07:59.300130]
+    only analysis: [('short', 12.294)]
