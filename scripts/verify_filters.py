@@ -188,7 +188,14 @@ def main():
         )
 
     def _filter_blocks(f, sig: dict) -> bool:
-        """Применяет фильтр к dict-сигналу. Возвращает True, если блокирует."""
+        """
+        Применяет фильтр к dict-сигналу. Возвращает True, если блокирует.
+
+        ВАЖНО (T-02): выключенный фильтр (f.enabled=False) НЕ блокирует.
+        Раньше применяли f.fn напрямую — цифры эффекта в README были с багом.
+        """
+        if not f.enabled:
+            return False
         ind_dict = sig.get("_indicators") or {}
         result = _fake_result_from_dict(ind_dict, sig)
         signal = _signal_from_dict(sig)
@@ -234,15 +241,21 @@ def main():
     print()
 
     for f in get_filters():
+        enabled_str = "ON" if f.enabled else "OFF"
+        print(f"── Фильтр: {f.name} ({enabled_str}) ──")
+
+        if not f.enabled:
+            # T-02: выключенный фильтр не влияет — не считаем blocked/passed
+            print(f"  выключен (не влияет)")
+            print()
+            continue
+
         blocked, passed = [], []
         for s in all_signals:
             if _filter_blocks(f, s):
                 blocked.append(s)
             else:
                 passed.append(s)
-
-        enabled_str = "ON" if f.enabled else "OFF"
-        print(f"── Фильтр: {f.name} ({enabled_str}) ──")
         if not blocked:
             print(f"  отсекает 0 сигналов")
             print()
@@ -265,10 +278,15 @@ def main():
         print()
 
         # --- Все фильтры Y вместе ---
-    print("── Все фильтры Y вместе ──")
+    print("── Все фильтры Y вместе (только включённые) ──")
+    enabled_filters = [f for f in get_filters() if f.enabled]
+    print(
+        f"  включённых: {len(enabled_filters)} "
+        f"({', '.join(f.name for f in enabled_filters)})"
+    )
     blocked_all, passed_all = [], []
     for s in all_signals:
-        if any(_filter_blocks(f, s) for f in get_filters()):
+        if any(_filter_blocks(f, s) for f in enabled_filters):
             blocked_all.append(s)
         else:
             passed_all.append(s)

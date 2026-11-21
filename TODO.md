@@ -110,6 +110,7 @@ ALOR WebSocket `BarsGetAndSubscribe` отдаёт **текущую** M15 (не �
 ### Симптом
 
 `indicators/calc.py::get_trend_context`:
+
 ```
 now = datetime.now()
 hour_msk = (now.utctimetuple().tm_hour + 3) % 24
@@ -117,6 +118,7 @@ partial_day = hour_msk < 18
 ```
 
 **Сейчас корректно** (компенсация `+3`), но **хрупко**:
+
 - если сервер в UTC → `datetime.now()` = UTC, `+3` = МСК ✅
 - если сервер в МСК → `datetime.now()` = МСК, `utctimetuple()` = МСК−3, `+3` = МСК ✅
 - **но** если кто-то поменяет на `datetime.utcnow()` → **сломается**.
@@ -187,6 +189,32 @@ partial_day = hour_msk < 18
 
 0.5 д.
 
+### T-02b. Пересмотр фильтров (13.11: режут прибыль)
+
+**Обнаружено:** 2026-11-21, `verify_filters.py --date 2026-11-13` (после T-02).
+**Тип:** стратегический (фильтры вредят).
+**Приоритет:** P1.
+
+### Симптом
+
+Включённые 5 фильтров (`adx_trend`, `pullback_bounce`, `bid_heavy`, `bullish_long`, `normal_breakout`) отсекают **9 из 10** сигналов:
+
+- отсечено: **+39.58 ₽** (прибыльные);
+- прошло: **−28.96 ₽** (убыточный).
+
+**`normal_breakout`** — режет +17.40. **`pullback_bounce`** — режет +50.54 (win).
+
+### Что сделать
+
+1. **1 день — мало** (10 сигналов). Прогнать `verify_filters.py` на **7 днях** (11–19.11).
+2. **Сравнить** эффект на **7 днях** (стабильно ли).
+3. **`normal_breakout`** / **`pullback_bounce`** — **пересмотреть** (может, **OFF**).
+4. **T-01b** (live без look-ahead) — **сначала** (иначе цифры **недостоверны**).
+
+### Оценка
+
+0.5 д (после T-01b).
+
 ---
 
 ## 🟢 P3 — архитектурный долг
@@ -211,18 +239,22 @@ partial_day = hour_msk < 18
 ### T-01. Replay look-ahead — **ЧАСТИЧНО ЗАКРЫТ**
 
 **Сделано:**
+
 - `core/analyzer.py`: `result.timestamp = timestamp` (не `datetime.now()`).
 - `scripts/verify_candles.py::_df_before`: H1/H4 — `begin + duration <= ts` (без look-ahead); M15 — `begin < ts` (как live).
 - `scripts/backtest.py`: H1/H4 — `begin + duration <= bar_ts`; M15 — `[:t+1]` (как live).
 - `tests/test_no_lookahead.py`: 2 теста.
 
 **Не достигнуто:**
+
 - Match rate ≥ 70% — **0–20%** (live сам имеет look-ahead: ALOR отдаёт текущую M15).
 
 **Причина:**
+
 - Live (`runner.py`) использует `close[текущей M15]` (ALOR). Replay — `close[закрытой]`. **Не** совпадает.
 
 **Решение:**
+
 - Принять: H1/H4 — без look-ahead (правильные уровни). M15 — как live.
 - **T-01b** (live без look-ahead) — **отдельная задача** (P1, 0.5 д).
 
@@ -243,30 +275,31 @@ partial_day = hour_msk < 18
 
 ## ✅ Закрыто (архив)
 
-| ID | Задача | Статус |
-|---|---|---|
-| **BUG-01** | `MockInd.partial_day` / `week_trend` | ✅ (262 passed; `test_paper_bid_ask.py` собирается, 0 тестов) |
-| **BUG-04** | `price_step` хардкод `0.001` в `paper_stats` | ✅ (`get_instrument` + `try/except` → unknown) |
-| **BUG-05** | `PAPER_MAX_OPEN` — нет в `config.py` | ✅ (`PAPER_MAX_OPEN = 1` + `getattr`) |
-| **BUG-06** | `PAPER_TIMEOUT_BARS` 20 vs 60 | ✅ (`CONFIG.md` 60 → 20) |
-| **T-01** | Replay look-ahead — **частично** | ⚠️ H1/H4 без look-ahead; M15 — как live. **T-01b** — отдельно. |
-| **T-15** | `vote()` в `indicators/vote.py` | ✅ (19 тестов) |
-| **T-16** | README → EXPERIMENTS/BRANCHES/CONFIG | ✅ (README ≤ 302 строки) |
-| **T-17** | `test_filters.py` | ✅ (50 тестов, 99% покрытие) |
-| **T-19** | `test_instruments.py` | ✅ (28 тестов, 98% покрытие) |
-| **T-20** | CI (pyproject + GitHub Actions) | ✅ (`ci.yml`, `pyproject.toml`, `requirements.txt`) |
+| ID         | Задача                                       | Статус                                                         |
+| ---------- | -------------------------------------------- | -------------------------------------------------------------- |
+| **BUG-01** | `MockInd.partial_day` / `week_trend`         | ✅ (262 passed; `test_paper_bid_ask.py` собирается, 0 тестов)  |
+| **BUG-04** | `price_step` хардкод `0.001` в `paper_stats` | ✅ (`get_instrument` + `try/except` → unknown)                 |
+| **BUG-05** | `PAPER_MAX_OPEN` — нет в `config.py`         | ✅ (`PAPER_MAX_OPEN = 1` + `getattr`)                          |
+| **BUG-06** | `PAPER_TIMEOUT_BARS` 20 vs 60                | ✅ (`CONFIG.md` 60 → 20)                                       |
+| **T-01**   | Replay look-ahead — **частично**             | ⚠️ H1/H4 без look-ahead; M15 — как live. **T-01b** — отдельно. |
+| **T-15**   | `vote()` в `indicators/vote.py`              | ✅ (19 тестов)                                                 |
+| **T-16**   | README → EXPERIMENTS/BRANCHES/CONFIG         | ✅ (README ≤ 302 строки)                                       |
+| **T-17**   | `test_filters.py`                            | ✅ (50 тестов, 99% покрытие)                                   |
+| **T-19**   | `test_instruments.py`                        | ✅ (28 тестов, 98% покрытие)                                   |
+| **T-20**   | CI (pyproject + GitHub Actions)              | ✅ (`ci.yml`, `pyproject.toml`, `requirements.txt`)            |
+| **T-02** | `verify_filters.py::_filter_blocks` — `enabled=False` | ✅ (`if not f.enabled: return False`). **Цифры эффекта пересчитаны** (13.11: фильтры режут прибыль +39.58 ₽). |
 
 ---
 
 ## Сводка
 
-| ID | Задача | P | Оценка |
-|---|---|---|---|
+| ID     | Задача                                       | P     | Оценка      |
+| ------ | -------------------------------------------- | ----- | ----------- |
 | BUG-02 | `test_4_direct_trades` — таймаут ISS (флаки) | 🟠 P1 | 0.2 / 0.5 д |
-| T-01b | Live без look-ahead (ALOR текущая M15) | 🟠 P1 | 0.5 д |
-| BUG-03 | `partial_day` — `now_msk()` | 🟡 P2 | 0.1 д |
-| T-12 | `REAL_TRADING_MODE` | 🟡 P2 | 0.5 д |
-| T-06 | `schema_version` + `make_mock_ind` | 🟢 P3 | 0.5 д |
+| T-01b  | Live без look-ahead (ALOR текущая M15)       | 🟠 P1 | 0.5 д       |
+| BUG-03 | `partial_day` — `now_msk()`                  | 🟡 P2 | 0.1 д       |
+| T-12   | `REAL_TRADING_MODE`                          | 🟡 P2 | 0.5 д       |
+| T-06   | `schema_version` + `make_mock_ind`           | 🟢 P3 | 0.5 д       |
 
 **Рекомендуемый порядок:** BUG-03 (10 мин) → BUG-02 (10 мин) → T-12 (0.5 д) → T-01b (0.5 д) → T-06 (0.5 д).
 
@@ -276,10 +309,10 @@ partial_day = hour_msk < 18
 
 ## ⚠️ Важно: статистика до/после look-ahead
 
-| Период | PF (skip_breakout) | Достоверность |
-|---|---|---|
-| **До фикса** (с look-ahead H1/H4) | 0.73 | ❌ **недостоверно** |
-| **После фикса** (T-01, 2026-11-21) | 0.53 | ✅ реально (всё убыточно) |
-| **17.11** (live, PF 1.25) | 1.25 | ❌ **до** фикса, **не** использовать |
+| Период                             | PF (skip_breakout) | Достоверность                        |
+| ---------------------------------- | ------------------ | ------------------------------------ |
+| **До фикса** (с look-ahead H1/H4)  | 0.73               | ❌ **недостоверно**                  |
+| **После фикса** (T-01, 2026-11-21) | 0.53               | ✅ реально (всё убыточно)            |
+| **17.11** (live, PF 1.25)          | 1.25               | ❌ **до** фикса, **не** использовать |
 
 **Вывод:** стратегия **убыточна** (PF < 1 во **всех** вариантах **без** look-ahead). **Не** внедрять в live **до** T-01b (live без look-ahead) и **пересмотра** стратегии.
