@@ -209,10 +209,12 @@ def get_trend_context(
                 day_atr_base = atr
 
                 # partial_day: сейчас < 18:00 МСК (день не завершён)
-                from datetime import datetime
+                from datetime import datetime, timedelta, timezone
 
-                now = datetime.now()
-                hour_msk = (now.utctimetuple().tm_hour + 3) % 24
+                now = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
+                    hours=3
+                )
+                hour_msk = now.hour
                 partial_day = hour_msk < 18
         except Exception as e:
             log.debug("Не удалось посчитать day_change: %s", e)

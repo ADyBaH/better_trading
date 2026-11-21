@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import sqlite3
 from datetime import datetime
-from core.models import Signal
+from core.models import Signal, IndicatorSnapshot
 from trader.paper import init_paper_table, save_signal_as_paper
 
 # Мок-сигнал
@@ -31,9 +31,15 @@ sig = Signal(
 class MockInd:
     trend = "down"
     adx = 35.0
+    partial_day = False
+    day_open = 0.0
     day_trend = "bearish"
     structure = "bearish"
-
+    week_trend = "unknown"
+    market_state = "normal"
+    rsi = 50.0
+    atr_percentile = 0.5
+    volume_ratio = 1.0
 
 class MockResult:
     pass

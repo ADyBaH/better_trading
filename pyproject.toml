@@ -10,6 +10,7 @@ dependencies = []
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
+addopts = "-v --tb=short -m 'not integration' --reruns 2 --reruns-delay 5"
 
 markers = [
     "integration: тесты с сетью (ALOR / MOEX ISS), требуют интернет",

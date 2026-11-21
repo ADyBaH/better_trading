@@ -7,3 +7,4 @@ tabulate
 websockets
 pytest
 pytest-cov
+pytest-rerunfailures
