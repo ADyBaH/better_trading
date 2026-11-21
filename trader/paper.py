@@ -370,12 +370,17 @@ def save_signal_as_paper(
     inst = get_instrument(result.symbol)
     risk_rub = config.VIRTUAL_DEPOSIT * config.RISK_PER_TRADE_PCT
 
-    # --- Не более 1 открытой paper-сделки ---
+    # --- Лимит открытых paper-сделок (config.PAPER_MAX_OPEN) ---
+    max_open = getattr(config, "PAPER_MAX_OPEN", 1)
     open_count = conn.execute(
         "SELECT COUNT(*) FROM paper_trades WHERE result = 'open'"
     ).fetchone()[0]
-    if open_count >= 1:
-        log.debug("paper: уже есть открытая сделка (%d) — пропуск", open_count)
+    if max_open > 0 and open_count >= max_open:
+        log.debug(
+            "paper: открытых %d >= PAPER_MAX_OPEN=%d — пропуск",
+            open_count,
+            max_open,
+        )
         return 0
 
     created = 0
@@ -1076,7 +1081,7 @@ def paper_stats(
         elif pct > 60:
             return "bid-heavy (>60)"
         return "balanced (40-60)"
-    
+
     # --- by_take_source ---
     by_take_source = _group("take_source")
     by_pressure = {}
@@ -1152,8 +1157,15 @@ def paper_stats(
         mae = r["mae_points"]
         entry = r["entry_price"]
         stop = r["stop_price"]
-        # stop_dist в пунктах
-        stop_dist = abs(entry - stop) / 0.001  # price_step
+
+        # stop_dist в пунктах — price_step из спецификации инструмента.
+        # Неизвестный символ (старая/тестовая запись) → unknown, не падаем.
+        try:
+            inst = get_instrument(r["symbol"])
+            stop_dist = abs(entry - stop) / inst.price_step
+        except ValueError:
+            stop_dist = 0
+
         if mae is None or stop_dist <= 0:
             bucket = "unknown"
         else:
@@ -1311,8 +1323,15 @@ def paper_stats(
     by_mfe_ratio = {}
     for r in rows:
         mfe = r["mfe_points"]
-        # take_distance в пунктах
-        take_dist = abs(r["take_price"] - r["entry_price"]) / 0.001  # price_step
+
+        # take_distance в пунктах — price_step из спецификации инструмента.
+        # Неизвестный символ → unknown, не падаем.
+        try:
+            inst = get_instrument(r["symbol"])
+            take_dist = abs(r["take_price"] - r["entry_price"]) / inst.price_step
+        except ValueError:
+            take_dist = 0
+
         if mfe is None or take_dist <= 0:
             bucket = "unknown"
         else:
