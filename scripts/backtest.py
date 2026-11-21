@@ -230,10 +230,12 @@ def run_backtest(
             if not _in_trading_hours(bar_dt):
                 continue
 
-            # Честный replay: только прошлое
+            # M15: live (ALOR) отдаёт ТЕКУЩУЮ свечу (close = последняя цена).
+            # df[:t+1] — 0..t (t — текущая). Как live.
             df_past = df_m15.iloc[: t + 1]
-            df_h1_past = df_h1[df_h1["begin"] <= bar_ts]
-            df_h4_past = df_h4[df_h4["begin"] <= bar_ts]
+            # H1/H4: только закрытые к bar_ts (begin + duration <= bar_ts)
+            df_h1_past = df_h1[df_h1["begin"] + pd.Timedelta(hours=1) <= bar_ts]
+            df_h4_past = df_h4[df_h4["begin"] + pd.Timedelta(hours=4) <= bar_ts]
 
             try:
                 result = analyze_from_df(

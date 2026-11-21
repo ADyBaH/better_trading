@@ -93,6 +93,7 @@ def _build_indicator_snapshot(
     # --- Недельный тренд (H4) ---
     if df_h4 is None:
         from data.api_facade import get_candles_tf
+
         df_h4 = get_candles_tf("H4", count=300)
     week_ctx = get_week_trend(df_h4)
     # from data.api_facade import get_candles_tf
@@ -294,7 +295,7 @@ def analyze_from_df(
     df_atr   — H1 — для ATR. Если None, используется df_h1.
 
     Возвращает AnalysisResult или None, если данных нет.
-    
+
     write_history — писать ли сигналы в signals_history.json.
         True (по умолчанию) — для live/runner (cooldown, «пила»).
         False — для backtest/replay: иначе исторические сигналы
@@ -361,10 +362,12 @@ def analyze_from_df(
     # 6. Индикаторы
     indicators = _build_indicator_snapshot(df, current_price, atr, df_h4=df_h4_use)
 
+    ts = timestamp or datetime.now()
+
     # 7. AnalysisResult
     result = AnalysisResult(
         symbol=symbol,
-        timestamp=datetime.now(),
+        timestamp=ts,
         current_price=current_price,
         atr=atr,
         timeframe=timeframe,
@@ -377,8 +380,6 @@ def analyze_from_df(
 
     # 8. Сигналы
     from strategy.signal_history import append_signals
-
-    ts = timestamp or datetime.now()
 
     # --- skip_filters: временно отключаем фильтры (для replay) ---
     _saved_filters = {}

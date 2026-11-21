@@ -49,21 +49,50 @@ def _df_from_snapshot(snapshot: dict) -> pd.DataFrame:
     return df.sort_values("begin").reset_index(drop=True)
 
 
-def _df_before(df, ts, count=None, exclude_current=True):
+# Длительность свечи по ТФ: свеча ЗАКРЫТА, если begin + duration <= ts.
+# Иначе M15/H1/H4 включают незакрытую свечу — look-ahead.
+_TF_DURATION = {
+    "M15": pd.Timedelta(minutes=15),
+    "H1": pd.Timedelta(hours=1),
+    "H4": pd.Timedelta(hours=4),
+}
+
+
+def _df_before(df, ts, tf="M15", count=None, exclude_current=True):
+    """
+    Свечи, доступные к моменту ts.
+
+    ВАЖНО: M15 и H1/H4 обрабатываются по-разному.
+
+    M15: live (ALOR) отдаёт ТЕКУЩУЮ свечу (close = последняя цена).
+        Значит, live «видит» begin, ближайший к ts слева (begin < ts).
+        Replay должен вести себя так же → begin < ts (exclude_current=False).
+
+    H1/H4: live (ALOR) отдаёт только ЗАКРЫТЫЕ H1/H4.
+        Replay должен брать begin + duration <= ts (без look-ahead).
+    """
     if df is None or df.empty or "begin" not in df.columns:
         return pd.DataFrame()
-    df = df[df["begin"] < ts]
-    if exclude_current and len(df) > 0:
-        # исключаем свечу, которая соответствует ts (незакрытая в live)
-        last_begin = df["begin"].iloc[-1]
-        if last_begin >= ts - pd.Timedelta(minutes=15):
-            df = df.iloc[:-1]
+
+    if tf == "M15":
+        # M15: как live — begin < ts (ALOR отдаёт текущую).
+        # exclude_current=False — не выбрасываем последнюю (она = текущая в live).
+        df = df[df["begin"] < ts]
+        if exclude_current and len(df) > 0:
+            last_begin = df["begin"].iloc[-1]
+            if last_begin >= ts - pd.Timedelta(minutes=15):
+                df = df.iloc[:-1]
+    else:
+        # H1/H4: только закрытые (begin + duration <= ts).
+        duration = _TF_DURATION.get(tf, pd.Timedelta(hours=1))
+        df = df[df["begin"] + duration <= ts]
+
     if count is not None:
         df = df.tail(count)
     return df.reset_index(drop=True)
 
 
-def replay_date(date_str: str) -> dict:
+def replay_date(date_str: str, skip_filters: bool = True) -> dict:
     date_dir = LOGS_DIR / date_str
     if not date_dir.exists():
         log.error("Папка не найдена: %s", date_dir)
@@ -123,11 +152,11 @@ def replay_date(date_str: str) -> dict:
             continue
         ts = datetime.fromisoformat(ts_str)
 
-        df_m15 = _df_before(candles_by_tf["M15"], ts, count=300, exclude_current=False)
-        df_h1 = _df_before(
-            candles_by_tf["H1"], ts, count=None, exclude_current=False
-        )  # H1 — не критично
-        df_h4 = _df_before(candles_by_tf["H4"], ts, count=None, exclude_current=False)
+        df_m15 = _df_before(
+            candles_by_tf["M15"], ts, tf="M15", count=300, exclude_current=False
+        )
+        df_h1 = _df_before(candles_by_tf["H1"], ts, tf="H1")
+        df_h4 = _df_before(candles_by_tf["H4"], ts, tf="H4")
 
         if df_m15.empty:
             continue
@@ -148,7 +177,7 @@ def replay_date(date_str: str) -> dict:
             timeframe=analysis.get("timeframe"),
             timestamp=ts,
             skip_age_check=True,
-            skip_filters=True,
+            skip_filters=skip_filters,
             write_history=False,
         )
 
@@ -225,9 +254,16 @@ def main():
         description="Replay candles и сравнение с analysis"
     )
     parser.add_argument("--date", required=True, help="YYYY-MM-DD")
+    parser.add_argument(
+        "--skip-filters",
+        action="store_true",
+        default=False,
+        help="Отключить live-фильтры (сравнивать детекторы)",
+    )
     args = parser.parse_args()
 
-    res = replay_date(args.date)
+    skip_filters = args.skip_filters
+    res = replay_date(args.date, skip_filters=skip_filters)
 
     print()
     print(f"═══ Replay {args.date} ═══")

@@ -270,3 +270,19 @@
 - **Replay match rate 10%** — look-ahead M15 (закрытая свеча vs незакрытая в live). Точный replay невозможен без M1.
 - **`partial_day_at_open`** — не проверен на новых сделках (runner блокировал по `data_age=14`).
 - **`DATA_MAX_AGE_BLOCK = 15`** — ALOR иногда отдаёт 14 мин.
+
+## [Unreleased]
+
+### Исправлено
+
+- **Replay look-ahead (T-01, частично)**:
+  - `core/analyzer.py`: `result.timestamp = timestamp` (не `datetime.now()`).
+  - `scripts/verify_candles.py`: `_df_before` — H1/H4 `begin + duration <= ts` (без look-ahead).
+  - `scripts/backtest.py`: H1/H4 `begin + duration <= bar_ts`; M15 — `[:t+1]` (как live).
+  - `tests/test_no_lookahead.py`: 2 теста.
+
+### Известные ограничения
+
+- **Match rate 0–20%** (live сам имеет look-ahead: ALOR отдаёт текущую M15).
+  H1/H4 — без look-ahead (правильные уровни). M15 — как live.
+  **T-01b** (live без look-ahead) — отдельная задача.
