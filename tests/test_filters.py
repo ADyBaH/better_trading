@@ -400,24 +400,11 @@ class TestEnabledDisabled:
         }
         assert expected.issubset(names)
 
-    def test_disabled_filter_does_not_block_verify_filters(
-        self, make_result, make_signal, monkeypatch
-    ):
-        """T-02: _filter_blocks из verify_filters не применяет выключенные фильтры."""
-        from scripts.verify_filters import _filter_blocks
-        from strategy.filters import get_filters
-
+    def test_apply_filters_disabled_passes(self, make_result, make_signal, monkeypatch):
+        """apply_filters не применяет выключенный фильтр (T-02)."""
         monkeypatch.setattr(config, "PAPER_SKIP_BULLISH_LONG", False)
         result = make_result(ind={"week_trend": "bullish"})
         signal = make_signal(direction="long")
-
-        # Найти фильтр bullish_long
-        flt = next(f for f in get_filters() if f.name == "bullish_long")
-        assert flt.enabled is False, "фильтр должен быть выключен"
-
-        # _filter_blocks должен вернуть False (не блокирует)
-        # Но _filter_blocks принимает dict-сигнал, а не Signal...
-        # Проверим через apply_filters — он уже правильно
         assert apply_filters(signal, result) != "bullish_long"
 
 

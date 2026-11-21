@@ -9,6 +9,7 @@ import pandas_ta as ta
 import config
 from core.logger import get_logger
 from indicators.vote import vote, vote_raw
+from core.time_utils import is_partial_day
 
 log = get_logger(__name__)
 
@@ -209,13 +210,7 @@ def get_trend_context(
                 day_atr_base = atr
 
                 # partial_day: сейчас < 18:00 МСК (день не завершён)
-                from datetime import datetime, timedelta, timezone
-
-                now = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
-                    hours=3
-                )
-                hour_msk = now.hour
-                partial_day = hour_msk < 18
+                partial_day = is_partial_day()
         except Exception as e:
             log.debug("Не удалось посчитать day_change: %s", e)
 
