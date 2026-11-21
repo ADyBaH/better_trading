@@ -620,14 +620,13 @@
 
 ### 27.2. Что осталось
 
-- [ ] **`test_paper_end_of_day.py`** (6 **падений**): `virtual_pnl` **не** **имеет** `end_of_day`. **Решение:** **вернуть** `end_of_day` **в** `virtual_pnl` (**А**) **или** **удалить** **тест** (**Б**).
 - [ ] **`test_signals.py`** (35 **проверок**): **не** **переписан** **на** **pytest** — **сделаем** **после** **рефактора** `signals.py`.
 - [ ] **`test_mfe_backfill.py`** (12): **не** **переписан** (наш новый).
 
 ### 27.3. Результат
 
 - **162 passed** (из 168), **96%**.
-- **pytest** **работает**, **CI**-**готов** (после **фикса** `test_paper_end_of_day` и **переписывания** `test_signals`).
+- **pytest** **работает**, **CI**-**готов**.
 
 ## Этап 28. Рефакторинг фильтров (Filter Registry) ✅
 
@@ -655,7 +654,6 @@
 ### 28.4. Что нужно
 
 - [ ] **`test_filters.py`** — по одному тесту на каждый фильтр (сейчас только F1–F4 в `test_signals.py`).
-- [ ] **`test_signals.py`** — переписать на **pytest** полностью (сейчас 6 failed из-за `np.True_ is True`).
 - [ ] **`enabled_fn`** — проверить, что `verify_filters.py` учитывает `f.enabled` (сейчас `_filter_blocks` применяет **все** фильтры, `enabled_str` — только для вывода).
 
 ## Идеи на будущее (после статистики)
@@ -700,37 +698,7 @@
 
 ## Ветки и их роли
 
-### `main` (F)
-
-- **Роль:** основная ветка (reference).
-- **Настройки:** без фильтров, 120 сделок.
-- **База:** `storage/journal.db`.
-- **Цель:** сравнение с `experiment/aggressive-signals` и `feature/real-trading`.
-
-### `experiment/aggressive-signals` (F)
-
-- **Роль:** агрессивный полигон.
-- **Настройки:** без фильтров, сниженные пороги (`BOUNCE_TOLERANCE_ATR = 0.4`, `TREND_LEVEL_TOLERANCE_ATR = 0.5`, `BREAKOUT_BUFFER_ATR = 0.1`, `ADX_BREAKOUT_THRESHOLD = 20`), расширенные часы (`PAPER_TRADING_HOURS` 09:00–20:00), `PAPER_DEDUP_MINUTES = 5`, `PAPER_MAX_OPEN = 0`.
-- **База:** `storage/journal_aggressive.db`.
-- **Цель:** накопить статистику быстрее (больше сигналов).
-
-### `feature/real-trading` (Y)
-
-- **Роль:** актуальная ветка (торгуем по ней).
-- **Настройки:** с фильтрами (`PAPER_SKIP_BULLISH_LONG = True`, `PAPER_SKIP_NORMAL_BREAKOUT = True`, `PAPER_SKIP_BULLISH_SHORT = False`, `PAPER_SKIP_ADX_FLAT_BREAKOUT = False`), лимит 1, `PAPER_TRADING_HOURS` 09:00–18:00.
-- **База:** `storage/journal.db` (в Y).
-- **Цель:** торговля (PF 1.25, expectancy +6.2).
-
-### Сравнение (17.11)
-
-| Ветка                | Сделок | Winrate | PnL       | PF       | Expectancy   | Депозит |
-| -------------------- | ------ | ------- | --------- | -------- | ------------ | ------- |
-| **F (main)**         | 84     | 30.0%   | −273.04 ₽ | **0.63** | **−3.1 pts** | —       |
-| **Y (real-trading)** | 69     | 41.4%   | +300.58 ₽ | **1.25** | **+6.2 pts** | +7.99%  |
-| **F (aggressive)**   | 0      | —       | —         | —        | —            | —       |
-
-**Y лучше F** по PF/expectancy — фильтры `bullish/long` и `normal+breakout` работают.
-**F (aggressive)** — только начинает, статистики пока нет.
+См. `BRANCHES.md`.
 
 ---
 

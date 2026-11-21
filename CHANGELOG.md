@@ -22,7 +22,6 @@
 
 ### Известные ограничения
 
-- `test_signals.py` — 6 failed (`np.True_ is True`), **фикс**: `return bool(...)` в 3 функциях (`_is_rejection_candle`, `_is_engulfing`, `_has_volume_confirmation`).
 - `test_filters.py` — **TODO** (по одному тесту на фильтр).
 - `verify_filters.py` — `_filter_blocks` применяет **все** фильтры (включая `enabled=False`); `enabled_str` — только для вывода. **Не баг** (для анализа эффекта), но **надо** документировать.
 
@@ -42,7 +41,6 @@
 
 ### Известные ограничения
 
-- `test_paper_end_of_day.py` — 6 **падений** (`virtual_pnl` **не** **имеет** `end_of_day`). **Решение** **в** **работе**.
 - `test_signals.py` — **не** **переписан** **на** **pytest** (**после** **рефактора** `signals.py`).
 - `test_mfe_backfill.py` — **не** **переписан**.
 
