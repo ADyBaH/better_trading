@@ -75,12 +75,22 @@ def test_3_direct_candles():
 def test_4_direct_trades():
     print("\n=== Тест 4: Прямой ISS-запрос (trades.json) ===")
     url = "https://iss.moex.com/iss/engines/futures/markets/forts/securities/CNYRUBF/trades.json"
+    # BUG-02: trades.json за весь день — тяжёлый. Сужаем до последних 10 минут.
+    from datetime import timedelta
+
+    now = datetime.now()
+    from_ts = (now - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S")
+    till_ts = now.strftime("%Y-%m-%dT%H:%M:%S")
     params = {
-        "from": "2026-10-14",
-        "till": "2026-10-14",
+        "from": from_ts,
+        "till": till_ts,
         "iss.meta": "off",
     }
-    r = requests.get(url, params=params, timeout=30)
+    # BUG-02: trades.json — тяжёлый эндпоинт; timeout=60 + skip при недоступности.
+    try:
+        r = requests.get(url, params=params, timeout=60)
+    except requests.exceptions.ConnectionError as e:
+        pytest.skip(f"ISS недоступен: {e}")
     data = r.json()
     trades = data.get("trades", {})
     columns = trades.get("columns", [])
