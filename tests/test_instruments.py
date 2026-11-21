@@ -99,6 +99,15 @@ class TestGetInstrument:
         assert hasattr(inst, "step_cost")
         assert hasattr(inst, "commission_round")
 
+    def test_list_instruments(self):
+        """list_instruments() возвращает все тикеры из INSTRUMENTS."""
+        from core.instruments import list_instruments
+
+        symbols = list_instruments()
+        assert isinstance(symbols, list)
+        assert "CNYRUBF" in symbols
+        assert len(symbols) == len(INSTRUMENTS)
+
 
 class TestEdgeCases:
     def test_empty_direction_raises(self):
@@ -114,3 +123,114 @@ class TestEdgeCases:
         assert isinstance(rub, float)
         # points округлён до 1 знака
         assert points == round(points, 1)
+
+
+# ============================================================
+# T-19: консистентность спецификаций
+# ============================================================
+
+
+from core.instruments import INSTRUMENTS
+
+
+class TestSpecsConsistent:
+    """T-19: для каждого Instrument в INSTRUMENTS — проверка консистентности."""
+
+    @pytest.mark.parametrize("symbol", list(INSTRUMENTS.keys()))
+    def test_step_cost_formula(self, symbol):
+        """step_cost == price_step * lot_size * multiplier (multiplier=1 для CNYRUBF).
+
+        CNYRUBF: 0.001 × 1000 × 1 = 1.0 ₽.
+        Для других инструментов multiplier может быть != 1,
+        но формула должна сходиться.
+        """
+        inst = INSTRUMENTS[symbol]
+        expected = inst.price_step * inst.lot_size
+        assert inst.step_cost == pytest.approx(expected, rel=1e-9), (
+            f"{symbol}: step_cost={inst.step_cost}, " f"price_step×lot_size={expected}"
+        )
+
+    @pytest.mark.parametrize("symbol", list(INSTRUMENTS.keys()))
+    def test_commission_round_is_sum(self, symbol):
+        """commission_round == commission_open + commission_close."""
+        inst = INSTRUMENTS[symbol]
+        assert inst.commission_round == pytest.approx(
+            inst.commission_open + inst.commission_close, rel=1e-9
+        )
+
+    @pytest.mark.parametrize("symbol", list(INSTRUMENTS.keys()))
+    def test_commission_open_close_symmetric(self, symbol):
+        """commission_open == commission_close (биржа + брокер симметричны)."""
+        inst = INSTRUMENTS[symbol]
+        assert inst.commission_open == pytest.approx(inst.commission_close, rel=1e-9)
+
+    @pytest.mark.parametrize("symbol", list(INSTRUMENTS.keys()))
+    def test_commission_round_positive(self, symbol):
+        inst = INSTRUMENTS[symbol]
+        assert inst.commission_round > 0
+
+    @pytest.mark.parametrize("symbol", list(INSTRUMENTS.keys()))
+    def test_price_step_positive(self, symbol):
+        inst = INSTRUMENTS[symbol]
+        assert inst.price_step > 0
+        assert inst.lot_size > 0
+        assert inst.step_cost > 0
+
+    @pytest.mark.parametrize("symbol", list(INSTRUMENTS.keys()))
+    def test_symbol_matches_key(self, symbol):
+        """inst.symbol == ключ в INSTRUMENTS."""
+        inst = INSTRUMENTS[symbol]
+        assert inst.symbol == symbol
+
+
+class TestComputeTradeResultScaling:
+    """T-19: compute_trade_result масштабируется линейно по size и step_cost."""
+
+    def test_linear_in_size_points(self, inst_cnyrubf):
+        """points не зависит от size (это пункты, не рубли)."""
+        p1, _ = compute_trade_result(inst_cnyrubf, "long", 12.500, 12.530, size=1)
+        p2, _ = compute_trade_result(inst_cnyrubf, "long", 12.500, 12.530, size=2)
+        p3, _ = compute_trade_result(inst_cnyrubf, "long", 12.500, 12.530, size=5)
+        assert p1 == p2 == p3 == 30.0
+
+    def test_linear_in_size_rub(self, inst_cnyrubf):
+        """rub × size (при тех же points)."""
+        _, r1 = compute_trade_result(inst_cnyrubf, "long", 12.500, 12.530, size=1)
+        _, r2 = compute_trade_result(inst_cnyrubf, "long", 12.500, 12.530, size=2)
+        _, r3 = compute_trade_result(inst_cnyrubf, "long", 12.500, 12.530, size=3)
+        assert r2 == pytest.approx(r1 * 2, rel=1e-9)
+        assert r3 == pytest.approx(r1 * 3, rel=1e-9)
+
+    def test_size_zero(self, inst_cnyrubf):
+        """size=0 → 0 points, 0 rub (комиссия тоже 0)."""
+        points, rub = compute_trade_result(inst_cnyrubf, "long", 12.500, 12.530, size=0)
+        assert points == 30.0  # points не зависит от size
+        assert rub == 0.0  # rub = 30 × 1.0 × 0 − 2.06 × 0 = 0
+
+    def test_commission_scales_with_size(self, inst_cnyrubf):
+        """T-19: комиссия × size (Вариант A).
+
+        gross_rub = points × step_cost × size
+        rub = gross_rub − commission_round × size
+        Значит, rub(size=N) = N × points × step_cost − N × commission_round
+        """
+        points = 30.0
+        step_cost = inst_cnyrubf.step_cost  # 1.0
+        comm = inst_cnyrubf.commission_round  # 2.06
+
+        for size in (1, 2, 3, 5):
+            _, rub = compute_trade_result(
+                inst_cnyrubf, "long", 12.500, 12.530, size=size
+            )
+            expected = points * step_cost * size - comm * size
+            assert rub == pytest.approx(
+                expected, rel=1e-2
+            ), f"size={size}: rub={rub}, expected={expected}"
+
+    def test_commission_override_scales_with_size(self, inst_cnyrubf):
+        """commission_round=1.5, size=2 → rub = 60 − 3 = 57."""
+        points, rub = compute_trade_result(
+            inst_cnyrubf, "long", 12.500, 12.530, size=2, commission_round=1.5
+        )
+        assert points == 30.0
+        assert rub == pytest.approx(57.0, rel=1e-9)
