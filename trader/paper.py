@@ -8,6 +8,8 @@ from typing import Optional
 from core.logger import get_logger
 from core.risk import calculate_position_size
 from core.instruments import get_instrument
+from typing import Optional, Dict, List
+import trader.paper_db as db
 
 import config
 import os
@@ -24,97 +26,8 @@ RESET = "\033[0m" if _USE_COLOR else ""
 log = get_logger(__name__)
 
 
-# ============================================================
-# Схема
-# ============================================================
-
-CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS paper_trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    signal_id TEXT UNIQUE,
-    source_analysis_path TEXT,
-    symbol TEXT NOT NULL,
-    direction TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    strength TEXT,
-    strength_score REAL,
-    entry_price REAL NOT NULL,
-    stop_price REAL NOT NULL,
-    take_price REAL NOT NULL,
-    level_price REAL,
-    risk_reward REAL,
-    net_rr REAL,
-    trend_at_open TEXT,
-    adx_at_open REAL,
-    day_trend_at_open TEXT,
-    structure_at_open TEXT,
-    week_trend_at_open TEXT,
-    market_state_at_open TEXT,
-    rsi_at_open REAL,
-    atr_percentile_at_open REAL,
-    created_at TEXT NOT NULL,
-    closed_at TEXT,
-    exit_price REAL,
-    result TEXT DEFAULT 'open',
-    result_points REAL,
-    result_rub REAL,
-    bars_to_close INTEGER,
-    resolution_confidence TEXT,
-    warnings TEXT,
-    context TEXT,
-    bid_vol REAL,
-    ask_vol REAL,
-    market_price_at_open REAL,
-    size INTEGER DEFAULT 1,
-    balance_after REAL
-);
-CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_trades(result);
-CREATE INDEX IF NOT EXISTS idx_paper_created ON paper_trades(created_at);
-CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_trades(symbol);
-"""
-
-
 def init_paper_table(conn: sqlite3.Connection) -> None:
-    """Идемпотентно создаёт таблицу paper_trades и добавляет новые колонки."""
-    conn.row_factory = sqlite3.Row  # чтобы работало row["name"] даже на голом conn
-    conn.executescript(CREATE_TABLE_SQL)
-
-    # Миграция: добавляем колонки, если их нет (для старых БД)
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
-
-    if "market_price_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN market_price_at_open REAL")
-    if "size" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN size INTEGER DEFAULT 1")
-    if "balance_after" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN balance_after REAL")
-    if "week_trend_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN week_trend_at_open TEXT")
-    if "market_state_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN market_state_at_open TEXT")
-    if "rsi_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN rsi_at_open REAL")
-    if "atr_percentile_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN atr_percentile_at_open REAL")
-    if "mfe_points" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_points REAL")
-    if "mae_points" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_points REAL")
-    if "partial_day_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN partial_day_at_open INTEGER")
-    if "volume_ratio_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN volume_ratio_at_open REAL")
-    if "mfe_source" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_source TEXT")
-    if "mae_source" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_source TEXT")
-    if "take_source" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN take_source TEXT")
-    if "take_atr_value" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN take_atr_value REAL")
-    if "day_range_atr_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN day_range_atr_at_open REAL")
-    conn.commit()
+    db.init_db(conn)
 
 
 # ============================================================
@@ -346,60 +259,50 @@ def save_signal_as_paper(
     ask_vol: float | None = None,
     market_price_at_open: float | None = None,
 ) -> int:
-    """
-    Создаёт paper-сделки из сигналов.
-
-    Правила:
-    - если не в PAPER_TRADING_HOURS — пропускаем (сделки не создаются);
-    - если дубль по _is_duplicate — пропускаем;
-    - INSERT OR IGNORE по signal_id (UNIQUE) — страховка от гонок.
-
-    Возвращает количество созданных записей.
-    """
     if not config.PAPER_ENABLED:
         return 0
 
     if not _is_in_paper_hours(result.timestamp):
-        log.debug(
-            "paper: %s вне PAPER_TRADING_HOURS — пропуск",
-            result.timestamp.strftime("%H:%M"),
-        )
         return 0
 
-    # --- Виртуальный депозит ---
-    inst = get_instrument(result.symbol)
-    risk_rub = config.VIRTUAL_DEPOSIT * config.RISK_PER_TRADE_PCT
-
-    # --- Лимит открытых paper-сделок (config.PAPER_MAX_OPEN) ---
-    max_open = getattr(config, "PAPER_MAX_OPEN", 1)
+    # Проверка лимита открытых сделок через БД
     open_count = conn.execute(
         "SELECT COUNT(*) FROM paper_trades WHERE result = 'open'"
     ).fetchone()[0]
+    max_open = getattr(config, "PAPER_MAX_OPEN", 1)
     if max_open > 0 and open_count >= max_open:
-        log.debug(
-            "paper: открытых %d >= PAPER_MAX_OPEN=%d — пропуск",
-            open_count,
-            max_open,
-        )
+        log.debug("paper: лимит %d достигнут", max_open)
         return 0
 
     created = 0
+    inst = get_instrument(result.symbol)
+    risk_rub = config.VIRTUAL_DEPOSIT * config.RISK_PER_TRADE_PCT
 
     for sig in signals:
-        if _is_duplicate(conn, sig, result.symbol, result.atr, result.timestamp):
-            log.debug(
-                "paper: дубль %s %s @ %.5f — пропуск",
-                sig.direction,
-                sig.kind,
-                sig.entry_price,
-            )
+        # Дедупликация через БД
+        open_trades = db.get_open_trades_by_symbol(conn, result.symbol)
+        is_dup = False
+        price_tol = config.PAPER_DEDUP_PRICE_TOL_ATR * result.atr
+        now_ts = result.timestamp.timestamp()
+
+        for row in open_trades:
+            if abs(sig.entry_price - row["entry_price"]) < price_tol:
+                is_dup = True
+                break
+            try:
+                old_dt = datetime.fromisoformat(row["created_at"])
+                if abs(now_ts - old_dt.timestamp()) / 60 < config.PAPER_DEDUP_MINUTES:
+                    is_dup = True
+                    break
+            except:
+                break
+
+        if is_dup:
             continue
 
         sid = _signal_id(sig, result.symbol, result.timestamp)
 
-        ind = result.indicators
-        adx_val = round(ind.adx, 2) if ind.adx is not None else None
-        # Размер от риска
+        # Расчет размера позиции (Бизнес-логика)
         size = calculate_position_size(
             risk_rub=risk_rub,
             entry_price=sig.entry_price,
@@ -407,86 +310,62 @@ def save_signal_as_paper(
             step_cost=inst.step_cost,
             price_step=inst.price_step,
         )
+
         if size <= 0:
-            log.debug("paper: size=0, пропуск")
             continue
 
-        try:
-            _columns = (
-                "signal_id, source_analysis_path, symbol, direction, kind, "
-                "strength, strength_score, entry_price, stop_price, take_price, "
-                "level_price, risk_reward, net_rr, "
-                "trend_at_open, adx_at_open, day_trend_at_open, structure_at_open, "
-                "partial_day_at_open, "
-                "week_trend_at_open, market_state_at_open, "
-                "rsi_at_open, atr_percentile_at_open, volume_ratio_at_open, "
-                "created_at, result, warnings, context, "
-                "bid_vol, ask_vol, market_price_at_open, size, balance_after, "
-                "mfe_source, mae_source, "
-                "take_source, take_atr_value, day_range_atr_at_open"
-            )
-            _placeholders = ", ".join(["?"] * len(_columns.split(",")))
-            changes_before = conn.total_changes
-            conn.execute(
-                f"INSERT OR IGNORE INTO paper_trades ({_columns}) VALUES ({_placeholders})",
-                (
-                    sid,
-                    source_analysis_path,
-                    result.symbol,
-                    sig.direction,
-                    sig.kind,
-                    sig.strength,
-                    sig.strength_score,
-                    sig.entry_price,
-                    sig.stop_price,
-                    sig.take_price,
-                    sig.level_price,
-                    sig.risk_reward,
-                    sig.net_rr,
-                    ind.trend,
-                    adx_val,
-                    ind.day_trend,
-                    ind.structure,
-                    1 if ind.partial_day else 0,
-                    ind.week_trend,
-                    ind.market_state,
-                    ind.rsi,
-                    sig.context.get("atr_percentile"),
-                    ind.volume_ratio,
-                    result.timestamp.isoformat(),
-                    "open",
-                    (
-                        json.dumps(sig.warnings, ensure_ascii=False)
-                        if sig.warnings
-                        else None
-                    ),
-                    (
-                        json.dumps(sig.context, ensure_ascii=False, default=str)
-                        if sig.context
-                        else None
-                    ),
-                    bid_vol,
-                    ask_vol,
-                    market_price_at_open,
-                    size,
-                    None,  # balance_after
-                    "live",  # ← mfe_source
-                    "live",  # ← mae_source
-                    sig.take_source,
-                    sig.take_atr_value,
-                    sig.day_range_atr_at_open,
-                ),
-            )
-            inserted = conn.total_changes - changes_before
-            if inserted > 0:
-                created += 1
-        except sqlite3.IntegrityError:
-            log.debug("paper: signal_id=%s уже существует", sid)
-            continue
+        # Формируем плоский словарь данных
+        data = {
+            "signal_id": sid,
+            "source_analysis_path": source_analysis_path,
+            "symbol": result.symbol,
+            "direction": sig.direction,
+            "kind": sig.kind,
+            "strength": sig.strength,
+            "strength_score": sig.strength_score,
+            "entry_price": sig.entry_price,
+            "stop_price": sig.stop_price,
+            "take_price": sig.take_price,
+            "level_price": sig.level_price,
+            "risk_reward": sig.risk_reward,
+            "net_rr": sig.net_rr,
+            "trend_at_open": result.indicators.trend,
+            "adx_at_open": (
+                round(result.indicators.adx, 2) if result.indicators.adx else None
+            ),
+            "day_trend_at_open": result.indicators.day_trend,
+            "structure_at_open": result.indicators.structure,
+            "partial_day_at_open": 1 if result.indicators.partial_day else 0,
+            "week_trend_at_open": result.indicators.week_trend,
+            "market_state_at_open": result.indicators.market_state,
+            "rsi_at_open": result.indicators.rsi,
+            "atr_percentile_at_open": sig.context.get("atr_percentile"),
+            "created_at": result.timestamp.isoformat(),
+            "result": "open",
+            "warnings": (
+                json.dumps(sig.warnings, ensure_ascii=False) if sig.warnings else None
+            ),
+            "context": (
+                json.dumps(sig.context, ensure_ascii=False, default=str)
+                if sig.context
+                else None
+            ),
+            "bid_vol": bid_vol,
+            "ask_vol": ask_vol,
+            "market_price_at_open": market_price_at_open,
+            "size": size,
+            "balance_after": None,
+            "mfe_source": "live",
+            "mae_source": "live",
+            "take_source": sig.take_source,
+            "take_atr_value": sig.take_atr_value,
+            "day_range_atr_at_open": result.indicators.day_range_atr_at_open,
+        }
+
+        if db.insert_trade(conn, data):
+            created += 1
 
     conn.commit()
-    if created:
-        log.info("paper: создано %d сделок", created)
     return created
 
 
@@ -558,10 +437,7 @@ def resolve_open_trades(
     """
     from data.api_facade import get_candles_tf
 
-    rows = conn.execute(
-        "SELECT * FROM paper_trades WHERE symbol = ? AND result = 'open'",
-        (symbol,),
-    ).fetchall()
+    rows = db.get_open_trades_by_symbol(conn, symbol)
 
     if not rows:
         return 0
@@ -731,6 +607,7 @@ def paper_stats(
     symbol: str | None = None,
     known_only: bool = False,
     min_n: int = 0,
+    **kwargs,
 ) -> dict:
     """
     Агрегаты по paper_trades.
@@ -771,10 +648,8 @@ def paper_stats(
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
-    rows = conn.execute(
-        f"SELECT * FROM paper_trades {where_sql} ORDER BY created_at",
-        params,
-    ).fetchall()
+    """Статистика теперь просто запрашивает данные и группирует их."""
+    rows = db.get_stats_raw(conn, kwargs)
 
     total = len(rows)
     open_count = sum(1 for r in rows if r["result"] == "open")
