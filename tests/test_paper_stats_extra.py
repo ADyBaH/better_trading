@@ -159,3 +159,21 @@ class TestByWeekday:
         assert s["by_weekday"]["Wed"]["total"] == 2
         assert s["by_weekday"]["Wed"]["win"] == 1
         assert s["by_weekday"]["Wed"]["loss"] == 1
+
+
+class TestByDayRangeAtr:
+    def test_buckets(self, conn, insert_trade):
+        insert_trade(conn, "dr1", "win", "2026-10-23T10:00:00", points=10, rub=8)
+        insert_trade(conn, "dr2", "loss", "2026-10-23T11:00:00", points=-5, rub=-7)
+        # Обновить day_range_atr_at_open вручную
+        conn.execute(
+            "UPDATE paper_trades SET day_range_atr_at_open = 2.0 WHERE signal_id = 'dr1'"
+        )
+        conn.execute(
+            "UPDATE paper_trades SET day_range_atr_at_open = 3.0 WHERE signal_id = 'dr2'"
+        )
+        conn.commit()
+
+        s = paper_stats(conn)
+        assert s["by_day_range_atr"]["<2.5 (низкая)"]["total"] == 1
+        assert s["by_day_range_atr"]["2.5-3.33 (средняя)"]["total"] == 1

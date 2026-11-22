@@ -20,6 +20,7 @@ from trader.analytics.group import (
     _hour_bucket,
     _weekday_bucket,
     _group_with_ci,
+    _day_range_atr_bucket,
 )
 
 
@@ -132,6 +133,9 @@ def paper_stats(
         rows, lambda r: _volume_bucket(r["volume_ratio_at_open"])
     )
     by_take_source = _group_with_ci(rows, lambda r: r["take_source"] or "unknown")
+    by_day_range_atr = _group_with_ci(
+        rows, lambda r: _day_range_atr_bucket(r["day_range_atr_at_open"])
+    )
 
     # by_mae_ratio / by_mfe_ratio — специальные (нужен inst)
     def _mae_ratio_key(r):
@@ -238,4 +242,5 @@ def paper_stats(
         "profit_factor_ci": pf_ci,
         "expectancy_ci": exp_ci,
         "winrate_ci": winrate_ci,
+        "by_day_range_atr": _process(by_day_range_atr),
     }

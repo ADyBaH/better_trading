@@ -200,3 +200,14 @@ def _group_with_ci(rows, key_fn, *, min_n: int = 5):
         else:
             b["pf_ci"] = b["exp_ci"] = b["winrate_ci"] = None
     return result
+
+
+def _day_range_atr_bucket(val):
+    """T-23: бакеты day_range_atr_at_open (<2.5, 2.5–3.33, >3.33)."""
+    if val is None:
+        return "unknown"
+    if val < 2.5:
+        return "<2.5 (низкая)"
+    if val <= 3.33:
+        return "2.5-3.33 (средняя)"
+    return ">3.33 (высокая)"

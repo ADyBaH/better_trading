@@ -504,6 +504,7 @@ def cmd_paper_stats(args) -> int:
     _print_group("По volume ratio", s.get("by_volume_ratio", {}))
     _print_group("По MAE ratio (стоп)", s.get("by_mae_ratio", {}))
     _print_group("По take_source", s.get("by_take_source", {}))
+    _print_group("По day_range_atr (волатильность)", s.get("by_day_range_atr", {}))
 
     # by_score — сортируем по возрастанию score, с CI
     if s["by_score"]:
