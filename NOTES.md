@@ -276,3 +276,78 @@ mfe_points=+23 (high 12.299), mae_points=1 (low 12.275), volume_ratio=1.15.
   - **Увеличить** `DATA_MAX_AGE_BLOCK` до 30? (риск: устаревшие данные)
   - **Или** — **разобраться**, почему ALOR отдаёт с лагом 28 мин (это **не** 5 мин, как в ROADMAP).
   - **Пока** — `runner.py` **не создаёт** сигналы. **T-05 показал.**
+
+## 2026-11-22 — T-04: Bootstrap CI (n=74)
+
+- **T-04 работает:** `paper-stats` показывает `PF 1.08 [0.68, 1.99]`, `Exp +3.5 [-6.1, +13.2]`, `Winrate 38.2% [26.5%, 50.0%]`.
+- **CI включает** breakeven (PF), 0 (Exp) → **стратегия статистически не доказана**.
+- **n=74** (закрытых) — **мало** для узкого CI. Нужно **n ≥ 200**.
+- **Решение:** **не мержить** Y → main, **не включать** live. Продолжать paper-tracking.
+
+## 2026-11-22 — BUG-09: DATA_MAX_AGE_BLOCK 15 → 30
+
+- **T-01b** отбрасывает незакрытую M15 → `data_age` от **закрытой** M15 (**15–30 мин**).
+- **`DATA_MAX_AGE_BLOCK = 15`** (было) — **блокировал всегда** (BUG-09).
+- **T-05** показал: `paper-skipped` → `data_age:28` (100%).
+- **Решение:** `DATA_MAX_AGE_BLOCK = 30`. Проверено: `data_age=20` → не блокирует.
+
+## 2026-11-22 — T-06: schema_versions (4 таблицы)
+
+- **T-06 работает:** `trader/db.py` — `schema_versions` (**версия на таблицу**, не общий `user_version`).
+- **`journal.db`:** `paper_trades=29`, `paper_skipped=1`, `trades=1` (было `user_version=29`, без версий для `trades`/`paper_skipped`).
+- **`market.db`:** `candles=1` (было `user_version=0`).
+- **`PRAGMA user_version`** больше не источник истины.
+- **Данные целы:** `paper_trades=82`, `paper_skipped=1`, `trades=11`, `candles=55822`.
+
+## 2026-11-22 — T-07: pre-registration (EXPERIMENT_ID)
+
+- **T-07 работает:** `EXPERIMENT_ID` (env), миграция 29 (`experiment_id` в `paper_trades`), `--experiment` в `paper-stats`.
+- **Пилот:** `EXP-20261122-05` (PAPER_TRADING_HOURS до 17:00) — **🚧 идёт сбор**.
+- **Правило:** без pre-registration эксперимент не считается.
+
+## 2026-11-22 — T-08: ablation (infra)
+
+- **T-08 infra работает:** `scripts/ablation.py` (unpaired bootstrap, CI, пересечения).
+- **n=18 baseline** — **мало**. Все CI включают 0 → **ни один фильтр не значим**.
+- **`normal_breakout`** — ΔPF −0.13 (хуже), **`adx_trend`** — +0.25 (лучше), **но не доказано**.
+- **`breakout_filter`**, **`bid_heavy`**, **`bullish_long`**, **`bullish_short`** — Δ=0 (n_on = n_off).
+- **Решение:** T-08 **результаты** — отложить до **n ≥ 100** (CI сузится).
+
+## 2026-11-22 — T-12: единый REAL_TRADING_MODE
+
+- **T-12 работает:** `REAL_TRADING_MODE` (`core/real_mode.py`), `is_mock()` / `is_live()` / `check_real_mode()`.
+- **Live** требует `CONFIRM_LIVE=1` (env), иначе `RealModeError`.
+- **`_MOCK_MODE`** (module-level) — **удалён** (было в `api_alor_trade.py`, `trader/real.py`).
+- **`trader/real.py`** — использует `config.VIRTUAL_DEPOSIT` (3000), `config.RISK_PER_TRADE_PCT` (0.01).
+
+## 2026-11-22 — T-13: by_score + CI
+
+- **T-13 работает:** `by_score` с `pf_ci`, `exp_ci`, `winrate_ci`.
+- **Ни один бакет score не значим** — CI всех включают breakeven/0/50%.
+- **Гипотеза «score не коррелирует с winrate»** — **подтверждается**.
+- **n=8–22** на бакет — **мало**. Нужно **n ≥ 50 на бакет**.
+
+## 2026-11-22 — рефакторинг analytics/
+
+- **`trader/analytics/`** — пакет: `group.py` (bucket + `_group_with_ci`), `paper.py` (`paper_stats`), `journal.py` (`compute_stats`), `__init__.py`.
+- **`trader/paper.py`** — только live-логика (`save_signal_as_paper`, `resolve_open_trades`, `virtual_pnl`, `format_*`).
+- **`trader/stats.py`** — **удалён** (re-export). Один путь — `trader.analytics`.
+
+## 2026-11-22 — T-23: by_day_range_atr (infra)
+
+- **T-23 infra работает:** `by_day_range_atr` (бакеты `<2.5`, `2.5-3.33`, `>3.33`).
+- **Сейчас:** `day_range_atr_at_open` заполнен у **1** сделки (**81 unknown**).
+- **`ADAPTIVE_TAKE_ENABLED = True`** — безопасен (при `>3.33` → baseline).
+- **Проверка** — отложить до **n ≥ 20** с `day_range_atr_at_open`.
+
+## 2026-11-22 — итог сессии
+
+**Закрыто:** T-01b, T-01c, T-04, T-05, T-06, T-07, T-08 (infra), T-12, T-13, T-23 (infra), BUG-08/09/10/11, рефакторинг analytics.
+
+**`pytest`:** 305+ passed.
+
+**`paper-stats` (n=82):** PF 1.08 [0.68, 1.99], Exp +3.5 [-6.1, +13.2], Winrate 38.2% [26.5%, 50.0%].
+
+**Стратегия статистически неотличима от breakeven** — не мержить, не включать live.
+
+**Следующий шаг:** runner на 2–3 дня (накопление n), потом T-08 (n ≥ 100) + T-02b + T-23.

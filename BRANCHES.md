@@ -69,6 +69,7 @@
 ### Real-trading (мок)
 
 - **Важно:** реальные ордера **НЕ** ставятся (`REAL_TRADING_MODE = "mock"`).
+- **Live** — только с `CONFIRM_LIVE=1` (env) + `REAL_TRADING_MODE = "live"`.
 - `data/api_alor_trade.py`: `place_order`, `cancel_order`, `get_orders` (мок).
 - `trader/real.py`: `open_real_trade`, `close_real_trade` (мок).
 - `core/risk.py`: `calculate_position_size` (риск → размер).

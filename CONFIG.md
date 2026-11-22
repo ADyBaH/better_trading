@@ -72,12 +72,12 @@
 
 ## Данные и кэш
 
-| Параметр             | Значение | Описание                                |
-| -------------------- | -------- | --------------------------------------- |
-| `DATA_PROVIDER`      | `"alor"` | `"alor"` (real-time) или `"moex"` (ISS) |
-| `CACHE_TTL_MINUTES`  | `4`      | TTL кэша (для ALOR)                     |
-| `DATA_MAX_AGE_MIN`   | `5`      | Макс. возраст данных (мин)              |
-| `DATA_MAX_AGE_BLOCK` | `15`     | Блокировка анализа при большем лаге     |
+| Параметр             | Значение | Описание                                                        |
+| -------------------- | -------- | --------------------------------------------------------------- |
+| `DATA_PROVIDER`      | `"alor"` | `"alor"` (real-time) или `"moex"` (ISS)                         |
+| `CACHE_TTL_MINUTES`  | `4`      | TTL кэша (для ALOR)                                             |
+| `DATA_MAX_AGE_MIN`   | `20`     | Warning, если данные старше (мин). M15 закрытая всегда ≥ 15 мин |
+| `DATA_MAX_AGE_BLOCK` | `30`     | Блокировка анализа. M15 закрытая 15–30 мин + лаг ALOR           |
 
 ---
 
@@ -92,37 +92,51 @@
 
 ## Paper-tracking
 
-| Параметр              | Значение             | Описание                        |
-| --------------------- | -------------------- | ------------------------------- |
-| `PAPER_ENABLED`       | `True`               | Включить paper-tracking         |
-| `PAPER_TRADING_HOURS` | `("09:00", "18:00")` | Торговые часы (МСК)             |
-| `PAPER_TIMEOUT_BARS`  | `20`                 | Таймаут резолва (M15-свечей)    |
-| `PAPER_DEDUP_MINUTES` | `5`                  | Окно эха дедупликации           |
-| `PAPER_MAX_OPEN`      | `1`                  | Лимит открытых (0 — без лимита) |
+| Параметр              | Значение                             | Описание                                                                     |
+| --------------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
+| `PAPER_ENABLED`       | `True`                               | Включить paper-tracking                                                      |
+| `PAPER_TRADING_HOURS` | `{"start": "09:00", "end": "18:00"}` | Торговые часы (МСК). Переопределяются env `PAPER_START` / `PAPER_END` (T-07) |
+| `PAPER_TIMEOUT_BARS`  | `20`                                 | Таймаут резолва (M15-свечей)                                                 |
+| `PAPER_DEDUP_MINUTES` | `5`                                  | Окно эха дедупликации                                                        |
+| `PAPER_MAX_OPEN`      | `1`                                  | Лимит открытых (0 — без лимита)                                              |
+
+## Эксперименты (T-07)
+
+| Параметр              | Значение | Описание                                                                         |
+| --------------------- | -------- | -------------------------------------------------------------------------------- |
+| `EXPERIMENT_ID`       | `None`   | ID эксперимента (env). `None` — baseline. Пишется в `paper_trades.experiment_id` |
+| `EXPERIMENT_ID` (env) | —        | `EXPERIMENT_ID=EXP-... python runner.py`                                         |
 
 ---
 
 ## Real-trading (мок)
 
-| Параметр            | Значение | Описание                                   |
-| ------------------- | -------- | ------------------------------------------ |
-| `REAL_TRADING_MODE` | `"mock"` | `"mock"` (ордера не ставятся) или `"live"` |
-| `_MOCK_MODE`        | `True`   | Внутренний флаг мок-режима                 |
+| Параметр               | Значение         | Описание                                                 |
+| ---------------------- | ---------------- | -------------------------------------------------------- |
+| `REAL_TRADING_MODE`    | `"mock"`         | `"mock"` (ордера не ставятся) или `"live"`               |
+| `CONFIRM_LIVE_ENV_VAR` | `"CONFIRM_LIVE"` | env-переменная для подтверждения live (должна быть `=1`) |
 
 **Включение реальных ордеров** — только после 2 недель paper с winrate 70%+, на малом депозите (1% риск), с ручным подтверждением. См. `BRANCHES.md` → «Режимы».
+**Как включить live:**
+
+```bash
+export CONFIRM_LIVE=1
+# и в config.py: REAL_TRADING_MODE = "live"
+```
 
 ---
 
 ## Сохранение свечей в JSON
 
-| Параметр                     | Значение  | Описание                                        |
-| ---------------------------- | --------- | ----------------------------------------------- |
-| `SAVE_CANDLES`               | `True`    | Глобальный выключатель                          |
-| `SAVE_CANDLES_ALWAYS`        | `True`    | **A**: каждый цикл / **B**: только при сигналах |
-| `SAVE_CANDLES_MARK_SIGNALS`  | `True`    | Ставить `has_signals` / `signals_count`         |
-| `SAVE_CANDLES_TIMEFRAMES`    | `["M15"]` | Какие ТФ сохранять                              |
-| `SAVE_CANDLES_COUNT`         | `300`     | Сколько свечей в снимке                         |
-| `SAVE_CANDLES_MAX_SNAPSHOTS` | `300`     | Защита от разрастания файла                     |
+| Параметр                     | Значение                             | Описание                                                  |
+| ---------------------------- | ------------------------------------ | --------------------------------------------------------- |
+| `SAVE_CANDLES`               | `True`                               | Глобальный выключатель                                    |
+| `SAVE_CANDLES_ALWAYS`        | `True`                               | **A**: каждый цикл / **B**: только при сигналах           |
+| `SAVE_CANDLES_MARK_SIGNALS`  | `True`                               | Ставить `has_signals` / `signals_count`                   |
+| `SAVE_CANDLES_TIMEFRAMES`    | `["M15", "H1", "H4"]`                | Какие ТФ сохранять                                        |
+| `SAVE_CANDLES_COUNT`         | `300`                                | Fallback для ТФ, которых нет в `SAVE_CANDLES_COUNT_BY_TF` |
+| `SAVE_CANDLES_COUNT_BY_TF`   | `{"M15": 300, "H1": 300, "H4": 500}` | T-01c: H4 = 500 (EMA200 + запас)                          |
+| `SAVE_CANDLES_MAX_SNAPSHOTS` | `300`                                | Защита от разрастания файла                               |
 
 **Режимы:**
 
@@ -169,15 +183,17 @@
 
 ### Глобальные (все kind)
 
-| Флаг                           | Значение в Y | Что блокирует                                             | Статистика                         |
-| ------------------------------ | ------------ | --------------------------------------------------------- | ---------------------------------- |
-| `PAPER_SKIP_BULLISH_LONG`      | `True`       | LONG при `week_trend == "bullish"`                        | −103 ₽ (replay 11/13.11) — полезен |
-| `PAPER_SKIP_NORMAL_BREAKOUT`   | `True`       | `breakout` / `trend_level` при `market_state == "normal"` | −139.72 ₽ (n=17) — полезен         |
-| `PAPER_SKIP_BULLISH_SHORT`     | `False`      | SHORT при `week_trend == "bullish"`                       | +21.72 ₽ (n=8) — **НЕ включать**   |
-| `PAPER_SKIP_ADX_FLAT_BREAKOUT` | `False`      | `breakout` при ADX < 20                                   | +50.28 ₽ (n=7) — **НЕ включать**   |
-| `PAPER_SKIP_PULLBACK_BOUNCE`   | `True`       | `bounce` при `market_state == "pullback"`                 | 10 сделок, 1W/7L, −81.94 ₽         |
-| `PAPER_SKIP_ADX_TREND`         | `True`       | все kind при ADX 20–25                                    | 17 сделок, 1W/12L, −256.36 ₽       |
-| `PAPER_SKIP_BID_HEAVY`         | `True`       | все kind при `pressure_pct > 60`                          | 6 сделок, 0W/5L, −150.30 ₽         |
+| Флаг                           | Значение в Y | Что блокирует                                             |
+| ------------------------------ | ------------ | --------------------------------------------------------- |
+| `PAPER_SKIP_BULLISH_LONG`      | `True`       | LONG при `week_trend == "bullish"`                        |
+| `PAPER_SKIP_NORMAL_BREAKOUT`   | `True`       | `breakout` / `trend_level` при `market_state == "normal"` |
+| `PAPER_SKIP_BULLISH_SHORT`     | `False`      | SHORT при `week_trend == "bullish"`                       |
+| `PAPER_SKIP_ADX_FLAT_BREAKOUT` | `False`      | `breakout` при ADX < 20                                   |
+| `PAPER_SKIP_PULLBACK_BOUNCE`   | `True`       | `bounce` при `market_state == "pullback"`                 |
+| `PAPER_SKIP_ADX_TREND`         | `True`       | все kind при ADX 20–25                                    |
+| `PAPER_SKIP_BID_HEAVY`         | `True`       | все kind при `pressure_pct > 60`                          |
+
+**Цифры** — **устарели** (**n=17**, **до** **T-04**). **CI** **широкий** (**все** **включают** **0**). **Актуальные** **результаты** — `EXPERIMENTS.md` (**T-08** **ablation**, **n ≥ 100**). **Фильтры** **не** **доказаны** — **не** **менять** **без** **CI**.
 
 Обоснование — в `EXPERIMENTS.md` (EXP-20261119-01) и `NOTES.md` (наблюдения 11.11/17.11).
 

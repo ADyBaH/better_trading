@@ -1,6 +1,50 @@
 # CHANGELOG
 
+## [0.18.0] — 2026-11-22
+
+**Релиз:** T-01b, T-01c, T-04, T-05, T-06, T-07, T-08 (infra), T-12, T-13, T-23 (infra), BUG-08…BUG-11, рефакторинг `analytics/`.
+
+### Добавлено
+
+- **T-04**: Bootstrap CI для PF/exp/winrate (`trader/bootstrap.py`).
+- **T-05**: `paper_skipped` (reason: filter, penalty, data_age) + `paper-skipped` CLI.
+- **T-06**: единый `trader/db.py` + `schema_versions` (4 таблицы).
+- **T-07**: pre-registration (`EXPERIMENT_ID`, миграция 29, `--experiment`).
+- **T-08**: ablation study (`scripts/ablation.py`). Infra, ждём n ≥ 100.
+- **T-12**: единый `REAL_TRADING_MODE` (`core/real_mode.py`), `CONFIRM_LIVE=1`.
+- **T-13**: `by_score` с bootstrap CI.
+- **T-23**: `by_day_range_atr` (infra).
+- **Рефакторинг**: пакет `trader/analytics/` (`group.py`, `paper.py`, `journal.py`).
+
+### Исправлено
+
+- **T-01b**: live без look-ahead M15/H1/H4/ATR.
+- **T-01c**: H4 в `candles_*.json` = 500.
+- **BUG-08**: `SAVE_CANDLES_COUNT` возвращён.
+- **BUG-09**: `DATA_MAX_AGE_BLOCK` 15 → 30.
+- **BUG-10**: `_is_duplicate` используется в `save_signal_as_paper`.
+- **BUG-11**: `trader/stats.py` удалён (re-export).
+
+### Изменено
+
+- `paper_stats` → `trader.analytics.paper`
+- `compute_stats` → `trader.analytics.journal`
+- `trader/paper.py` — только live-логика.
+
+### Известные ограничения
+
+- **Match rate 70%** — реалистичный порог. 100% недостижим без M1.
+- **T-08 результаты** — ждём n ≥ 100.
+- **T-23 проверка** — ждём n ≥ 20.
+- **T-02b** — ждём n ≥ 100.
+
 ## [0.17.0] — 2026-11-22
+
+> ⚠️ **Часть** **изменений** **из** `[0.17.0]` **вошла** **в** `[Unreleased]`
+> (миграции 17–29, `schema_versions`, `analytics/`, T-04…T-13).
+> **Актуальное** **состояние** — **в** `[Unreleased]`.
+
+### Добавлено
 
 ### Добавлено
 
@@ -296,81 +340,60 @@
 
 ## [Unreleased]
 
-### Исправлено
-
-- **Replay look-ahead (T-01, частично)**:
-  - `core/analyzer.py`: `result.timestamp = timestamp` (не `datetime.now()`).
-  - `scripts/verify_candles.py`: `_df_before` — H1/H4 `begin + duration <= ts` (без look-ahead).
-  - `scripts/backtest.py`: H1/H4 `begin + duration <= bar_ts`; M15 — `[:t+1]` (как live).
-  - `tests/test_no_lookahead.py`: 2 теста.
-
-### Известные ограничения
-
-- **Match rate 0–20%** (live сам имеет look-ahead: ALOR отдаёт текущую M15).
-  H1/H4 — без look-ahead (правильные уровни). M15 — как live.
-  **T-01b** (live без look-ahead) — отдельная задача.
-
-### Добавлено
-
-- **T-12**: единый `REAL_TRADING_MODE` (`config.py` + `core/real_mode.py`).
-  `is_mock()` / `is_live()` / `check_real_mode()` — единственный источник истины.
-  Live требует `CONFIRM_LIVE=1` в env, иначе `RealModeError`.
-- **Миграции 17–28** в `trader/paper_db.py`: 12 недостающих колонок
-  (`trend_at_open`, `adx_at_open`, `day_trend_at_open`, `structure_at_open`,
-  `closed_at`, `exit_price`, `result_points`, `result_rub`, `bars_to_close`,
-  `resolution_confidence`, `bid_vol`, `ask_vol`).
-
-### Исправлено
-
-- **P0**: новая БД (на чистой машине) получала неполную схему `paper_trades`
-  → `save_signal_as_paper` падал на `trend_at_open`. Миграции 17–28.
-- `paper_stats` игнорировал `symbol` / `since` / `known_only` — фильтры не
-  доходили до SQL. Теперь `filters` → `db.get_stats_raw()`.
-- `MockIndicator` в `tests/test_paper_dedup.py` и `tests/test_paper_resolve.py`
-  — добавлен `day_range_atr_at_open`.
-- `test_migration_version_increment` — привязан к `MIGRATIONS[-1][0]`
-  (было хардкод `16`).
-
-### Исправлено
-
-- **T-01b**: live без look-ahead M15/H1/H4/ATR — `_drop_unclosed` в `analyze()`, `_enrich_levels(now=ts)`, `_df_before` без `exclude_current`.
-- **T-01c**: H4 в `candles_*.json` = 500 — `SAVE_CANDLES_COUNT_BY_TF`, `candles_export` использует count по ТФ.
-- **BUG-08**: `SAVE_CANDLES_COUNT` удалён — возвращён как fallback.
-- **T-12**: единый `REAL_TRADING_MODE` + `CONFIRM_LIVE=1`.
-- **P0**: миграции 17–28 в `paper_db.py` (12 колонок).
-- **P0**: `paper_stats` фильтры (`symbol`/`since`/`known_only`).
-
-### Известные ограничения
-
-- **Match rate 70%** — реалистичный порог. 100% недостижим без M1 (ALOR WebSocket переотдаёт M15/H1 с промежуточным close).
-- `candles_H4_2026-11-17/18/19/20.json` — 300 H4 (до T-01c). Новые дни — 491+.
-
 ### Добавлено
 
 - **T-04**: Bootstrap CI для PF/exp/winrate (`trader/bootstrap.py`).
+  `paper_stats` возвращает `pf_ci`, `exp_ci`, `winrate_ci`. `journal_cli.py paper-stats` выводит `[lo, hi]`.
 - **T-05**: `paper_skipped` (reason: filter, penalty, data_age) + `paper-skipped` CLI.
-- **T-13**: `by_score` с bootstrap CI.
-- **Рефакторинг**: пакет `trader/analytics/` (group.py, paper.py, journal.py).
+  `trader/paper_db.py`: `insert_skipped`, `get_skipped_stats`. `trader/paper.py`: `save_skipped_signal`.
+- **T-06**: единый `trader/db.py` + `schema_versions` (версия на каждую таблицу).
+  Миграции для `paper_trades` (29), `paper_skipped` (1), `trades` (1), `candles` (1).
+  `PRAGMA user_version` больше не источник истины.
+- **T-07**: pre-registration. `EXPERIMENT_ID` (env), миграция 29 (`experiment_id` в `paper_trades`),
+  `--experiment` в `paper-stats`. Шаблон + пилот `EXP-20261122-05` в `EXPERIMENTS.md`.
+- **T-08**: ablation study (`scripts/ablation.py`). Unpaired bootstrap, CI, пересечения.
+  Infra готова, результаты — ждём n ≥ 100.
+- **T-12**: единый `REAL_TRADING_MODE` (`core/real_mode.py`).
+  `is_mock()` / `is_live()` / `check_real_mode()`. Live требует `CONFIRM_LIVE=1` (env).
+- **T-13**: `by_score` с bootstrap CI (`pf_ci`, `exp_ci`, `winrate_ci`).
+- **T-23**: `by_day_range_atr` (бакеты `<2.5`, `2.5-3.33`, `>3.33`). Infra готова, проверка — n ≥ 20.
+- **Рефакторинг**: пакет `trader/analytics/` (`group.py`, `paper.py`, `journal.py`, `__init__.py`).
+  `trader/stats.py` — удалён (re-export), один путь — `trader.analytics`.
 
 ### Исправлено
 
-- **BUG-08**: `SAVE_CANDLES_COUNT` удалён — возвращён.
-- **BUG-09**: `DATA_MAX_AGE_BLOCK` 15 → 30 (регресс T-01b).
+- **T-01b**: live без look-ahead M15/H1/H4/ATR — `_drop_unclosed` в `analyze()`,
+  `_enrich_levels(now=ts)`, `_df_before` без `exclude_current`.
+- **T-01c**: H4 в `candles_*.json` = 500 — `SAVE_CANDLES_COUNT_BY_TF`, `candles_export` использует count по ТФ.
+- **BUG-08**: `SAVE_CANDLES_COUNT` удалён — возвращён как fallback.
+- **BUG-09**: `DATA_MAX_AGE_BLOCK` 15 → 30 (регресс T-01b: `data_age` от закрытой M15 = 15–30 мин).
 - **BUG-10**: `_is_duplicate` не использовался (копипаст в `save_signal_as_paper`).
 - **BUG-11**: `trader/stats.py` re-export удалён, один путь — `trader.analytics`.
+- **P0**: новая БД (на чистой машине) получала неполную схему `paper_trades`
+  → `save_signal_as_paper` падал на `trend_at_open`. Миграции 17–28.
+- **P0**: `paper_stats` игнорировал `symbol` / `since` / `known_only` — фильтры не
+  доходили до SQL. Теперь `filters` → `db.get_stats_raw()`.
+- **P0**: `MockIndicator` в `tests/test_paper_dedup.py` и `tests/test_paper_resolve.py`
+  — добавлен `day_range_atr_at_open`.
+- **P0**: `test_migration_version_increment` — привязан к `MIGRATIONS[-1][0]`
+  (было хардкод `16`).
+- **Replay look-ahead (T-01, частично)**:
+  - `core/analyzer.py`: `result.timestamp = timestamp` (не `datetime.now()`).
+  - `scripts/verify_candles.py`: `_df_before` — H1/H4 `begin + duration <= ts`.
+  - `scripts/backtest.py`: H1/H4 `begin + duration <= bar_ts`; M15 — `[:t+1]`.
+  - `tests/test_no_lookahead.py`: 2 теста.
 
 ### Изменено
 
 - `paper_stats` → `trader.analytics.paper`
 - `compute_stats` → `trader.analytics.journal`
 - Bucket-функции → `trader.analytics.group`
-
-### Добавлено
-
-- **T-06**: единый `trader/db.py` + `schema_versions` (версия на каждую таблицу).
-  Миграции для `paper_trades` (29), `paper_skipped` (1), `trades` (1), `candles` (1).
-  `PRAGMA user_version` больше не источник истины — `schema_versions`.
-
-### Изменено
-
 - `trader/paper_db.py`, `trader/journal.py`, `data/storage_sqlite.py` — делегируют миграции в `trader/db.py`.
+- `trader/paper.py` — только live-логика (`save_signal_as_paper`, `resolve_open_trades`, `virtual_pnl`, `format_*`).
+
+### Известные ограничения
+
+- **Match rate 70%** — реалистичный порог. 100% недостижим без M1 (ALOR WebSocket переотдаёт M15/H1 с промежуточным close).
+- `candles_H4_2026-11-17/18/19/20.json` — 300 H4 (до T-01c). Новые дни — 491+.
+- **T-08 результаты** — ждём n ≥ 100 (сейчас n=18, все CI включают 0).
+- **T-23 проверка** — ждём n ≥ 20 с `day_range_atr_at_open` (сейчас 1).
