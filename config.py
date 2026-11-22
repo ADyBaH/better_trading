@@ -116,8 +116,8 @@ PENALTY_BREAKOUT_TRANSITION = 1.0  # для breakout при transition
 PENALTY_BOUNCE_TRANSITION = 0.5
 
 # --- Свежесть данных ---
-DATA_MAX_AGE_MIN = 5  # если последняя свеча старше — warning в сигнале
-DATA_MAX_AGE_BLOCK = 15  # блокировка — не создавать сигнал
+DATA_MAX_AGE_MIN = 20  # если последняя свеча старше — warning в сигнале
+DATA_MAX_AGE_BLOCK = 30  # T-01b: M15 закрытая всегда 15–30 мин + лаг ALOR
 
 # ============================================================
 # ДАННЫЕ
