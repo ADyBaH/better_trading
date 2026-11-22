@@ -30,6 +30,7 @@ def paper_stats(
     symbol: str | None = None,
     known_only: bool = False,
     min_n: int = 0,
+    experiment: str | None = None,
 ) -> dict:
     """
     Агрегаты по paper_trades. T-04: + bootstrap CI для PF/exp/winrate.
@@ -40,6 +41,7 @@ def paper_stats(
         "until": until,
         "symbol": symbol,
         "known_only": known_only,
+        "experiment": experiment,
     }
     rows = db.get_stats_raw(conn, filters)
 

@@ -1,4 +1,5 @@
 from core.instruments import get_instrument
+import os  # в начале файла, если нет
 
 __version__ = "0.11.0"
 
@@ -155,8 +156,8 @@ PAPER_MAX_OPEN = 1
 # Новые paper-сделки создаются только в этом окне (МСК).
 # Резолв открытых сделок работает всегда — иначе зависнут.
 PAPER_TRADING_HOURS = {
-    "start": "09:00",
-    "end": "18:00",
+    "start": os.environ.get("PAPER_START", "09:00"),
+    "end": os.environ.get("PAPER_END", "18:00"),
     "timezone": "Europe/Moscow",
 }
 
@@ -168,6 +169,15 @@ PAPER_TIMEOUT_BARS = 20
 # направления и kind с entry в пределах PAPER_DEDUP_PRICE_TOL_ATR × ATR(H1)
 PAPER_DEDUP_PRICE_TOL_ATR = 0.25
 PAPER_DEDUP_MINUTES = 5  # жёсткое окно эха (не создавать дубль в пределах 15 мин)
+
+# ============================================================
+# ЭКСПЕРИМЕНТЫ (T-07: pre-registration)
+# ============================================================
+# ID текущего эксперимента (например, "EXP-20261122-01").
+# None — вне эксперимента (baseline).
+# Пишется в paper_trades.experiment_id и analysis_*.json.
+# Без pre-registration в EXPERIMENTS.md эксперимент не считается.
+EXPERIMENT_ID: str | None = os.environ.get("EXPERIMENT_ID")
 
 # ============================================================
 # ВИРТУАЛЬНЫЙ ДЕПОЗИТ (paper-tracking)

@@ -42,6 +42,7 @@ def save_analysis(result) -> tuple[Path, Path]:
 
     # --- JSON: читаем, добавляем, записываем ---
     snapshot = json.loads(render_json(result, mode="full"))
+    snapshot["experiment_id"] = config.EXPERIMENT_ID
 
     if json_path.exists():
         try:

@@ -395,6 +395,7 @@ def cmd_paper_stats(args) -> int:
             symbol=args.symbol,
             known_only=getattr(args, "known_only", False),
             min_n=getattr(args, "min_n", 0),
+            experiment=getattr(args, "experiment", None),
         )
 
     print()
@@ -800,6 +801,12 @@ def cmd_paper_skipped(args) -> int:
     print("── По направлению " + "─" * 40)
     rows = [[d, v] for d, v in sorted(s["by_direction"].items(), key=lambda x: -x[1])]
     print(tabulate(rows, headers=["direction", "n"], tablefmt="rounded_outline"))
+    if args.experiment:
+        print(f"  Experiment: {args.experiment}")
+    elif config.EXPERIMENT_ID:
+        print(f"  Experiment (current): {config.EXPERIMENT_ID}")
+    else:
+        print("  Experiment: baseline (вне эксперимента)")
 
     return 0
 
@@ -920,6 +927,11 @@ def main() -> int:
     p_skip.add_argument("--symbol", default=None, help="Фильтр по тикеру")
     p_skip.set_defaults(func=cmd_paper_skipped)
 
+    p_paper.add_argument(
+        "--experiment",
+        default=None,
+        help="Фильтр по EXPERIMENT_ID (например, EXP-20261122-01)",
+    )
     args = parser.parse_args()
 
     journal.init_db()

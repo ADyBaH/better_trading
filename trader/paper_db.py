@@ -241,6 +241,12 @@ def _m_add_ask_vol(conn):
         conn.execute("ALTER TABLE paper_trades ADD COLUMN ask_vol REAL")
 
 
+def _m_add_experiment_id(conn):
+    cols = _get_columns(conn)
+    if "experiment_id" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN experiment_id TEXT")
+
+
 # Список миграций (остается прежним)
 MIGRATIONS: List[tuple[int, Callable]] = [
     (1, _m_add_market_price),
@@ -271,6 +277,7 @@ MIGRATIONS: List[tuple[int, Callable]] = [
     (26, _m_add_resolution_confidence),
     (27, _m_add_bid_vol),
     (28, _m_add_ask_vol),
+    (29, _m_add_experiment_id),
 ]
 
 
@@ -360,6 +367,9 @@ def get_stats_raw(
     if filters.get("symbol"):
         where.append("symbol = ?")
         params.append(filters["symbol"])
+    if filters.get("experiment"):
+        where.append("experiment_id = ?")
+        params.append(filters["experiment"])
     if filters.get("known_only"):
         where.append("""
             (week_trend_at_open IS NOT NULL AND week_trend_at_open != 'unknown')
