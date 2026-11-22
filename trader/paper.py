@@ -369,6 +369,54 @@ def save_signal_as_paper(
     return created
 
 
+def save_skipped_signal(
+    conn: sqlite3.Connection,
+    result,
+    source_analysis_path: str | None = None,
+) -> int:
+    """
+    T-05: записывает заблокированные сигналы из result.skipped_signals в paper_skipped.
+    Возвращает число записанных.
+    """
+    if not config.PAPER_ENABLED:
+        return 0
+    if not _is_in_paper_hours(result.timestamp):
+        return 0
+
+    skipped = getattr(result, "skipped_signals", [])
+    if not skipped:
+        return 0
+
+    created = 0
+    for s in skipped:
+        sid = _signal_id_from_dict(s, result.symbol, result.timestamp)
+        data = {
+            "signal_id": sid,
+            "symbol": result.symbol,
+            "direction": s.get("direction", "any"),
+            "kind": s.get("kind", "unknown"),
+            "entry_price": s.get("entry_price", 0.0),
+            "strength_score": s.get("strength_score"),
+            "reason": s.get("reason", "unknown"),
+            "context": None,
+            "created_at": result.timestamp.isoformat(),
+        }
+        if db.insert_skipped(conn, data):
+            created += 1
+
+    conn.commit()
+    return created
+
+
+def _signal_id_from_dict(s: dict, symbol: str, created_at: datetime) -> str:
+    """sha1 для skipped (dict, а не Signal)."""
+    raw = (
+        f"{symbol}|{s.get('direction')}|{s.get('kind')}|"
+        f"{round(s.get('entry_price', 0.0), 5)}|{created_at.isoformat()}"
+    )
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
 # ============================================================
 # Резолв открытых сделок
 # ============================================================

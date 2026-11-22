@@ -127,7 +127,8 @@
 | **T-01c**  | H4 в candles\_\*.json = 500                      | ✅ SAVE_CANDLES_COUNT_BY_TF={"M15":300,"H1":300,"H4":500}, candles_export использует по ТФ                                       |
 | **T-02**   | `verify_filters` `enabled=False`                 | ✅ `if not f.enabled: return False`                                                                                              |
 | **T-03**   | 12 failed тестов                                 | ✅ не актуально (262 passed)                                                                                                     |
-| T-04       | Bootstrap CI для PF/exp/winrate                  | ✅ trader/bootstrap.py, paper_stats возвращает \*\_ci, journal_cli выводит [lo, hi]                                              |
+| **T-04**   | Bootstrap CI для PF/exp/winrate                  | ✅ trader/bootstrap.py, paper_stats возвращает \*\_ci, journal_cli выводит [lo, hi]                                              |
+| **T-05**   | paper_skipped с reason                           | ✅ paper_db.insert_skipped/get_skipped_stats, paper.save_skipped_signal, journal_cli paper-skipped --by-reason                   |
 | **T-06**   | **`schema_version` + миграции + рефакторинг БД** | 🟠 P1                                                                                                                            |
 | **T-15**   | `vote()`                                         | ✅ 19 тестов                                                                                                                     |
 | **T-16**   | README → EXPERIMENTS/BRANCHES/CONFIG             | ✅ README ≤ 302                                                                                                                  |
@@ -150,7 +151,6 @@
 | ID    | Задача              | P     | Оценка |
 | ----- | ------------------- | ----- | ------ |
 | T-04  | Bootstrap CI        | 🟠 P1 | 1 д    |
-| T-05  | `paper_skipped`     | 🟠 P1 | 1.5 д  |
 | T-07  | Pre-registration    | 🟠 P1 | 0.5 д  |
 | T-08  | Ablation study      | 🟠 P1 | 1.5 д  |
 | T-02b | Пересмотр фильтров  | 🟡 P2 | 0.5 д  |

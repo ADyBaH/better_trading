@@ -168,6 +168,20 @@ def run_once(log) -> bool:
                         market_price_at_open=market_price,
                     )
 
+                    # T-05: записать заблокированные сигналы
+                    try:
+                        from trader.paper import save_skipped_signal
+
+                        skipped_created = save_skipped_signal(
+                            conn,
+                            result,
+                            source_analysis_path=str(json_path),
+                        )
+                        if skipped_created:
+                            log.info("paper: skipped %d", skipped_created)
+                    except Exception as e:
+                        log.exception("save_skipped_signal упал: %s", e)
+
                     open_ids_before = set(
                         r["id"]
                         for r in conn.execute(

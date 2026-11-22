@@ -721,6 +721,52 @@ def cmd_paper_vs_real(args) -> int:
     return 0
 
 
+def cmd_paper_skipped(args) -> int:
+    """T-05: заблокированные сигналы по reason."""
+    from trader.paper import init_paper_table
+    from trader.paper_db import get_skipped_stats
+
+    with journal.connect_journal() as conn:
+        init_paper_table(conn)
+        s = get_skipped_stats(
+            conn,
+            since=args.since,
+            until=args.until,
+            symbol=args.symbol,
+        )
+
+    print()
+    print(f"Всего skipped: {s['total']}")
+    if s["total"] == 0:
+        print("  (нет записей — paper_skipped пуст или все сигналы прошли)")
+        return 0
+
+    print()
+    print("── По reason " + "─" * 40)
+    rows = []
+    for reason, b in sorted(s["by_reason"].items(), key=lambda x: -x[1]["total"]):
+        rows.append([reason, b["total"], f"{b['pct']:.1f}%"])
+    print(
+        tabulate(
+            rows,
+            headers=["reason", "n", "pct"],
+            tablefmt="rounded_outline",
+        )
+    )
+
+    print()
+    print("── По kind " + "─" * 40)
+    rows = [[k, v] for k, v in sorted(s["by_kind"].items(), key=lambda x: -x[1])]
+    print(tabulate(rows, headers=["kind", "n"], tablefmt="rounded_outline"))
+
+    print()
+    print("── По направлению " + "─" * 40)
+    rows = [[d, v] for d, v in sorted(s["by_direction"].items(), key=lambda x: -x[1])]
+    print(tabulate(rows, headers=["direction", "n"], tablefmt="rounded_outline"))
+
+    return 0
+
+
 # ============================================================
 # main
 # ============================================================
@@ -830,7 +876,14 @@ def main() -> int:
     p_vs.add_argument("--symbol", default=None, help="Фильтр по тикеру")
     p_vs.set_defaults(func=cmd_paper_vs_real)
 
-    args = parser.parse_args()  # ← ПОСЛЕ всех add_parser
+    # paper-skipped (T-05)
+    p_skip = sub.add_parser("paper-skipped", help="Заблокированные сигналы (T-05)")
+    p_skip.add_argument("--since", default=None, help="С даты (ISO)")
+    p_skip.add_argument("--until", default=None, help="До даты (ISO)")
+    p_skip.add_argument("--symbol", default=None, help="Фильтр по тикеру")
+    p_skip.set_defaults(func=cmd_paper_skipped)
+
+    args = parser.parse_args()
 
     journal.init_db()
 

@@ -939,6 +939,16 @@ def detect_signals(
                 age_min,
                 config.DATA_MAX_AGE_BLOCK,
             )
+            # T-05: записать причину
+            result.skipped_signals.append(
+                {
+                    "direction": "any",
+                    "kind": "data_age",
+                    "entry_price": 0.0,
+                    "strength_score": 0.0,
+                    "reason": f"data_age:{age_min}",
+                }
+            )
             return []
 
     all_signals = []
@@ -960,6 +970,16 @@ def detect_signals(
         blocked_by = apply_filters(s, result)
         if blocked_by:
             log.info("%s заблокирован (фильтр %s)", s.kind, blocked_by)
+            # T-05: записать в skipped_signals
+            result.skipped_signals.append(
+                {
+                    "direction": s.direction,
+                    "kind": s.kind,
+                    "entry_price": s.entry_price,
+                    "strength_score": s.strength_score,
+                    "reason": f"filter:{blocked_by}",
+                }
+            )
             continue
 
         # --- 2. Найти уровень по level_price ---
@@ -986,6 +1006,15 @@ def detect_signals(
                 s.reasons.append(f"штраф EMA-конфликт: -{penalty}")
                 s.strength = _recalc_strength(s.strength_score)
                 if s.strength == "none":
+                    result.skipped_signals.append(
+                        {
+                            "direction": s.direction,
+                            "kind": s.kind,
+                            "entry_price": s.entry_price,
+                            "strength_score": s.strength_score,
+                            "reason": "penalty:ema_conflict",  # или "penalty:saw", "penalty:late_chase"
+                        }
+                    )
                     continue
 
         # --- 5. Штраф: пила (только если не replay) ---
@@ -1005,6 +1034,15 @@ def detect_signals(
                 )
                 s.strength = _recalc_strength(s.strength_score)
                 if s.strength == "none":
+                    result.skipped_signals.append(
+                        {
+                            "direction": s.direction,
+                            "kind": s.kind,
+                            "entry_price": s.entry_price,
+                            "strength_score": s.strength_score,
+                            "reason": "penalty:ema_conflict",  # или "penalty:saw", "penalty:late_chase"
+                        }
+                    )
                     continue
 
         # --- 6. RR invalid ---
@@ -1026,6 +1064,15 @@ def detect_signals(
                 )
                 s.strength = _recalc_strength(s.strength_score)
                 if s.strength == "none":
+                    result.skipped_signals.append(
+                        {
+                            "direction": s.direction,
+                            "kind": s.kind,
+                            "entry_price": s.entry_price,
+                            "strength_score": s.strength_score,
+                            "reason": "penalty:ema_conflict",  # или "penalty:saw", "penalty:late_chase"
+                        }
+                    )
                     continue
 
         # --- 8. Прошёл все фильтры ---

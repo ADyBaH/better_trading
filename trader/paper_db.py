@@ -44,6 +44,24 @@ CREATE INDEX IF NOT EXISTS idx_paper_created ON paper_trades(created_at);
 CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_trades(symbol);
 """
 
+CREATE_TABLE_SKIPPED_SQL = """
+CREATE TABLE IF NOT EXISTS paper_skipped (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_id TEXT,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    strength_score REAL,
+    reason TEXT NOT NULL,
+    context TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skipped_reason ON paper_skipped(reason);
+CREATE INDEX IF NOT EXISTS idx_skipped_created ON paper_skipped(created_at);
+CREATE INDEX IF NOT EXISTS idx_skipped_symbol ON paper_skipped(symbol);
+"""
+
 # --- Система миграций (Обновленная для защиты от дублей) ---
 
 
@@ -262,6 +280,7 @@ def init_db(conn: sqlite3.Connection) -> None:
 
     # 1. Создаем базовую таблицу
     conn.executescript(CREATE_TABLE_SQL)
+    conn.executescript(CREATE_TABLE_SKIPPED_SQL)
 
     # 2. Обрабатываем миграции в транзакции
     try:
@@ -361,3 +380,80 @@ def get_prev_balance(conn: sqlite3.Connection, symbol: str, trade_id: int) -> fl
         (symbol, trade_id),
     ).fetchone()
     return row[0] if row else 0.0
+
+
+def insert_skipped(conn: sqlite3.Connection, data: Dict[str, Any]) -> bool:
+    """Записывает заблокированный сигнал в paper_skipped."""
+    try:
+        conn.execute(
+            """INSERT INTO paper_skipped
+               (signal_id, symbol, direction, kind, entry_price,
+                strength_score, reason, context, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                data.get("signal_id"),
+                data["symbol"],
+                data["direction"],
+                data["kind"],
+                data["entry_price"],
+                data.get("strength_score"),
+                data["reason"],
+                data.get("context"),
+                data["created_at"],
+            ),
+        )
+        return True
+    except Exception as e:
+        log.error("DB Insert skipped error: %s", e)
+        return False
+
+
+def get_skipped_stats(
+    conn: sqlite3.Connection,
+    since: str | None = None,
+    until: str | None = None,
+    symbol: str | None = None,
+) -> Dict[str, Any]:
+    """Агрегаты по paper_skipped."""
+    where = []
+    params = []
+    if since:
+        where.append("created_at >= ?")
+        params.append(since)
+    if until:
+        where.append("created_at < ?")
+        params.append(until)
+    if symbol:
+        where.append("symbol = ?")
+        params.append(symbol)
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+    rows = conn.execute(
+        f"SELECT * FROM paper_skipped {where_sql} ORDER BY created_at", params
+    ).fetchall()
+
+    total = len(rows)
+    by_reason: Dict[str, Dict[str, Any]] = {}
+    by_kind: Dict[str, int] = {}
+    by_direction: Dict[str, int] = {}
+
+    for r in rows:
+        reason = r["reason"] or "unknown"
+        b = by_reason.setdefault(reason, {"total": 0, "pct": 0.0})
+        b["total"] += 1
+
+        kind = r["kind"] or "unknown"
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+
+        d = r["direction"] or "unknown"
+        by_direction[d] = by_direction.get(d, 0) + 1
+
+    for b in by_reason.values():
+        b["pct"] = round(100 * b["total"] / max(total, 1), 1)
+
+    return {
+        "total": total,
+        "by_reason": by_reason,
+        "by_kind": by_kind,
+        "by_direction": by_direction,
+    }
