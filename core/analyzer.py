@@ -216,14 +216,16 @@ def _dict_to_level(d: dict, source: str = "structural") -> Level:
 # ============================================================
 
 
-def _enrich_levels(levels: list[Level], current_price: float, atr: float) -> None:
+def _enrich_levels(
+    levels: list[Level], current_price: float, atr: float, now: datetime | None = None
+) -> None:
     """
     Заполняет вычисляемые поля уровней:
         distance_atr   — |price - current| / atr
         age_days       — сколько дней с last_seen
         strength_score — weight × confirmed × tf_count × age_factor
     """
-    now = datetime.now()
+    now = now or datetime.now()
 
     for lv in levels:
         # distance_atr
@@ -354,10 +356,13 @@ def analyze_from_df(
     )
     references = [_dict_to_level(r, "reference") for r in raw_refs]
 
+    # T-01b: ts нужен для _enrich_levels (age_days от ts, а не от now).
+    ts = timestamp or datetime.now()
+
     # 5. Пересечения + обогащение
     _attach_tags(structural, references, tolerance)
-    _enrich_levels(structural, current_price, atr)
-    _enrich_levels(references, current_price, atr)
+    _enrich_levels(structural, current_price, atr, now=ts)
+    _enrich_levels(references, current_price, atr, now=ts)
 
     # 6. Индикаторы
     indicators = _build_indicator_snapshot(df, current_price, atr, df_h4=df_h4_use)
@@ -416,48 +421,43 @@ def analyze_from_df(
     return result
 
 
+def _drop_unclosed(
+    df: pd.DataFrame | None, tf: str, now: datetime
+) -> pd.DataFrame | None:
+    """
+    T-01b: оставить только ЗАКРЫТЫЕ свечи (begin + duration <= now).
+
+    Live (ALOR) отдаёт текущую незакрытую свечу — это look-ahead.
+    Для согласования с replay (verify_candles.py, backtest.py) отбрасываем её.
+    """
+    if df is None or df.empty:
+        return df
+    tf_min = {"M5": 5, "M15": 15, "H1": 60, "H4": 240}.get(tf, 60)
+    delta = pd.Timedelta(minutes=tf_min)
+    return df[df["begin"] + delta <= now].reset_index(drop=True)
+
+
 def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
-    """
-    Обёртка: тянет данные из сети (api_facade) и вызывает analyze_from_df.
-    Backward-compatible.
-    """
+    """Обёртка: тянет данные из сети (api_facade) и вызывает analyze_from_df."""
+    from core.time_utils import now_msk
+
     symbol = symbol or config.SYMBOL
     timeframe = timeframe or config.DEFAULT_TIMEFRAME
 
-    # 1. M15
-    df = get_candles_tf(timeframe, count=300)
-
-    # T-01b: live без look-ahead — отбрасываем незакрытую M15.
-    # ALOR отдаёт текущую свечу (close = последняя цена). В replay её нет.
-    # Оставляем только свечи, которые ЗАКРЫТЫ к моменту now.
-    if df is not None and not df.empty:
-        from core.time_utils import now_msk
-
-        now = now_msk()
-        # Свеча закрыта, если begin + 15min <= now
-        df = df[df["begin"] + pd.Timedelta(minutes=15) <= now].reset_index(drop=True)
-
-    if df.empty:
-        log.error("Нет данных для %s %s", symbol, timeframe)
-        return None
-
-    # T-01b: live без look-ahead — отбрасываем незакрытую M15.
-    from datetime import timedelta
-    from core.time_utils import now_msk
     _now = now_msk()
-    _tf_min = {"M5": 5, "M15": 15, "H1": 60}.get(timeframe, 15)
-    _tf_delta = timedelta(minutes=_tf_min)
-    df = df[df["begin"] + _tf_delta <= _now].reset_index(drop=True)
-    if df.empty:
-        log.warning("T-01b: после отбрасывания незакрытых M15 пусто")
+
+    # 1. M15 — только закрытые (T-01b)
+    df = _drop_unclosed(get_candles_tf(timeframe, count=300), timeframe, _now)
+    if df is None or df.empty:
+        log.error("Нет данных для %s %s (или все свечи незакрыты)", symbol, timeframe)
         return None
 
-    # Логируем лаг данных (наблюдаемость)
+    # Логируем лаг (наблюдаемость)
     try:
         last_begin = df["begin"].iloc[-1]
         if hasattr(last_begin, "to_pydatetime"):
             last_begin = last_begin.to_pydatetime()
-        data_age_min = int((datetime.now() - last_begin).total_seconds() / 60)
+        data_age_min = int((_now - last_begin).total_seconds() / 60)
         log.info(
             "data_age=%d min (последняя свеча %s)",
             data_age_min,
@@ -466,10 +466,12 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
     except Exception as e:
         log.debug("data_age не посчитан: %s", e)
 
-    # 2. H1, H4, ATR
-    df_h1 = get_candles_tf("H1", count=200)
-    df_h4 = get_candles_tf("H4", count=300)
-    df_atr = get_candles_tf(config.ATR_TF, count=50)
+    # 2. H1, H4, ATR — тоже только закрытые (T-01b)
+    df_h1 = _drop_unclosed(get_candles_tf("H1", count=200), "H1", _now)
+    df_h4 = _drop_unclosed(get_candles_tf("H4", count=300), "H4", _now)
+    df_atr = _drop_unclosed(
+        get_candles_tf(config.ATR_TF, count=50), config.ATR_TF, _now
+    )
 
     # 3. order_book (если ALOR)
     order_book = {}

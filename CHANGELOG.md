@@ -323,3 +323,17 @@
   — добавлен `day_range_atr_at_open`.
 - `test_migration_version_increment` — привязан к `MIGRATIONS[-1][0]`
   (было хардкод `16`).
+
+### Исправлено
+
+- **T-01b**: live без look-ahead M15/H1/H4/ATR — `_drop_unclosed` в `analyze()`, `_enrich_levels(now=ts)`, `_df_before` без `exclude_current`.
+- **T-01c**: H4 в `candles_*.json` = 500 — `SAVE_CANDLES_COUNT_BY_TF`, `candles_export` использует count по ТФ.
+- **BUG-08**: `SAVE_CANDLES_COUNT` удалён — возвращён как fallback.
+- **T-12**: единый `REAL_TRADING_MODE` + `CONFIRM_LIVE=1`.
+- **P0**: миграции 17–28 в `paper_db.py` (12 колонок).
+- **P0**: `paper_stats` фильтры (`symbol`/`since`/`known_only`).
+
+### Известные ограничения
+
+- **Match rate 70%** — реалистичный порог. 100% недостижим без M1 (ALOR WebSocket переотдаёт M15/H1 с промежуточным close).
+- `candles_H4_2026-11-17/18/19/20.json` — 300 H4 (до T-01c). Новые дни — 491+.

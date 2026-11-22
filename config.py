@@ -209,7 +209,13 @@ SAVE_CANDLES_MARK_SIGNALS = (
     True  # ставить has_signals/signals_count в снимке (B-маркер)
 )
 SAVE_CANDLES_TIMEFRAMES = ["M15", "H1", "H4"]  # какие ТФ сохранять
-SAVE_CANDLES_COUNT = 300  # сколько свечей брать
+SAVE_CANDLES_COUNT = 300
+# Разные count по ТФ (H4 нужно больше для EMA200: 200 + запас)
+SAVE_CANDLES_COUNT_BY_TF = {
+    "M15": 300,
+    "H1": 300,
+    "H4": 500,
+}
 SAVE_CANDLES_MAX_SNAPSHOTS = 300  # защита от разрастания
 VOLUME_RATIO_CAP = 5.0  # глобальный cap, чтобы выбросы (17–20x) не завышали score
 

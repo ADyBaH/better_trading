@@ -194,7 +194,9 @@ def run_backtest(
     if filter_name:
         config.BREAKOUT_FILTER = filter_name
     if adaptive_take is not None:
-        saved.setdefault("ADAPTIVE_TAKE_ENABLED", getattr(config, "ADAPTIVE_TAKE_ENABLED", False))
+        saved.setdefault(
+            "ADAPTIVE_TAKE_ENABLED", getattr(config, "ADAPTIVE_TAKE_ENABLED", False)
+        )
         config.ADAPTIVE_TAKE_ENABLED = adaptive_take
     try:
         # Начинаем с n_impulse=12 + запас для индикаторов
@@ -232,7 +234,7 @@ def run_backtest(
 
             # M15: live (ALOR) отдаёт ТЕКУЩУЮ свечу (close = последняя цена).
             # df[:t+1] — 0..t (t — текущая). Как live.
-            df_past = df_m15.iloc[: t + 1]
+            df_past = df_m15.iloc[:t]
             # H1/H4: только закрытые к bar_ts (begin + duration <= bar_ts)
             df_h1_past = df_h1[df_h1["begin"] + pd.Timedelta(hours=1) <= bar_ts]
             df_h4_past = df_h4[df_h4["begin"] + pd.Timedelta(hours=4) <= bar_ts]
@@ -352,7 +354,10 @@ def main():
         rows = []
         for name, flt, skip, skip_f, ad_take in variants:
             res = run_backtest(
-                df_m15, df_h1, df_h4, args.symbol,
+                df_m15,
+                df_h1,
+                df_h4,
+                args.symbol,
                 filter_name=flt,
                 skip_breakout=skip,
                 skip_filters=skip_f,

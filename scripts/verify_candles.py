@@ -58,34 +58,17 @@ _TF_DURATION = {
 }
 
 
-def _df_before(df, ts, tf="M15", count=None, exclude_current=True):
+def _df_before(df, ts, tf="M15", count=None):
     """
     Свечи, доступные к моменту ts.
-
-    ВАЖНО: M15 и H1/H4 обрабатываются по-разному.
-
-    M15: live (ALOR) отдаёт ТЕКУЩУЮ свечу (close = последняя цена).
-        Значит, live «видит» begin, ближайший к ts слева (begin < ts).
-        Replay должен вести себя так же → begin < ts (exclude_current=False).
-
-    H1/H4: live (ALOR) отдаёт только ЗАКРЫТЫЕ H1/H4.
-        Replay должен брать begin + duration <= ts (без look-ahead).
+    T-01b: live отбрасывает незакрытые свечи для ВСЕХ ТФ (M15, H1, H4).
+    Replay должен вести себя так же: begin + duration <= ts.
     """
     if df is None or df.empty or "begin" not in df.columns:
         return pd.DataFrame()
 
-    if tf == "M15":
-        # M15: как live — begin < ts (ALOR отдаёт текущую).
-        # exclude_current=False — не выбрасываем последнюю (она = текущая в live).
-        df = df[df["begin"] < ts]
-        if exclude_current and len(df) > 0:
-            last_begin = df["begin"].iloc[-1]
-            if last_begin >= ts - pd.Timedelta(minutes=15):
-                df = df.iloc[:-1]
-    else:
-        # H1/H4: только закрытые (begin + duration <= ts).
-        duration = _TF_DURATION.get(tf, pd.Timedelta(hours=1))
-        df = df[df["begin"] + duration <= ts]
+    duration = _TF_DURATION.get(tf, pd.Timedelta(minutes=15))
+    df = df[df["begin"] + duration <= ts]
 
     if count is not None:
         df = df.tail(count)
@@ -144,12 +127,10 @@ def replay_date(date_str: str, skip_filters: bool = True) -> dict:
         if not ts_str:
             continue
         ts = datetime.fromisoformat(ts_str)
-
-        df_m15 = _df_before(
-            candles_by_tf["M15"], ts, tf="M15", count=300, exclude_current=False
-        )
-        df_h1 = _df_before(candles_by_tf["H1"], ts, tf="H1")
-        df_h4 = _df_before(candles_by_tf["H4"], ts, tf="H4")
+        df_m15 = _df_before(candles_by_tf["M15"], ts, tf="M15", count=300)
+        df_h1 = _df_before(candles_by_tf["H1"], ts, tf="H1", count=200)
+        df_h4 = _df_before(candles_by_tf["H4"], ts, tf="H4", count=300)
+        df_atr = _df_before(candles_by_tf["H1"], ts, tf="H1", count=50)
 
         if df_m15.empty:
             continue
@@ -165,7 +146,7 @@ def replay_date(date_str: str, skip_filters: bool = True) -> dict:
             df=df_m15,
             df_h1=df_h1 if not df_h1.empty else None,
             df_h4=df_h4 if not df_h4.empty else None,
-            df_atr=df_h1 if not df_h1.empty else None,
+            df_atr=df_atr if not df_atr.empty else None,
             symbol=analysis.get("symbol"),
             timeframe=analysis.get("timeframe"),
             timestamp=ts,

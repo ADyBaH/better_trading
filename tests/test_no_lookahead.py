@@ -102,3 +102,35 @@ def test_no_future_in_signals():
         assert a.direction == b.direction
         assert a.kind == b.kind
         assert a.entry_price == b.entry_price
+
+
+def test_drop_unclosed_m15():
+    """T-01b: незакрытая M15 отбрасывается."""
+    from core.analyzer import _drop_unclosed
+
+    base = datetime(2026, 11, 13, 9, 0)
+    df = pd.DataFrame(
+        {
+            "begin": [
+                base,
+                base + pd.Timedelta(minutes=15),
+                base + pd.Timedelta(minutes=30),
+            ],
+            "open": [12.5] * 3,
+            "high": [12.51] * 3,
+            "low": [12.49] * 3,
+            "close": [12.5] * 3,
+            "volume": [1000] * 3,
+        }
+    )
+    # now = 9:20 → закрыты только 9:00 (9:00+15=9:15 <= 9:20)
+    # 9:15 + 15 = 9:30 > 9:20 → не закрыта; 9:30 тоже
+    now = base + pd.Timedelta(minutes=20)
+    result = _drop_unclosed(df, "M15", now)
+    assert len(result) == 1
+    assert result["begin"].iloc[0] == base
+
+    # now = 9:30 → закрыты 9:00 и 9:15
+    now = base + pd.Timedelta(minutes=30)
+    result = _drop_unclosed(df, "M15", now)
+    assert len(result) == 2
