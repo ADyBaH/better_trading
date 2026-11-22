@@ -17,7 +17,7 @@
 - **Ведёт журнал сделок** с учётом комиссий биржи и брокера.
 - **Мульти-инструмент**: спецификации инструментов в `core/instruments.py`.
 - **Экспортирует** результат: консольный дашборд, JSON (flat / nested / full).
-- **Раннер**: периодический анализ каждые 20 минут с сохранением по дням.
+- **Раннер**: периодический анализ каждые **5 минут** с сохранением по дням.
 - **Paper-tracking**: автоматическая запись сигналов как виртуальных сделок
   в `paper_trades` (SQLite, `storage/journal.db`) с резолвом по stop/take/timeout.
 - **Сохраняет свечи в JSON** рядом с анализом: `storage/logs/YYYY-MM-DD/candles_<TF>_YYYY-MM-DD.json`
@@ -41,6 +41,11 @@
 - **Replay** (`analyze_from_df` + `verify_candles.py`) — прогон истории из `candles_*.json`.
 - **`verify_filters.py`** — эффект фильтров Y на истории (win/loss/timeout).
 - **Filter Registry** (`strategy/filters/`) — все фильтры в одном месте, `apply_filters` в `detect_signals`.
+- **Bootstrap CI** (T-04): `paper_stats` — `pf_ci`, `exp_ci`, `winrate_ci`. `paper-stats` выводит `[lo, hi]`.
+- **`paper_skipped`** (T-05): заблокированные сигналы (reason: filter, penalty, data_age). `journal_cli.py paper-skipped`.
+- **`schema_versions`** (T-06): единый `trader/db.py`, миграции для 4 таблиц (`paper_trades`, `paper_skipped`, `trades`, `candles`).
+- **Pre-registration** (T-07): `EXPERIMENT_ID` (env), `--experiment` в `paper-stats`, шаблон в `EXPERIMENTS.md`.
+- **Ablation** (T-08): `scripts/ablation.py` (unpaired bootstrap, CI, пересечения).
 
 ## Установка
 
@@ -50,9 +55,11 @@ cd better_trading
 python -m venv venv
 
 # Linux / macOS
+
 source venv/bin/activate
 
 # Windows (PowerShell)
+
 .\venv\Scripts\Activate.ps1
 
 pip install -r requirements.txt
@@ -61,16 +68,21 @@ pip install -r requirements.txt
 ## Быстрый старт
 
 ```bash
+
 # 1. Посмотреть анализ рынка
+
 python main.py
 
 # 2. Записать сделку
+
 python journal_cli.py add
 
 # 3. Закрыть сделку
+
 python journal_cli.py close <id> <price>
 
 # 4. Посмотреть статистику
+
 python journal_cli.py stats
 ```
 
@@ -116,6 +128,9 @@ python journal_cli.py stats
 | `python journal_cli.py paper-stats --symbol=CNYRUBF`        | Paper по тикеру                        |
 | `python journal_cli.py paper-stats --by-adx`                | Разбивка по ADX                        |
 | `python journal_cli.py paper-stats --by-session`            | Разбивка по сессии                     |
+| `python journal_cli.py paper-stats --experiment=EXP-...`    | T-07: фильтр по эксперименту           |
+| `python journal_cli.py paper-skipped`                       | T-05: заблокированные сигналы (reason) |
+| `python journal_cli.py paper-skipped --since=2026-11-22`    | T-05: с даты                           |
 | `python journal_cli.py paper-trades`                        | Показать paper-сделки (таблица)        |
 | `python journal_cli.py paper-trades --open`                 | Только открытые                        |
 | `python journal_cli.py paper-trades --limit=10`             | Последние 10                           |
@@ -130,34 +145,34 @@ python journal_cli.py stats
 
 ### Раннер: `runner.py`
 
-Автоматический запуск анализа каждые 20 минут. Результаты сохраняются в `logs/YYYY-MM-DD/`.
+Автоматический запуск анализа каждые **5 минут** (`INTERVAL_MIN = 5`). Результаты сохраняются в `storage/logs/YYYY-MM-DD/`.
 
-| Команда            | Описание                                 |
-| ------------------ | ---------------------------------------- |
-| `python runner.py` | Запустить раннер (цикл, каждые 20 минут) |
-| `Ctrl+C`           | Остановить раннер                        |
+| Команда            | Описание                                |
+| ------------------ | --------------------------------------- |
+| `python runner.py` | Запустить раннер (цикл, каждые 5 минут) |
+| `Ctrl+C`           | Остановить раннер                       |
 
 **Что делает:**
 
-- Каждые 20 минут запускает `analyze()`.
-- Сохраняет результат в `logs/YYYY-MM-DD/analysis_HH-MM-SS.json` и `.txt`.
+- Каждые 5 минут запускает `analyze()`.
+- Сохраняет результат в `storage/logs/YYYY-MM-DD/analysis_YYYY-MM-DD.json` и `.txt`.
 - Логи сортируются по дням — старые не засоряются.
 - Работает как фоновый процесс — остановка `Ctrl+C`.
 
 **Пример вывода:**
 
-```
+```text
 [цикл #1] 20:59:08
 ══════════════════════════════════════════════════════════════════
-  2026-10-15 20:59:11  |  CNYRUBF  |  Цена: 12.519
-  Тренд: strong_down (голосов -3)  |  День: neutral  |  Структура: bearish
-  Сигналов: 0
-  Сохранено: analysis_20-59-11.json, analysis_20-59-11.txt
+2026-10-15 20:59:11 | CNYRUBF | Цена: 12.519
+Тренд: strong_down (голосов -3) | День: neutral | Структура: bearish
+Сигналов: 0
+Сохранено: analysis_2026-10-15.json, analysis_2026-10-15.txt
 ══════════════════════════════════════════════════════════════════
-  Следующий запуск ~21:19:11
+Следующий запуск ~21:04:11
 ```
 
-### Бэктестер: `backtest.py`
+### Бэктестер: `scripts/backtest.py`
 
 Честный replay paper-логики на исторических свечах (`candles_*.json`), без look-ahead.
 
@@ -177,40 +192,52 @@ python journal_cli.py stats
 
 **Ограничение:** `candles_*.json` есть только с 11.11 — backtest возможен на 11–19.11.
 
+### Ablation: `scripts/ablation.py` (T-08)
+
+Ablation study фильтров (unpaired bootstrap, CI).
+
+| Команда                                                            | Описание               |
+| ------------------------------------------------------------------ | ---------------------- |
+| `python scripts/ablation.py --since 2026-11-11 --until 2026-11-19` | Ablation всех фильтров |
+| `... --only bullish_long`                                          | Только один фильтр     |
+| `... --json`                                                       | Вывод в JSON           |
+
 ### `paper-stats` (с депозитом)
 
+```text
+Всего: 82 (закрытых 74, открытых 1)
+Win: 26
+Loss: 42
+Timeout: 6
+Winrate: 38.2% (без timeout) [26.5%, 50.0%]
+Total PnL: +302.3 pts / +149.86 ₽
+Депозит: 3000 ₽ → 3099.22 ₽ (+3.31%)
+Max drawdown: 8.12%
+Avg win: +51.7 pts
+Avg loss: -26.3 pts
+Profit factor: 1.08 [0.68, 1.99]
+Expectancy: +3.5 pts [-6.1, +13.2]
 ```
-Всего: 48 (закрытых 40, открытых 1)
-Win: 18
-Loss: 21
-Timeout: 1
-Winrate: 46.2% (без timeout)
-Total PnL: +399.8 pts / +317.40 ₽
-Депозит: 3000 ₽ → 3301.46 ₽ (+10.05%)
-Max drawdown: 7.04%
-Avg win: +54.9 pts
-Avg loss: -28.8 pts
-Profit factor: 1.46
-Expectancy: +9.9 pts
-```
+
+**⚠️ CI включает breakeven** (PF [0.68, 1.99], Exp [-6.1, +13.2]) → **стратегия статистически не доказана**. См. `EXPERIMENTS.md` EXP-20261122-01.
 
 Каждый цикл раннера:
 
 1. Новые сигналы записываются в `paper_trades` (только в 09:00–18:00 МСК).
-2. Открытые paper-сделки резолвятся по stop/take/timeout (50 M15-свечей).
+2. Открытые paper-сделки резолвятся по stop/take/timeout (20 M15-свечей, `PAPER_TIMEOUT_BARS`).
 3. Результат считается с комиссией (`compute_trade_result`).
 
 **Что НЕ делает:** не торгует, не отправляет ордера, не трогает `journal.db/trades`.
 
 ## Структура проекта
 
-- `trader/` — журнал, paper-tracking, real (мок), экспорт CSV.
+- `trader/` — журнал, paper-tracking, real (мок), экспорт CSV, **analytics/** (paper_stats, compute_stats, group).
 - `data/` — MOEX ISS, ALOR WebSocket, SQLite, ресемплинг, candles_export.
-- `core/` — analyzer, instruments, models, risk, logger.
+- `core/` — analyzer, instruments, models, risk, logger, real_mode, db.
 - `ui/` — console, json, notify.
 - `strategy/` — signals, levels, references, filters/, signal_history.
 - `indicators/` — calc (EMA, RSI, ADX, ATR).
-- `scripts/` — backtest, verify*\*, optimize*\*, backfill_mfe_mae.
+- `scripts/` — backtest, ablation, verify*, optimize*, backfill_mfe_mae.
 - `tests/` — pytest (юнит + интеграционные).
 
 ## 📊 Data Management
@@ -221,11 +248,12 @@ Expectancy: +9.9 pts
 - `storage/journal.db`: Хранит историю торговых сделок и результаты виртуального трейдинга.
 
 ### Paper-Tracking Infrastructure
-Для системы виртуального трейдинга реализована продвинутая архитектура управления данными:
-- **Layered Architecture**: Логика расчетов (PnL, статистика) полностью отделена от механизма доступа к данным (DAO pattern).
-- **Automatic Migrations**: Система использует `PRAGMA user_version` для управления версиями схемы базы данных. Новые колонки добавляются автоматически в процессе инициализации.
-- **Dynamic Schema Mapping**: Метод записи сделок автоматически определяет список доступных колонок в БД, что исключает ошибки рассинхронизации кода и структуры таблицы.
 
+Для системы виртуального трейдинга реализована продвинутая архитектура управления данными:
+
+- **Layered Architecture**: Логика расчетов (PnL, статистика) полностью отделена от механизма доступа к данным (DAO pattern).
+- **Schema Versions (T-06)**: Единый `trader/db.py` + `schema_versions` (версия на каждую таблицу, не общий `PRAGMA user_version`). Миграции для `paper_trades` (29), `paper_skipped` (1), `trades` (1), `candles` (1). Новые колонки добавляются автоматически.
+- **Dynamic Schema Mapping**: Метод записи сделок автоматически определяет список доступных колонок в БД, что исключает ошибки рассинхронизации кода и структуры таблицы.
 
 ## Инструменты и комиссии
 
@@ -256,7 +284,7 @@ Expectancy: +9.9 pts
 
 ## Как это работает
 
-1. **Данные**: свечи тянутся с MOEX ISS, кэшируются в `data/market.db`. Если последняя свеча старше `CACHE_TTL_MINUTES` — докачка новых.
+1. **Данные**: свечи тянутся с MOEX ISS или ALOR WebSocket, кэшируются в `storage/market.db`. Если последняя свеча старше `CACHE_TTL_MINUTES` — докачка новых.
 2. **Индикаторы**: EMA, RSI, ADX, ATR через `pandas_ta`.
 3. **Уровни**:
    - Фракталы на M15 и H1 → кластеризация по `0.25 × ATR(H1)` → веса по ТФ.
@@ -289,22 +317,20 @@ Expectancy: +9.9 pts
 
 **Структура:**
 
-- **Юнит-тесты** (без сети): `test_instruments`, `test_levels`, `test_indicators`, `test_current_price` (мок), `test_notify`, `test_virtual_pnl`, `test_paper*`, `test_mfe_mae`, `test_real_trading` (мок), `test_alor_trade` (мок).
+- **Юнит-тесты** (без сети): `test_instruments`, `test_levels`, `test_indicators`, `test_current_price` (мок), `test_notify`, `test_virtual_pnl`, `test_paper*`, `test_mfe_mae`, `test_real_trading` (мок), `test_alor_trade` (мок), `test_bootstrap`, `test_paper_skipped`, `test_real_mode`, `test_no_lookahead`.
 - **Интеграционные** (сеть): `test_alor_integration`, `test_alor_orderbook`, `test_iss_lag`, `test_pagination` — помечены `@pytest.mark.integration`.
 - **`test_journal_integrity`** — проверка **реальной** `journal.db` (skip, если нет файла).
 
-**Покрытие** (на 2026-11-20): **162 passed**.
+**Покрытие** (на 2026-11-22): **305+ passed** (+ T-04/T-05/T-06/T-07/T-12/T-13).
 
 ## Ссылки
 
-```
-- `EXPERIMENTS.md` — журнал экспериментов (breakout, MFE/MAE, adaptive take).
+- `EXPERIMENTS.md` — журнал экспериментов (breakout, MFE/MAE, adaptive take, ablation, pre-registration).
 - `BRANCHES.md` — ветки F/Y/aggressive, режимы, сравнения.
 - `ROADMAP.md` — этапы развития.
 - `CHANGELOG.md` — история версий.
 - `NOTES.md` — ежедневные наблюдения.
 - `CONFIG.md` — параметры `config.py`, флаги, фильтры, режимы.
-```
 
 ## Дисклеймер
 

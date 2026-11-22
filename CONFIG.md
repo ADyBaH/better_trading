@@ -59,14 +59,14 @@
 
 ## Стопы и тейки
 
-| Параметр                | Значение | Описание                                               |
-| ----------------------- | -------- | ------------------------------------------------------ |
-| `USE_ATR_STOPS`         | `True`   | Стопы от ATR (а не фикс. пункты)                       |
-| `STOP_ATR_MULT`         | `1.0`    | Стоп = 1.0 × ATR(H1)                                   |
-| `TAKE_ATR_MULT`         | `2.0`    | Тейк = 2.0 × ATR(H1)                                   |
-| `ADAPTIVE_TAKE_ENABLED` | `True`   | Адаптивный take (см. `EXPERIMENTS.md` EXP-20261120-02) |
-| `TAKE_DAY_RANGE_FRAC`   | `0.6`    | `take = min(2.0×ATR, 0.6×day_range_atr×ATR)`           |
-| `MIN_TAKE_ATR`          | `0.8`    | Минимальный take (× ATR)                               |
+| Параметр                | Значение | Описание                                                                 |
+| ----------------------- | -------- | ------------------------------------------------------------------------ |
+| `USE_ATR_STOPS`         | `True`   | Стопы от ATR (а не фикс. пункты)                                         |
+| `STOP_ATR_MULT`         | `1.0`    | Стоп = 1.0 × ATR(H1)                                                     |
+| `TAKE_ATR_MULT`         | `2.0`    | Тейк = 2.0 × ATR(H1)                                                     |
+| `ADAPTIVE_TAKE_ENABLED` | `True`   | Адаптивный take (см. `EXPERIMENTS.md` EXP-20261120-02 и EXP-20261122-03) |
+| `TAKE_DAY_RANGE_FRAC`   | `0.6`    | `take = min(2.0×ATR, 0.6×day_range_atr×ATR)`                             |
+| `MIN_TAKE_ATR`          | `0.8`    | Минимальный take (× ATR)                                                 |
 
 ---
 
@@ -100,6 +100,8 @@
 | `PAPER_DEDUP_MINUTES` | `5`                                  | Окно эха дедупликации                                                        |
 | `PAPER_MAX_OPEN`      | `1`                                  | Лимит открытых (0 — без лимита)                                              |
 
+---
+
 ## Эксперименты (T-07)
 
 | Параметр              | Значение | Описание                                                                         |
@@ -117,6 +119,7 @@
 | `CONFIRM_LIVE_ENV_VAR` | `"CONFIRM_LIVE"` | env-переменная для подтверждения live (должна быть `=1`) |
 
 **Включение реальных ордеров** — только после 2 недель paper с winrate 70%+, на малом депозите (1% риск), с ручным подтверждением. См. `BRANCHES.md` → «Режимы».
+
 **Как включить live:**
 
 ```bash
@@ -146,7 +149,7 @@ export CONFIRM_LIVE=1
 
 **Формат файла** (`storage/logs/YYYY-MM-DD/candles_<TF>_YYYY-MM-DD.json`):
 
-```
+```json
 {
   "symbol": "CNYRUBF",
   "timeframe": "M15",
@@ -176,6 +179,15 @@ export CONFIRM_LIVE=1
 
 ---
 
+## `paper-stats` — разрезы (T-04, T-13, T-23)
+
+- `by_score` — **T-13**, с bootstrap CI (`pf_ci`, `exp_ci`, `winrate_ci`).
+- `by_day_range_atr` — **T-23**, бакеты `<2.5`, `2.5-3.33`, `>3.33` (адаптивный take).
+- `by_take_source` — `atr` / `day_range` (T-14 / T-23).
+- Все `by_*` — с `expectancy` (T-04 / T-13).
+
+---
+
 ## Фильтры сигналов
 
 Применяются в `strategy/signals.py` → `detect_signals()` через `strategy/filters/` (Filter Registry).
@@ -193,7 +205,7 @@ export CONFIRM_LIVE=1
 | `PAPER_SKIP_ADX_TREND`         | `True`       | все kind при ADX 20–25                                    |
 | `PAPER_SKIP_BID_HEAVY`         | `True`       | все kind при `pressure_pct > 60`                          |
 
-**Цифры** — **устарели** (**n=17**, **до** **T-04**). **CI** **широкий** (**все** **включают** **0**). **Актуальные** **результаты** — `EXPERIMENTS.md` (**T-08** **ablation**, **n ≥ 100**). **Фильтры** **не** **доказаны** — **не** **менять** **без** **CI**.
+**Цифры** — **устарели** (**n=17**, **до** T-04). **CI** **широкий** (**все** **включают** 0). **Актуальные** **результаты** — `EXPERIMENTS.md` (**T-08** **ablation**, **n ≥ 100**). **Фильтры** **не** **доказаны** — **не** **менять** **без** **CI**.
 
 Обоснование — в `EXPERIMENTS.md` (EXP-20261119-01) и `NOTES.md` (наблюдения 11.11/17.11).
 
@@ -251,7 +263,7 @@ export CONFIRM_LIVE=1
 
 ## Как проверить эффект фильтров
 
-```
+```bash
 # Replay-эффект F1–F4 на истории (с комиссией, PF/exp)
 python scripts/verify_filters.py --date 2026-11-13
 
@@ -261,13 +273,22 @@ python scripts/verify_candles.py --date 2026-11-13
 # Живой paper (Y): до/после
 python journal_cli.py paper-stats --until=2026-11-19
 python journal_cli.py paper-stats --since=2026-11-19
+
+# T-05: заблокированные сигналы
+python journal_cli.py paper-skipped
+
+# T-07: фильтр по эксперименту
+python journal_cli.py paper-stats --experiment=EXP-20261122-05
+
+# T-08: ablation фильтров (infra)
+python scripts/ablation.py --since 2026-11-11 --until 2026-11-19
 ```
 
 ---
 
 ## Ссылки
 
-- `EXPERIMENTS.md` — журнал экспериментов (breakout, MFE/MAE, adaptive take).
+- `EXPERIMENTS.md` — журнал экспериментов (breakout, MFE/MAE, adaptive take, ablation, pre-registration).
 - `BRANCHES.md` — ветки F/Y/aggressive, режимы, сравнения.
 - `README.md` — установка, быстрый старт, CLI Reference.
 - `ROADMAP.md` — этапы развития.
