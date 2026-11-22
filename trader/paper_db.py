@@ -1,51 +1,11 @@
 import sqlite3
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Callable
 from core.logger import get_logger
 
 log = get_logger(__name__)
 
-# Список всех колонок в правильном порядке для INSERT
-# Это позволит нам не писать огромные строки SQL в основном коде
-TRADE_COLUMNS = [
-    "signal_id",
-    "source_analysis_path",
-    "symbol",
-    "direction",
-    "kind",
-    "strength",
-    "strength_score",
-    "entry_price",
-    "stop_price",
-    "take_price",
-    "level_price",
-    "risk_reward",
-    "net_rr",
-    "trend_at_open",
-    "adx_at_open",
-    "day_trend_at_open",
-    "structure_at_open",
-    "partial_day_at_open",
-    "week_trend_at_open",
-    "market_state_at_open",
-    "rsi_at_open",
-    "atr_percentile_at_open",
-    "created_at",
-    "result",
-    "warnings",
-    "context",
-    "bid_vol",
-    "ask_vol",
-    "market_price_at_open",
-    "size",
-    "balance_after",
-    "mfe_source",
-    "mae_source",
-    "take_source",
-    "take_atr_value",
-    "day_range_atr_at_open",
-]
-
+# --- БАЗОВАЯ СХЕМА (Только обязательные поля первой версии) ---
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS paper_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,102 +22,195 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     level_price REAL,
     risk_reward REAL,
     net_rr REAL,
-    trend_at_open TEXT,
-    adx_at_open REAL,
-    day_trend_at_open TEXT,
-    structure_at_open TEXT,
-    week_trend_at_open TEXT,
-    market_state_at_open TEXT,
-    rsi_at_open REAL,
-    atr_percentile_at_open REAL,
     created_at TEXT NOT NULL,
-    closed_at TEXT,
-    exit_price REAL,
     result TEXT DEFAULT 'open',
-    result_points REAL,
-    result_rub REAL,
-    bars_to_close INTEGER,
-    resolution_confidence TEXT,
     warnings TEXT,
-    context TEXT,
-    bid_vol REAL,
-    ask_vol REAL,
-    market_price_at_open REAL,
-    size INTEGER DEFAULT 1,
-    balance_after REAL
+    context TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_trades(result);
 CREATE INDEX IF NOT EXISTS idx_paper_created ON paper_trades(created_at);
 CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_trades(symbol);
 """
 
+# --- Система миграций (Обновленная для защиты от дублей) ---
 
-def init_db(conn: sqlite3.Connection) -> None:
-    """Инициализация схемы и миграции."""
-    conn.row_factory = sqlite3.Row
-    conn.executescript(CREATE_TABLE_SQL)
 
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
-
-    # Список колонок для миграции
-    migrations = [
-        "market_price_at_open",
-        "size",
-        "balance_after",
-        "week_trend_at_open",
-        "market_state_at_open",
-        "rsi_at_open",
-        "atr_percentile_at_open",
-        "mfe_points",
-        "mae_points",
-        "partial_day_at_open",
-        "volume_ratio_at_open",
-        "mfe_source",
-        "mae_source",
-        "take_source",
-        "take_atr_value",
-        "day_range_atr_at_open",
+def _get_columns(conn: sqlite3.Connection) -> List[str]:
+    """Вспомогательная функция для получения списка колонок."""
+    return [
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(paper_trades)").fetchall()
     ]
 
-    for col in migrations:
-        if col not in existing:
-            # Определяем тип данных (упрощенно, можно расширить)
-            dtype = "REAL"
-            if "at_open" in col and "partial" not in col:
-                dtype = "TEXT"
-            if "partial" in col:
-                dtype = "INTEGER"
 
-            conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {dtype}")
-    conn.commit()
+def _m_add_market_price(conn):
+    cols = _get_columns(conn)
+    if "market_price_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN market_price_at_open REAL")
+
+
+def _m_add_size(conn):
+    cols = _get_columns(conn)
+    if "size" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN size INTEGER DEFAULT 1")
+
+
+def _m_add_balance(conn):
+    cols = _get_columns(conn)
+    if "balance_after" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN balance_after REAL")
+
+
+def _m_add_week_trend(conn):
+    cols = _get_columns(conn)
+    if "week_trend_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN week_trend_at_open TEXT")
+
+
+def _m_add_market_state(conn):
+    cols = _get_columns(conn)
+    if "market_state_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN market_state_at_open TEXT")
+
+
+def _m_add_rsi(conn):
+    cols = _get_columns(conn)
+    if "rsi_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN rsi_at_open REAL")
+
+
+def _m_add_atr_pct(conn):
+    cols = _get_columns(conn)
+    if "atr_percentile_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN atr_percentile_at_open REAL")
+
+
+def _m_add_mfe(conn):
+    cols = _get_columns(conn)
+    if "mfe_points" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_points REAL")
+
+
+def _m_add_mae(conn):
+    cols = _get_columns(conn)
+    if "mae_points" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_points REAL")
+
+
+def _m_add_partial(conn):
+    cols = _get_columns(conn)
+    if "partial_day_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN partial_day_at_open INTEGER")
+
+
+def _m_add_vol_ratio(conn):
+    cols = _get_columns(conn)
+    if "volume_ratio_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN volume_ratio_at_open REAL")
+
+
+def _m_add_mfe_src(conn):
+    cols = _get_columns(conn)
+    if "mfe_source" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_source TEXT")
+
+
+def _m_add_mae_src(conn):
+    cols = _get_columns(conn)
+    if "mae_source" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_source TEXT")
+
+
+def _m_add_take_src(conn):
+    cols = _get_columns(conn)
+    if "take_source" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN take_source TEXT")
+
+
+def _m_add_take_atr(conn):
+    cols = _get_columns(conn)
+    if "take_atr_value" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN take_atr_value REAL")
+
+
+def _m_add_day_range(conn):
+    cols = _get_columns(conn)
+    if "day_range_atr_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN day_range_atr_at_open REAL")
+
+
+# Список миграций (остается прежним)
+MIGRATIONS: List[tuple[int, Callable]] = [
+    (1, _m_add_market_price),
+    (2, _m_add_size),
+    (3, _m_add_balance),
+    (4, _m_add_week_trend),
+    (5, _m_add_market_state),
+    (6, _m_add_rsi),
+    (7, _m_add_atr_pct),
+    (8, _m_add_mfe),
+    (9, _m_add_mae),
+    (10, _m_add_partial),
+    (11, _m_add_vol_ratio),
+    (12, _m_add_mfe_src),
+    (13, _m_add_mae_src),
+    (14, _m_add_take_src),
+    (15, _m_add_take_atr),
+    (16, _m_add_day_range),
+]
+
+
+def init_db(conn: sqlite3.Connection) -> None:
+    """Инициализация схемы с поддержкой версии и автоматических миграций."""
+    conn.row_factory = sqlite3.Row
+
+    # 1. Создаем базовую таблицу
+    conn.executescript(CREATE_TABLE_SQL)
+
+    # 2. Обрабатываем миграции в транзакции
+    try:
+        current_version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+        for version, func in MIGRATIONS:
+            if version > current_version:
+                func(conn)
+                conn.execute(f"PRAGMA user_version = {version}")
+
+        conn.commit()
+        log.info(f"DB initialized. Current schema version: {current_version}")
+    except Exception as e:
+        conn.rollback()
+        log.error(f"Failed to apply migrations: {e}")
+        raise
+
+
+# --- Динамическое получение колонок ---
+
+
+def get_columns(conn: sqlite3.Connection) -> List[str]:
+    """Возвращает список всех колонок таблицы в порядке их создания в БД."""
+    cursor = conn.execute("PRAGMA table_info(paper_trades)")
+    return [row["name"] for row in cursor.fetchall()]
+
+
+# --- Основные операции ---
 
 
 def insert_trade(conn: sqlite3.Connection, data: Dict[str, Any]) -> bool:
-    """
-    Пытается вставить запись в таблицу paper_trades.
-
-    Возвращает:
-        True — если запись успешно вставлена.
-        False — если запись уже существует (IntegrityError) или произошла другая ошибка.
-    """
-    columns = ", ".join(TRADE_COLUMNS)
-    placeholders = ", ".join(["?"] * len(TRADE_COLUMNS))
-
-    # Собираем значения в правильном порядке
-    values = [data.get(col) for col in TRADE_COLUMNS]
+    columns = get_columns(conn)
+    placeholders = ", ".join(["?"] * len(columns))
+    values = [data.get(col) for col in columns]
 
     try:
-        # Убрали "OR IGNORE", теперь используем обычный INSERT
         conn.execute(
-            f"INSERT INTO paper_trades ({columns}) VALUES ({placeholders})", values
+            f"INSERT INTO paper_trades ({', '.join(columns)}) VALUES ({placeholders})",
+            values,
         )
-        # Если выполнение дошло сюда без исключений — значит вставка успешна
         return True
     except sqlite3.IntegrityError:
-        # Если возникла ошибка уникальности (signal_id уже есть)
         return False
     except Exception as e:
-        log.error("Ошибка при вставке в БД: %s", e)
+        log.error(f"DB Insert Error: {e}")
         return False
 
 
@@ -173,7 +226,6 @@ def get_open_trades_by_symbol(
 def update_trade_resolve(
     conn: sqlite3.Connection, trade_id: int, updates: Dict[str, Any]
 ) -> None:
-    """Обновляет поля сделки по ID."""
     set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
     sql = f"UPDATE paper_trades SET {set_clause} WHERE id = ?"
     conn.execute(sql, list(updates.values()) + [trade_id])
@@ -182,10 +234,8 @@ def update_trade_resolve(
 def get_stats_raw(
     conn: sqlite3.Connection, filters: Dict[str, Any]
 ) -> List[sqlite3.Row]:
-    """Получает сырые данные для статистики с учетом фильтров."""
     where = []
     params = []
-
     if filters.get("since"):
         where.append("created_at >= ?")
         params.append(filters["since"])
@@ -195,7 +245,6 @@ def get_stats_raw(
     if filters.get("symbol"):
         where.append("symbol = ?")
         params.append(filters["symbol"])
-
     if filters.get("known_only"):
         where.append("""
             (week_trend_at_open IS NOT NULL AND week_trend_at_open != 'unknown')
@@ -203,7 +252,6 @@ def get_stats_raw(
             AND (rsi_at_open IS NOT NULL)
             AND (atr_percentile_at_open IS NOT NULL)
         """)
-
     where_sql = "WHERE " + " AND ".join(where) if where else ""
     return conn.execute(
         f"SELECT * FROM paper_trades {where_sql} ORDER BY created_at", params

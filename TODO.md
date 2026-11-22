@@ -36,47 +36,6 @@
 
 ---
 
-### T-06. `schema_version` + миграции + **рефакторинг работы с БД**
-
-**Приоритет:** P1. **Оценка:** **2 д** (было 1 д — расширено).
-**Симптом:**
-
-- Десяток ручных `ALTER TABLE`, был баг SQL syntax (0.15.0). `_columns/_placeholders` рассинхронизируются.
-- `trader/paper.py` **раздут** (~700+ строк): схема, миграции, `save_signal_as_paper`, `resolve_open_trades`, `virtual_pnl`, `paper_stats` — всё **в одном файле**.
-- **Работа с БД** (SQL, миграции, `_columns`, `_placeholders`, `conn.execute`) **перемешана** с **бизнес-логикой** (PnL, статистика).
-
-**Что сделать:**
-
-1. **`schema_version`** (`PRAGMA user_version`).
-2. **`MIGRATIONS: list[tuple[int, Callable]]`** — `init_paper_table()` применяет по порядку, в транзакции, обновляет `user_version`.
-3. **`_columns/_placeholders`** — генерировать из `PRAGMA table_info` (или dataclass).
-4. **Вынести работу с БД в отдельный блок** — `trader/paper_db.py` (или `storage/paper_db.py`):
-   - `init_paper_table(conn)` — схема + миграции.
-   - `MIGRATIONS` — список миграций.
-   - `insert_paper_trade(conn, ...)` — INSERT с `_columns/_placeholders`.
-   - `select_open_trades(conn, symbol)` — SELECT.
-   - `update_paper_trade_resolve(conn, id, ...)` — UPDATE.
-   - `_columns`, `_placeholders` — генерация.
-5. **`trader/paper.py`** — **только бизнес-логика**:
-   - `virtual_pnl(...)` — PnL по свечам.
-   - `save_signal_as_paper(...)` — вызывает `paper_db.insert_paper_trade`.
-   - `resolve_open_trades(...)` — вызывает `paper_db.select_open_trades` + `paper_db.update_paper_trade_resolve`.
-   - `paper_stats(...)` — вызывает `paper_db.*` (или остаётся с SQL — **опционально** вынести в `paper_stats_db.py`).
-6. **`tests/test_paper_db.py`** — тесты на миграции (идемпотентность, `user_version`), `insert`/`select`/`update`.
-
-**Приёмка:**
-
-- [ ] `PRAGMA user_version` растёт при миграциях.
-- [ ] Новый столбец — одна строка в `MIGRATIONS`.
-- [ ] `trader/paper_db.py` — **вся** работа с БД (`conn.execute`).
-- [ ] `trader/paper.py` — **только** бизнес-логика (нет `conn.execute`).
-- [ ] `pytest tests/test_paper*.py tests/test_paper_db.py -v` — зелёные.
-- [ ] Тест идемпотентности миграций.
-
-**Оценка:** 2 д.
-
----
-
 ### T-07. Pre-registration экспериментов
 
 **Приоритет:** P1. **Оценка:** 0.5 д.
@@ -170,45 +129,42 @@
 
 ## ✅ Закрыто (архив)
 
-| ID         | Задача                               | Статус                                                                                                                           |
-| ---------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| **T-01**   | Replay look-ahead — частично         | ⚠️ H1/H4 без look-ahead; M15 как live; skip_filters; direction+kind. Match rate 43.8% (17.11), 33.3% (20.11). 22.11+ — проверка. |
-| **T-01b**  | Live без look-ahead M15              | ✅ analyze(): df[begin + tf <= now].                                                                                             |
-| **T-01c**  | H1/H4 с историей                     | ✅ save_candles_snapshots уже 300 (не нужен).                                                                                    |
-| **T-02**   | `verify_filters` `enabled=False`     | ✅ `if not f.enabled: return False`                                                                                              |
-| **T-03**   | 12 failed тестов                     | ✅ не актуально (262 passed)                                                                                                     |
-| **T-15**   | `vote()`                             | ✅ 19 тестов                                                                                                                     |
-| **T-16**   | README → EXPERIMENTS/BRANCHES/CONFIG | ✅ README ≤ 302                                                                                                                  |
-| **T-17**   | `test_filters.py`                    | ✅ 50 тестов                                                                                                                     |
-| **T-18**   | NOTES.md — целостность               | ✅ проверено, всё цело                                                                                                           |
-| **T-19**   | `test_instruments.py`                | ✅ 28 тестов                                                                                                                     |
-| **T-20**   | pyproject markers + CI               | ✅ `ci.yml`                                                                                                                      |
-| **T-21**   | Пустые заглушки                      | ✅ сделано                                                                                                                       |
-| **BUG-01** | `MockInd.partial_day`                | ✅ 262 passed                                                                                                                    |
-| **BUG-02** | `test_4_direct_trades`               | ✅                                                                                                                               |
-| **BUG-03** | `partial_day`                        | ✅                                                                                                                               |
-| **BUG-04** | `price_step` хардкод                 | ✅                                                                                                                               |
-| **BUG-05** | `PAPER_MAX_OPEN`                     | ✅                                                                                                                               |
-| **BUG-06** | `PAPER_TIMEOUT_BARS`                 | ✅                                                                                                                               |
+| ID         | Задача                                           | Статус                                                                                                                           |
+| ---------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **T-01**   | Replay look-ahead — частично                     | ⚠️ H1/H4 без look-ahead; M15 как live; skip_filters; direction+kind. Match rate 43.8% (17.11), 33.3% (20.11). 22.11+ — проверка. |
+| **T-01b**  | Live без look-ahead M15                          | ✅ analyze(): df[begin + tf <= now].                                                                                             |
+| **T-01c**  | H1/H4 с историей                                 | ✅ save_candles_snapshots уже 300 (не нужен).                                                                                    |
+| **T-02**   | `verify_filters` `enabled=False`                 | ✅ `if not f.enabled: return False`                                                                                              |
+| **T-03**   | 12 failed тестов                                 | ✅ не актуально (262 passed)                                                                                                     |
+| **T-06**   | **`schema_version` + миграции + рефакторинг БД** | 🟠 P1                                                                                                                            |
+| **T-15**   | `vote()`                                         | ✅ 19 тестов                                                                                                                     |
+| **T-16**   | README → EXPERIMENTS/BRANCHES/CONFIG             | ✅ README ≤ 302                                                                                                                  |
+| **T-17**   | `test_filters.py`                                | ✅ 50 тестов                                                                                                                     |
+| **T-18**   | NOTES.md — целостность                           | ✅ проверено, всё цело                                                                                                           |
+| **T-19**   | `test_instruments.py`                            | ✅ 28 тестов                                                                                                                     |
+| **T-20**   | pyproject markers + CI                           | ✅ `ci.yml`                                                                                                                      |
+| **T-21**   | Пустые заглушки                                  | ✅ сделано                                                                                                                       |
+| **BUG-01** | `MockInd.partial_day`                            | ✅ 262 passed                                                                                                                    |
+| **BUG-02** | `test_4_direct_trades`                           | ✅                                                                                                                               |
+| **BUG-03** | `partial_day`                                    | ✅                                                                                                                               |
+| **BUG-04** | `price_step` хардкод                             | ✅                                                                                                                               |
+| **BUG-05** | `PAPER_MAX_OPEN`                                 | ✅                                                                                                                               |
+| **BUG-06** | `PAPER_TIMEOUT_BARS`                             | ✅                                                                                                                               |
 
 ---
 
 ## Сводка
 
-| ID       | Задача                                           | P     | Оценка    |
-| -------- | ------------------------------------------------ | ----- | --------- |
-| BUG-02   | `test_4_direct_trades` (флаки)                   | 🟠 P1 | 0.2/0.5 д |
-| T-01b    | Live без look-ahead                              | 🟠 P1 | 0.5 д     |
-| T-04     | Bootstrap CI                                     | 🟠 P1 | 1 д       |
-| T-05     | `paper_skipped`                                  | 🟠 P1 | 1.5 д     |
-| **T-06** | **`schema_version` + миграции + рефакторинг БД** | 🟠 P1 | **2 д**   |
-| T-07     | Pre-registration                                 | 🟠 P1 | 0.5 д     |
-| T-08     | Ablation study                                   | 🟠 P1 | 1.5 д     |
-| BUG-03   | `now_msk()`                                      | 🟡 P2 | 0.1 д     |
-| T-02b    | Пересмотр фильтров                               | 🟡 P2 | 0.5 д     |
-| T-12     | `REAL_TRADING_MODE`                              | 🟡 P2 | 0.5 д     |
-| T-13     | `--by-score`                                     | 🟡 P2 | 0.5 д     |
-| T-23     | ADAPTIVE_TAKE                                    | 🟢 P3 | 0.3 д     |
+| ID    | Задача              | P     | Оценка |
+| ----- | ------------------- | ----- | ------ |
+| T-04  | Bootstrap CI        | 🟠 P1 | 1 д    |
+| T-05  | `paper_skipped`     | 🟠 P1 | 1.5 д  |
+| T-07  | Pre-registration    | 🟠 P1 | 0.5 д  |
+| T-08  | Ablation study      | 🟠 P1 | 1.5 д  |
+| T-02b | Пересмотр фильтров  | 🟡 P2 | 0.5 д  |
+| T-12  | `REAL_TRADING_MODE` | 🟡 P2 | 0.5 д  |
+| T-13  | `--by-score`        | 🟡 P2 | 0.5 д  |
+| T-23  | ADAPTIVE_TAKE       | 🟢 P3 | 0.3 д  |
 
 **Рекомендуемый порядок:** BUG-03 (10 мин) → BUG-02 (10 мин) → T-12 (0.5 д) → T-01b (0.5 д) → T-04 (1 д) → T-07 (0.5 д) → T-06 (2 д) → T-05 (1.5 д) → T-08 (1.5 д) → T-02b (0.5 д) → T-13 (0.5 д) → T-23 (0.3 д).
 

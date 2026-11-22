@@ -62,3 +62,44 @@ def test_duplicate_signal_ignore(db_conn):
     insert_trade(db_conn, data)
     # Повторная попытка вставки с тем же signal_id должна вернуть False (INSERT OR IGNORE)
     assert insert_trade(db_conn, data) is False
+
+
+def test_migrations_idempotent(db_conn):
+    # Первый вызов создает таблицу и применяет все миграции
+    db.init_db(db_conn)
+
+    # Второй вызов (идемпотентность) не должен ничего менять или падать
+    try:
+        db.init_db(db_conn)
+    except Exception as e:
+        pytest.fail(f"Idempotency test failed: {e}")
+
+
+def test_migration_version_increment(db_conn):
+    # Проверяем, что после init_db версия базы равна последней миграции (16)
+    db.init_db(db_conn)
+    version = db_conn.execute("PRAGMA user_version").fetchone()[0]
+    assert version == 16
+
+
+def test_dynamic_columns_insert(db_conn):
+    # Тестируем, что данные вставляются динамически по списку колонок БД
+    # Добавляем только часть полей из тех, что есть в БД
+    data = {
+        "signal_id": "test_dyn",
+        "symbol": "CNYRUBF",
+        "direction": "long",
+        "kind": "breakout",
+        "entry_price": 10.0,
+        "stop_price": 9.0,
+        "take_price": 11.0,
+        "created_at": datetime.now().isoformat(),
+        "result": "open",
+        # Мы специально не передаем другие колонки,
+        # insert_trade должен корректно обработать только те, что есть в базе
+    }
+    assert db.insert_trade(db_conn, data) is True
+
+    # Проверяем, что запись появилась
+    rows = db.get_open_trades_by_symbol(db_conn, "CNYRUBF")
+    assert len(rows) == 1
