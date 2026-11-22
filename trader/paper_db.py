@@ -433,6 +433,7 @@ def get_skipped_stats(
     since: str | None = None,
     until: str | None = None,
     symbol: str | None = None,
+    experiment: str | None = None,
 ) -> Dict[str, Any]:
     """Агрегаты по paper_skipped."""
     where = []
@@ -446,6 +447,9 @@ def get_skipped_stats(
     if symbol:
         where.append("symbol = ?")
         params.append(symbol)
+    if experiment:
+        where.append("experiment_id = ?")
+        params.append(experiment)
     where_sql = "WHERE " + " AND ".join(where) if where else ""
 
     rows = conn.execute(

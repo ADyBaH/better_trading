@@ -772,6 +772,7 @@ def cmd_paper_skipped(args) -> int:
             since=args.since,
             until=args.until,
             symbol=args.symbol,
+            experiment=getattr(args, "experiment", None),
         )
 
     print()
@@ -802,9 +803,7 @@ def cmd_paper_skipped(args) -> int:
     print("── По направлению " + "─" * 40)
     rows = [[d, v] for d, v in sorted(s["by_direction"].items(), key=lambda x: -x[1])]
     print(tabulate(rows, headers=["direction", "n"], tablefmt="rounded_outline"))
-    if args.experiment:
-        print(f"  Experiment: {args.experiment}")
-    elif config.EXPERIMENT_ID:
+    if config.EXPERIMENT_ID:
         print(f"  Experiment (current): {config.EXPERIMENT_ID}")
     else:
         print("  Experiment: baseline (вне эксперимента)")
@@ -926,6 +925,7 @@ def main() -> int:
     p_skip.add_argument("--since", default=None, help="С даты (ISO)")
     p_skip.add_argument("--until", default=None, help="До даты (ISO)")
     p_skip.add_argument("--symbol", default=None, help="Фильтр по тикеру")
+    p_skip.add_argument("--experiment", default=None, help="Фильтр по EXPERIMENT_ID")
     p_skip.set_defaults(func=cmd_paper_skipped)
 
     p_paper.add_argument(
