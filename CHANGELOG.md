@@ -364,3 +364,13 @@
 - `paper_stats` → `trader.analytics.paper`
 - `compute_stats` → `trader.analytics.journal`
 - Bucket-функции → `trader.analytics.group`
+
+### Добавлено
+
+- **T-06**: единый `trader/db.py` + `schema_versions` (версия на каждую таблицу).
+  Миграции для `paper_trades` (29), `paper_skipped` (1), `trades` (1), `candles` (1).
+  `PRAGMA user_version` больше не источник истины — `schema_versions`.
+
+### Изменено
+
+- `trader/paper_db.py`, `trader/journal.py`, `data/storage_sqlite.py` — делегируют миграции в `trader/db.py`.

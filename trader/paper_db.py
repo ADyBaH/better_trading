@@ -2,6 +2,7 @@ import sqlite3
 import json
 from typing import List, Dict, Any, Callable
 from core.logger import get_logger
+from trader.db import migrate_from_user_version, get_version, set_version
 
 log = get_logger(__name__)
 
@@ -282,27 +283,36 @@ MIGRATIONS: List[tuple[int, Callable]] = [
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Инициализация схемы с поддержкой версии и автоматических миграций."""
+    """Инициализация схемы через schema_versions (T-06)."""
     conn.row_factory = sqlite3.Row
 
-    # 1. Создаем базовую таблицу
+    # 1. Создаём базовые таблицы
     conn.executescript(CREATE_TABLE_SQL)
     conn.executescript(CREATE_TABLE_SKIPPED_SQL)
 
-    # 2. Обрабатываем миграции в транзакции
+    # 2. Миграции через schema_versions (с обратной совместимостью user_version)
     try:
-        current_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        # paper_trades — legacy user_version=29 → schema_versions
+        paper_version = migrate_from_user_version(
+            conn, "paper_trades", MIGRATIONS, legacy_user_version=True
+        )
+        # paper_skipped — новая таблица, миграций пока нет (version=1)
+        skipped_version = migrate_from_user_version(
+            conn, "paper_skipped", [], legacy_user_version=False
+        )
+        # Если paper_skipped нет версии — ставим 1 (базовая схема = version 1)
+        if skipped_version == 0:
+            set_version(conn, "paper_skipped", 1)
+            conn.commit()
 
-        for version, func in MIGRATIONS:
-            if version > current_version:
-                func(conn)
-                conn.execute(f"PRAGMA user_version = {version}")
-
-        conn.commit()
-        log.info(f"DB initialized. Current schema version: {current_version}")
+        log.info(
+            "DB initialized. paper_trades=%d, paper_skipped=%d",
+            paper_version,
+            skipped_version or 1,
+        )
     except Exception as e:
         conn.rollback()
-        log.error(f"Failed to apply migrations: {e}")
+        log.error("Failed to apply migrations: %s", e)
         raise
 
 

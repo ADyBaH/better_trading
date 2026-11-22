@@ -76,10 +76,13 @@ def test_migrations_idempotent(db_conn):
 
 
 def test_migration_version_increment(db_conn):
+    from trader.db import get_version
+    from trader.paper_db import MIGRATIONS
+
     # Проверяем, что после init_db версия базы равна последней миграции (16)
     db.init_db(db_conn)
-    version = db_conn.execute("PRAGMA user_version").fetchone()[0]
-    from trader.paper_db import MIGRATIONS
+    # T-06: версия теперь в schema_versions, а не в PRAGMA user_version
+    version = get_version(db_conn, "paper_trades")
     assert version == MIGRATIONS[-1][0]
 
 

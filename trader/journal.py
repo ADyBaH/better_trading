@@ -7,8 +7,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
-
+from typing import Callable, Optional
+from trader.db import migrate, get_version
 from core.logger import get_logger
 import config
 
@@ -119,9 +119,20 @@ def _connect():
 # Внутри journal.py продолжаем использовать _connect.
 connect_journal = _connect
 
+# ============================================================
+# T-06: Миграции для trades
+# ============================================================
+
+MIGRATIONS_TRADES: list[tuple[int, Callable]] = [
+    # version 1 — базовая схема (CREATE TABLE уже в init_db)
+    (1, lambda conn: None),
+    # При добавлении колонки:
+    # (2, _m_add_trades_column_xxx),
+]
+
 
 def init_db() -> None:
-    """Создаёт таблицу trades, если её нет."""
+    """Создаёт таблицу trades и применяет миграции (T-06: schema_versions)."""
     with _connect() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS trades (
@@ -151,7 +162,11 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_trades_open
             ON trades (datetime_open)
         """)
-    log.debug("Журнал инициализирован: %s", _journal_db_path())
+        # T-06: миграции через schema_versions
+        version = migrate(conn, "trades", MIGRATIONS_TRADES)
+    log.debug(
+        "Журнал инициализирован: %s (trades schema=%d)", _journal_db_path(), version
+    )
 
 
 # ============================================================

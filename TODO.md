@@ -79,33 +79,33 @@
 
 ## ✅ Закрыто (архив)
 
-| ID           | Задача                                           | Статус                                                                                                                           |
-| ------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| **T-01**     | Replay look-ahead — частично                     | ⚠️ H1/H4 без look-ahead; M15 как live; skip_filters; direction+kind. Match rate 43.8% (17.11), 33.3% (20.11). 22.11+ — проверка. |
-| **T-01b**    | Live без look-ahead M15                          | ✅ analyze(): \_drop_unclosed(M15/H1/H4/ATR), \_enrich_levels(now=ts), verify_candles.\_df_before без exclude_current            |
-| **T-01c**    | H4 в candles\_\*.json = 500                      | ✅ SAVE_CANDLES_COUNT_BY_TF={"M15":300,"H1":300,"H4":500}, candles_export использует по ТФ                                       |
-| **T-02**     | `verify_filters` `enabled=False`                 | ✅ `if not f.enabled: return False`                                                                                              |
-| **T-03**     | 12 failed тестов                                 | ✅ не актуально (262 passed)                                                                                                     |
-| **T-04**     | Bootstrap CI для PF/exp/winrate                  | ✅ trader/bootstrap.py, paper_stats возвращает \*\_ci, journal_cli выводит [lo, hi]                                              |
-| **T-05**     | paper_skipped с reason                           | ✅ paper_db.insert_skipped/get_skipped_stats, paper.save_skipped_signal, journal_cli paper-skipped --by-reason                   |
-| **T-06**     | **`schema_version` + миграции + рефакторинг БД** | 🟠 P1                                                                                                                            |
-| **T-07**     | Pre-registration                                 | ✅ EXPERIMENT_ID (env), миграция 29, --experiment, шаблон в EXPERIMENTS.md, пилот EXP-20261122-01                                |
-| **T-12**     | `REAL_TRADING_MODE`                              | ✅                                                                                                                               |
-| **T-13**     | --by-score + CI                                  | ✅ paper_stats by_score с pf_ci/exp_ci/winrate_ci, journal_cli выводит                                                           |
-| **T-15**     | `vote()`                                         | ✅ 19 тестов                                                                                                                     |
-| **T-16**     | README → EXPERIMENTS/BRANCHES/CONFIG             | ✅ README ≤ 302                                                                                                                  |
-| **T-17**     | `test_filters.py`                                | ✅ 50 тестов                                                                                                                     |
-| **T-18**     | NOTES.md — целостность                           | ✅ проверено, всё цело                                                                                                           |
-| **T-19**     | `test_instruments.py`                            | ✅ 28 тестов                                                                                                                     |
-| **T-20**     | pyproject markers + CI                           | ✅ `ci.yml`                                                                                                                      |
-| **T-21**     | Пустые заглушки                                  | ✅ сделано                                                                                                                       |
-| **BUG-01**   | `MockInd.partial_day`                            | ✅ 262 passed                                                                                                                    |
-| **BUG-02**   | `test_4_direct_trades`                           | ✅                                                                                                                               |
-| **BUG-03**   | `partial_day`                                    | ✅                                                                                                                               |
-| **BUG-04**   | `price_step` хардкод                             | ✅                                                                                                                               |
-| **BUG-05**   | `PAPER_MAX_OPEN`                                 | ✅                                                                                                                               |
-| **BUG-06**   | `PAPER_TIMEOUT_BARS`                             | ✅                                                                                                                               |
-| **REFACTOR** | trader/analytics/ (пакет)                        | ✅ group.py, paper.py, journal.py, **init**.py                                                                                   |
+| ID           | Задача                                     | Статус                                                                                                                           |
+| ------------ | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **T-01**     | Replay look-ahead — частично               | ⚠️ H1/H4 без look-ahead; M15 как live; skip_filters; direction+kind. Match rate 43.8% (17.11), 33.3% (20.11). 22.11+ — проверка. |
+| **T-01b**    | Live без look-ahead M15                    | ✅ analyze(): \_drop_unclosed(M15/H1/H4/ATR), \_enrich_levels(now=ts), verify_candles.\_df_before без exclude_current            |
+| **T-01c**    | H4 в candles\_\*.json = 500                | ✅ SAVE_CANDLES_COUNT_BY_TF={"M15":300,"H1":300,"H4":500}, candles_export использует по ТФ                                       |
+| **T-02**     | `verify_filters` `enabled=False`           | ✅ `if not f.enabled: return False`                                                                                              |
+| **T-03**     | 12 failed тестов                           | ✅ не актуально (262 passed)                                                                                                     |
+| **T-04**     | Bootstrap CI для PF/exp/winrate            | ✅ trader/bootstrap.py, paper_stats возвращает \*\_ci, journal_cli выводит [lo, hi]                                              |
+| **T-05**     | paper_skipped с reason                     | ✅ paper_db.insert_skipped/get_skipped_stats, paper.save_skipped_signal, journal_cli paper-skipped --by-reason                   |
+| **T-06**     | schema_version + миграции + рефакторинг БД | ✅ trader/db.py, schema_versions (4 таблицы: paper_trades=29, paper_skipped=1, trades=1, candles=1)                              |
+| **T-07**     | Pre-registration                           | ✅ EXPERIMENT_ID (env), миграция 29, --experiment, шаблон в EXPERIMENTS.md, пилот EXP-20261122-01                                |
+| **T-12**     | `REAL_TRADING_MODE`                        | ✅                                                                                                                               |
+| **T-13**     | --by-score + CI                            | ✅ paper_stats by_score с pf_ci/exp_ci/winrate_ci, journal_cli выводит                                                           |
+| **T-15**     | `vote()`                                   | ✅ 19 тестов                                                                                                                     |
+| **T-16**     | README → EXPERIMENTS/BRANCHES/CONFIG       | ✅ README ≤ 302                                                                                                                  |
+| **T-17**     | `test_filters.py`                          | ✅ 50 тестов                                                                                                                     |
+| **T-18**     | NOTES.md — целостность                     | ✅ проверено, всё цело                                                                                                           |
+| **T-19**     | `test_instruments.py`                      | ✅ 28 тестов                                                                                                                     |
+| **T-20**     | pyproject markers + CI                     | ✅ `ci.yml`                                                                                                                      |
+| **T-21**     | Пустые заглушки                            | ✅ сделано                                                                                                                       |
+| **BUG-01**   | `MockInd.partial_day`                      | ✅ 262 passed                                                                                                                    |
+| **BUG-02**   | `test_4_direct_trades`                     | ✅                                                                                                                               |
+| **BUG-03**   | `partial_day`                              | ✅                                                                                                                               |
+| **BUG-04**   | `price_step` хардкод                       | ✅                                                                                                                               |
+| **BUG-05**   | `PAPER_MAX_OPEN`                           | ✅                                                                                                                               |
+| **BUG-06**   | `PAPER_TIMEOUT_BARS`                       | ✅                                                                                                                               |
+| **REFACTOR** | trader/analytics/ (пакет)                  | ✅ group.py, paper.py, journal.py, **init**.py                                                                                   |
 
 ---
 
