@@ -402,7 +402,14 @@ def cmd_paper_stats(args) -> int:
     print(f"  Loss:     {s['loss']}")
     print(f"  Timeout:  {s['timeout']}")
     if s["winrate"] is not None:
-        print(f"  Winrate:  {s['winrate']}% (без timeout)")
+        wr_ci = s.get("winrate_ci")
+        if wr_ci:
+            print(
+                f"  Winrate:  {s['winrate']}% (без timeout)"
+                f" [{wr_ci[0]:.1f}%, {wr_ci[1]:.1f}%]"
+            )
+        else:
+            print(f"  Winrate:  {s['winrate']}% (без timeout) [CI: n<5]")
     else:
         print("  Winrate:  —")
     print(f"  Total PnL: {s['total_points']:+.1f} pts / {s['total_rub']:+.2f} ₽")
@@ -415,12 +422,27 @@ def cmd_paper_stats(args) -> int:
     if s["avg_loss_points"] is not None:
         print(f"  Avg loss:  {s['avg_loss_points']:+.1f} pts")
 
-    if s["profit_factor"] is not None:
-        print(f"  Profit factor: {s['profit_factor']:.2f}")
+    # --- T-04: PF / Exp / Winrate с bootstrap CI ---
+    def _fmt_ci(ci, fmt: str, sep: str = " ") -> str:
+        """Форматирует CI: ' [low, high]' или ' [CI: n<5]'."""
+        if ci is None:
+            return " [CI: n<5]"
+        return f" [{fmt.format(ci[0])}, {fmt.format(ci[1])}]"
+
+    pf = s["profit_factor"]
+    if pf is not None:
+        print(
+            f"  Profit factor: {pf:.2f}{_fmt_ci(s.get('profit_factor_ci'), '{:.2f}')}"
+        )
     else:
         print("  Profit factor: —")
-    if s["expectancy"] is not None:
-        print(f"  Expectancy: {s['expectancy']:+.1f} pts")
+
+    exp = s["expectancy"]
+    if exp is not None:
+        print(
+            f"  Expectancy: {exp:+.1f} pts"
+            f"{_fmt_ci(s.get('expectancy_ci'), '{:+.1f}')}"
+        )
     else:
         print("  Expectancy: —")
 

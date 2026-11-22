@@ -18,15 +18,6 @@
 
 ## 🟠 P1 — статистическая честность / стабильность
 
-### T-04. Bootstrap CI для PF/exp/winrate в paper-stats
-
-**Приоритет:** P1. **Оценка:** 1 д.
-**Симптом:** решения по n=14–23, без CI. PF 0.73 при n=17 — ±0.4.
-**Фикс:** `_bootstrap_ci(values, stat_fn, n_iter=1000, alpha=0.05)` в `trader/stats.py`; вывод в `paper-stats`.
-**Приёмка:** `paper-stats` показывает `PF 1.46 [1.02, 1.91]`; тест на 1000 выборок — coverage ≈ 95%.
-
----
-
 ### T-05. `paper_skipped` с reason (ablation «в живую»)
 
 **Приоритет:** P1. **Оценка:** 1.5 д. **Зависит:** T-01.
@@ -136,6 +127,7 @@
 | **T-01c**  | H4 в candles\_\*.json = 500                      | ✅ SAVE_CANDLES_COUNT_BY_TF={"M15":300,"H1":300,"H4":500}, candles_export использует по ТФ                                       |
 | **T-02**   | `verify_filters` `enabled=False`                 | ✅ `if not f.enabled: return False`                                                                                              |
 | **T-03**   | 12 failed тестов                                 | ✅ не актуально (262 passed)                                                                                                     |
+| T-04       | Bootstrap CI для PF/exp/winrate                  | ✅ trader/bootstrap.py, paper_stats возвращает \*\_ci, journal_cli выводит [lo, hi]                                              |
 | **T-06**   | **`schema_version` + миграции + рефакторинг БД** | 🟠 P1                                                                                                                            |
 | **T-15**   | `vote()`                                         | ✅ 19 тестов                                                                                                                     |
 | **T-16**   | README → EXPERIMENTS/BRANCHES/CONFIG             | ✅ README ≤ 302                                                                                                                  |

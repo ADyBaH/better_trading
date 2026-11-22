@@ -688,6 +688,29 @@ def paper_stats(
         p = winrate / 100
         expectancy = round(p * avg_win + (1 - p) * avg_loss, 1)
 
+    # --- T-04: Bootstrap CI для PF / exp / winrate ---
+    from trader.bootstrap import (
+        _bootstrap_ci,
+        _pf_from_points,
+        _exp_from_points,
+        _winrate_from_points,
+    )
+
+    # points только для win/loss (timeout не считается, как в PF)
+    wl_points = [
+        r["result_points"]
+        for r in rows
+        if r["result"] in ("win", "loss") and r["result_points"] is not None
+    ]
+
+    _MIN_N_FOR_CI = 5  # CI при n < 5 не имеет смысла
+    if len(wl_points) >= _MIN_N_FOR_CI:
+        pf_ci = _bootstrap_ci(wl_points, _pf_from_points)
+        exp_ci = _bootstrap_ci(wl_points, _exp_from_points)
+        winrate_ci = _bootstrap_ci(wl_points, _winrate_from_points)
+    else:
+        pf_ci = exp_ci = winrate_ci = None
+
     # --- Разбивки ---
     def _group(key: str) -> dict:
         result = {}
@@ -1266,6 +1289,9 @@ def paper_stats(
         "max_drawdown_pct": round(max_drawdown, 2),
         "profit_factor": profit_factor,
         "expectancy": expectancy,
+        "profit_factor_ci": pf_ci,
+        "expectancy_ci": exp_ci,
+        "winrate_ci": winrate_ci,
         "by_mfe_ratio": _process(by_mfe_ratio),
         "by_partial_day": _process(by_partial_day),
         "by_volume_ratio": _process(by_volume_ratio),
