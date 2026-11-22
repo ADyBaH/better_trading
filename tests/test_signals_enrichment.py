@@ -13,11 +13,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 
 from core.models import AnalysisResult, IndicatorSnapshot, Level, Signal
+from core.instruments import commission_in_price as _commission_in_price
 from strategy.signals import (
     _build_context,
     _build_warnings,
     _finalize_signal,
-    _commission_in_price,
 )
 
 
