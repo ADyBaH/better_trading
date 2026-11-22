@@ -32,7 +32,6 @@
 
 ## 🟢 P3 — полировка
 
-
 ## ⏸ Отложено (не сейчас)
 
 ### T-09. Heartbeat + health-check
@@ -84,6 +83,7 @@
 | **T-05**     | paper_skipped с reason                     | ✅ paper_db.insert_skipped/get_skipped_stats, paper.save_skipped_signal, journal_cli paper-skipped --by-reason                   |
 | **T-06**     | schema_version + миграции + рефакторинг БД | ✅ trader/db.py, schema_versions (4 таблицы: paper_trades=29, paper_skipped=1, trades=1, candles=1)                              |
 | **T-07**     | Pre-registration                           | ✅ EXPERIMENT_ID (env), миграция 29, --experiment, шаблон в EXPERIMENTS.md, пилот EXP-20261122-01                                |
+| T-08 (infra) | Ablation study — infra                     | ✅ scripts/ablation.py (unpaired bootstrap, CI, пересечения)                                                                     |
 | **T-12**     | `REAL_TRADING_MODE`                        | ✅                                                                                                                               |
 | **T-13**     | --by-score + CI                            | ✅ paper_stats by_score с pf_ci/exp_ci/winrate_ci, journal_cli выводит                                                           |
 | **T-15**     | `vote()`                                   | ✅ 19 тестов                                                                                                                     |
@@ -101,6 +101,10 @@
 | **BUG-05**   | `PAPER_MAX_OPEN`                           | ✅                                                                                                                               |
 | **BUG-06**   | `PAPER_TIMEOUT_BARS`                       | ✅                                                                                                                               |
 | **REFACTOR** | trader/analytics/ (пакет)                  | ✅ group.py, paper.py, journal.py, **init**.py                                                                                   |
+
+## ✅ Отложено (архив)
+
+| T-08 (результат) | Ablation — результаты | 🟠 P1 | ⏸ n ≥ 100 (сейчас n=18) |
 
 ---
 

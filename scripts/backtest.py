@@ -117,7 +117,14 @@ def _in_trading_hours(ts: datetime) -> bool:
 def _resolve(signal, df_future: pd.DataFrame, inst) -> dict:
     """Резолв сигнала по будущим свечам (с комиссией)."""
     if df_future is None or df_future.empty:
-        return {"result": "open", "points": 0.0, "rub": 0.0, "bars": 0}
+        return {
+            "result": "open",
+            "points": 0.0,
+            "rub": 0.0,
+            "bars": 0,
+            "direction": signal.direction,
+            "kind": signal.kind,
+        }
 
     pnl = virtual_pnl(
         df_future,
@@ -140,6 +147,8 @@ def _resolve(signal, df_future: pd.DataFrame, inst) -> dict:
         "points": points,
         "rub": rub,
         "bars": pnl.get("bars", 0),
+        "direction": signal.direction,
+        "kind": signal.kind,
     }
 
 
@@ -225,7 +234,12 @@ def run_backtest(
                 if res["result"] in ("open", "no_data"):
                     still_open.append(ot)
                 else:
-                    trades.append(res)
+                    trades.append(
+                        {
+                            **res,
+                            "timestamp": ot["timestamp"],  # ← добавить
+                        }
+                    )
             open_trades = still_open
 
             # --- Новые сигналы (только в торговые часы) ---
@@ -262,21 +276,39 @@ def run_backtest(
                 # Одна открытая сделка на направление
                 if any(ot["signal"].direction == sig.direction for ot in open_trades):
                     continue
-                open_trades.append({"signal": sig, "entry_idx": t})
+                open_trades.append(
+                    {
+                        "signal": sig,
+                        "entry_idx": t,
+                        "timestamp": bar_ts,  # ← добавить
+                    }
+                )
 
         # --- Резолв оставшихся ---
         for ot in open_trades:
             df_future = df_m15.iloc[ot["entry_idx"] + 1 :]
             res = _resolve(ot["signal"], df_future, inst)
             if res["result"] not in ("open", "no_data"):
-                trades.append(res)
+                trades.append(
+                    {
+                        **res,
+                        "timestamp": ot["timestamp"],  # ← добавить
+                    }
+                )
 
     finally:
         for key, val in saved.items():
             if val is not None:
                 setattr(config, key, val)
 
-    return _aggregate(trades)
+    # T-08: добавить _trades (с timestamp) для paired bootstrap
+    for trade in trades:
+        if "timestamp" not in trade:
+            trade["timestamp"] = None  # fallback (не должно случаться)
+
+    result = _aggregate(trades)
+    result["_trades"] = trades
+    return result
 
 
 def _aggregate(trades: list[dict]) -> dict:
