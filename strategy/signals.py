@@ -12,7 +12,7 @@ from datetime import datetime
 
 from core.logger import get_logger
 from core.models import AnalysisResult, Level, Signal
-from core.instruments import get_instrument
+from core.instruments import commission_in_price
 from strategy.strength import _compute_strength, _recalc_strength
 from strategy.context import _build_context, _compute_session
 from strategy.stops import _compute_stops
@@ -69,17 +69,6 @@ def _trend_conflict(ind) -> dict:
     }
 
 
-def _commission_in_price(symbol: str) -> float:
-    """Комиссия за круг в единицах цены (для net_rr)."""
-    inst = get_instrument(symbol)
-    if inst.step_cost == 0:
-        return 0.0
-    # commission_round в рублях, делим на step_cost → получаем пункты,
-    # умножаем на price_step → получаем в цене
-    commission_points = inst.commission_round / inst.step_cost
-    return commission_points * inst.price_step
-
-
 def _finalize_signal(
     signal: Signal,
     result: AnalysisResult,
@@ -111,7 +100,7 @@ def _finalize_signal(
 
     # --- R:R — критично, всегда заполняем ---
     try:
-        signal.compute_rr(commission_round=_commission_in_price(symbol))
+        signal.compute_rr(commission_round=commission_in_price(symbol))
     except Exception as e:
         log.exception(
             "compute_rr упал (signal=%s %s): %s", signal.direction, signal.kind, e
@@ -122,7 +111,7 @@ def _finalize_signal(
         gross_risk = abs(signal.entry_price - signal.stop_price)
         gross_reward = abs(signal.take_price - signal.entry_price)
         if gross_risk > 0:
-            comm = _commission_in_price(symbol)
+            comm = commission_in_price(symbol)
             if signal.risk_reward is None:
                 signal.risk_reward = round(gross_reward / gross_risk, 2)
             if signal.net_rr is None:
