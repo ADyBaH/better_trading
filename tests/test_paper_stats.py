@@ -4,7 +4,8 @@ import sqlite3
 
 import pytest
 
-from trader.paper import init_paper_table, paper_stats
+from trader.paper import init_paper_table
+from trader.analytics import paper_stats
 
 
 @pytest.fixture

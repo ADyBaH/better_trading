@@ -344,3 +344,23 @@
 
 - **Match rate 70%** — реалистичный порог. 100% недостижим без M1 (ALOR WebSocket переотдаёт M15/H1 с промежуточным close).
 - `candles_H4_2026-11-17/18/19/20.json` — 300 H4 (до T-01c). Новые дни — 491+.
+
+### Добавлено
+
+- **T-04**: Bootstrap CI для PF/exp/winrate (`trader/bootstrap.py`).
+- **T-05**: `paper_skipped` (reason: filter, penalty, data_age) + `paper-skipped` CLI.
+- **T-13**: `by_score` с bootstrap CI.
+- **Рефакторинг**: пакет `trader/analytics/` (group.py, paper.py, journal.py).
+
+### Исправлено
+
+- **BUG-08**: `SAVE_CANDLES_COUNT` удалён — возвращён.
+- **BUG-09**: `DATA_MAX_AGE_BLOCK` 15 → 30 (регресс T-01b).
+- **BUG-10**: `_is_duplicate` не использовался (копипаст в `save_signal_as_paper`).
+- **BUG-11**: `trader/stats.py` re-export удалён, один путь — `trader.analytics`.
+
+### Изменено
+
+- `paper_stats` → `trader.analytics.paper`
+- `compute_stats` → `trader.analytics.journal`
+- Bucket-функции → `trader.analytics.group`

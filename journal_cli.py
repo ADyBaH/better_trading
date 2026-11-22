@@ -16,7 +16,7 @@ from tabulate import tabulate
 
 from core.logger import setup_logging, get_logger
 from trader import journal
-from trader.stats import compute_stats
+from trader.analytics import compute_stats
 
 import config
 
@@ -383,7 +383,8 @@ def cmd_stats(args) -> int:
 
 def cmd_paper_stats(args) -> int:
     """Статистика по paper_trades."""
-    from trader.paper import paper_stats, init_paper_table
+    from trader.paper import init_paper_table
+    from trader.analytics import paper_stats
 
     with journal.connect_journal() as conn:
         init_paper_table(conn)

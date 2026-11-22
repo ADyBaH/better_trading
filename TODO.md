@@ -112,6 +112,7 @@
 | **BUG-04** | `price_step` хардкод                             | ✅                                                                                                                               |
 | **BUG-05** | `PAPER_MAX_OPEN`                                 | ✅                                                                                                                               |
 | **BUG-06** | `PAPER_TIMEOUT_BARS`                             | ✅                                                                                                                               |
+| REFACTOR   | trader/analytics/ (пакет)                        | ✅ group.py, paper.py, journal.py, **init**.py                                                                                   |
 
 ---
 
