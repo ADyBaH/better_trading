@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from core.logger import get_logger
+from core.real_mode import check_real_mode, is_mock
 
 import config
 from data.api_alor_trade import place_order, cancel_order
@@ -10,38 +11,22 @@ from core.instruments import get_instrument
 
 log = get_logger(__name__)
 
-# Мок-режим: НЕ ставим реальные ордера
-_MOCK_MODE = True
-
-# Риск на сделку (рублей). 1% от 10000₽ = 100₽.
-RISK_RUB_PER_TRADE = 100.0
-VIRTUAL_DEPOSIT = 10000.0  # ₽
-RISK_PER_TRADE = 0.01  # 1%
-
 
 def open_real_trade(signal) -> dict | None:
     """
     Открывает реальную сделку из сигнала.
     В мок-режиме — только логирует, ордер НЕ ставит.
 
-    Возвращает:
-        {
-            "trade_id": str,
-            "status": "mock" / "filled" / "rejected",
-            "symbol": str,
-            "direction": str,
-            "entry_price": float,
-            "stop_price": float,
-            "take_price": float,
-            "size": int,
-            "order_id": str,
-        }
+    Бросает RealModeError, если REAL_TRADING_MODE='live' без CONFIRM_LIVE=1.
     """
+    # Явная валидация режима (защита от случайного live).
+    check_real_mode()
+
     inst = get_instrument(config.SYMBOL)
 
-    # Размер позиции от риска
+    # Размер позиции от риска (депозит и риск — из config).
     size = calculate_position_size(
-        risk_rub=VIRTUAL_DEPOSIT * RISK_PER_TRADE,
+        risk_rub=config.VIRTUAL_DEPOSIT * config.RISK_PER_TRADE_PCT,
         entry_price=signal.entry_price,
         stop_price=signal.stop_price,
         step_cost=inst.step_cost,
@@ -52,10 +37,8 @@ def open_real_trade(signal) -> dict | None:
         log.warning("open_real_trade: size=0, пропуск")
         return None
 
-    # Направление: long → buy, short → sell
     side = "buy" if signal.direction == "long" else "sell"
 
-    # Ставим ордер (мок)
     order = place_order(
         symbol=config.SYMBOL,
         side=side,
@@ -92,10 +75,9 @@ def open_real_trade(signal) -> dict | None:
 
 def close_real_trade(trade_id: str, order_id: str | None = None) -> bool:
     """Закрывает реальную сделку. В мок-режиме — всегда True."""
-    if _MOCK_MODE:
+    if is_mock():
         log.info("MOCK: close real trade %s", trade_id)
         return True
-
     if order_id:
         return cancel_order(order_id)
     return False

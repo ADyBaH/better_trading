@@ -607,7 +607,6 @@ def paper_stats(
     symbol: str | None = None,
     known_only: bool = False,
     min_n: int = 0,
-    **kwargs,
 ) -> dict:
     """
     Агрегаты по paper_trades.
@@ -646,10 +645,13 @@ def paper_stats(
             AND (atr_percentile_at_open IS NOT NULL)
         """)
 
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-
-    """Статистика теперь просто запрашивает данные и группирует их."""
-    rows = db.get_stats_raw(conn, kwargs)
+    filters = {
+        "since": since,
+        "until": until,
+        "symbol": symbol,
+        "known_only": known_only,
+    }
+    rows = db.get_stats_raw(conn, filters)
 
     total = len(rows)
     open_count = sum(1 for r in rows if r["result"] == "open")

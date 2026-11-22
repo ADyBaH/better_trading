@@ -3,12 +3,14 @@
 ## [0.17.0] — 2026-11-22
 
 ### Добавлено
+
 - **Data Access Layer (DAO)** для бумажного трейдинга: вынос всех SQL-запросов, управления индексами и работы с таблицами в отдельный модуль `trader/paper_db.py`.
 - **Автоматическая система миграций**: внедрена поддержка `PRAGMA user_version` для контролируемого обновления схемы БД (добавление колонок) без потери данных.
 - **Динамическое сопоставление колонок**: реализация механизмов автоматического формирования запросов `INSERT` на основе фактической структуры таблицы в БД.
 - **Unit-тесты**: добавлены тесты для проверки целостности миграций, идемпотентности и корректности работы с базой данных.
 
 ### Рефакторинг
+
 - **Разделение слоев paper-tracking:**
   - Выделен слой доступа к данным `trader/paper_db.py` (SQL, миграции, сырые запросы).
   - Логика обработки данных и расчеты PnL остались в `trader/paper.py`.
@@ -300,3 +302,24 @@
 - **Match rate 0–20%** (live сам имеет look-ahead: ALOR отдаёт текущую M15).
   H1/H4 — без look-ahead (правильные уровни). M15 — как live.
   **T-01b** (live без look-ahead) — отдельная задача.
+
+### Добавлено
+
+- **T-12**: единый `REAL_TRADING_MODE` (`config.py` + `core/real_mode.py`).
+  `is_mock()` / `is_live()` / `check_real_mode()` — единственный источник истины.
+  Live требует `CONFIRM_LIVE=1` в env, иначе `RealModeError`.
+- **Миграции 17–28** в `trader/paper_db.py`: 12 недостающих колонок
+  (`trend_at_open`, `adx_at_open`, `day_trend_at_open`, `structure_at_open`,
+  `closed_at`, `exit_price`, `result_points`, `result_rub`, `bars_to_close`,
+  `resolution_confidence`, `bid_vol`, `ask_vol`).
+
+### Исправлено
+
+- **P0**: новая БД (на чистой машине) получала неполную схему `paper_trades`
+  → `save_signal_as_paper` падал на `trend_at_open`. Миграции 17–28.
+- `paper_stats` игнорировал `symbol` / `since` / `known_only` — фильтры не
+  доходили до SQL. Теперь `filters` → `db.get_stats_raw()`.
+- `MockIndicator` в `tests/test_paper_dedup.py` и `tests/test_paper_resolve.py`
+  — добавлен `day_range_atr_at_open`.
+- `test_migration_version_increment` — привязан к `MIGRATIONS[-1][0]`
+  (было хардкод `16`).

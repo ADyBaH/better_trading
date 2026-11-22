@@ -79,7 +79,8 @@ def test_migration_version_increment(db_conn):
     # Проверяем, что после init_db версия базы равна последней миграции (16)
     db.init_db(db_conn)
     version = db_conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version == 16
+    from trader.paper_db import MIGRATIONS
+    assert version == MIGRATIONS[-1][0]
 
 
 def test_dynamic_columns_insert(db_conn):

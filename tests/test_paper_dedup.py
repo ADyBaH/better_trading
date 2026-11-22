@@ -53,6 +53,7 @@ def make_result():
             week_trend = "bearish"
             rsi = 50.0
             volume_ratio = 1.0
+            day_range_atr_at_open = 2.0
 
         class MockResult:
             pass

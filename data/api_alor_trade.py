@@ -4,6 +4,7 @@ import requests
 import json
 from datetime import datetime
 from core.logger import get_logger
+from core.real_mode import is_mock
 
 import config
 
@@ -13,8 +14,8 @@ log = get_logger(__name__)
 BASE_URL = "https://api.alor.ru"
 OAUTH_URL = "https://oauth.alor.ru"
 
-# Мок-режим: НЕ ставим реальные ордера
-_MOCK_MODE = True
+# Мок-режим управляется через config.REAL_TRADING_MODE + env CONFIRM_LIVE.
+# Module-level флага больше нет — единый источник истины в core/real_mode.py.
 
 
 def _get_access_token() -> str:
@@ -48,7 +49,7 @@ def place_order(
             "message": str,
         }
     """
-    if _MOCK_MODE:
+    if is_mock():
         log.info(
             "MOCK: %s %s %d @ %s (%s)",
             side,
@@ -100,7 +101,7 @@ def place_order(
 
 def cancel_order(order_id: str) -> bool:
     """Отменяет ордер. В мок-режиме — всегда True."""
-    if _MOCK_MODE:
+    if is_mock():
         log.info("MOCK: cancel order %s", order_id)
         return True
 
@@ -113,7 +114,7 @@ def cancel_order(order_id: str) -> bool:
 
 def get_orders() -> list[dict]:
     """Список активных ордеров. В мок-режиме — пустой список."""
-    if _MOCK_MODE:
+    if is_mock():
         return []
 
     access = _get_access_token()

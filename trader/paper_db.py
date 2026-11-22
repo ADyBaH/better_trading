@@ -22,10 +22,22 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     level_price REAL,
     risk_reward REAL,
     net_rr REAL,
+    trend_at_open TEXT,
+    adx_at_open REAL,
+    day_trend_at_open TEXT,
+    structure_at_open TEXT,
     created_at TEXT NOT NULL,
+    closed_at TEXT,
+    exit_price REAL,
     result TEXT DEFAULT 'open',
+    result_points REAL,
+    result_rub REAL,
+    bars_to_close INTEGER,
+    resolution_confidence TEXT,
     warnings TEXT,
-    context TEXT
+    context TEXT,
+    bid_vol REAL,
+    ask_vol REAL
 );
 CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_trades(result);
 CREATE INDEX IF NOT EXISTS idx_paper_created ON paper_trades(created_at);
@@ -139,6 +151,78 @@ def _m_add_day_range(conn):
         conn.execute("ALTER TABLE paper_trades ADD COLUMN day_range_atr_at_open REAL")
 
 
+def _m_add_trend_at_open(conn):
+    cols = _get_columns(conn)
+    if "trend_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN trend_at_open TEXT")
+
+
+def _m_add_adx_at_open(conn):
+    cols = _get_columns(conn)
+    if "adx_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN adx_at_open REAL")
+
+
+def _m_add_day_trend_at_open(conn):
+    cols = _get_columns(conn)
+    if "day_trend_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN day_trend_at_open TEXT")
+
+
+def _m_add_structure_at_open(conn):
+    cols = _get_columns(conn)
+    if "structure_at_open" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN structure_at_open TEXT")
+
+
+def _m_add_closed_at(conn):
+    cols = _get_columns(conn)
+    if "closed_at" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN closed_at TEXT")
+
+
+def _m_add_exit_price(conn):
+    cols = _get_columns(conn)
+    if "exit_price" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN exit_price REAL")
+
+
+def _m_add_result_points(conn):
+    cols = _get_columns(conn)
+    if "result_points" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN result_points REAL")
+
+
+def _m_add_result_rub(conn):
+    cols = _get_columns(conn)
+    if "result_rub" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN result_rub REAL")
+
+
+def _m_add_bars_to_close(conn):
+    cols = _get_columns(conn)
+    if "bars_to_close" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN bars_to_close INTEGER")
+
+
+def _m_add_resolution_confidence(conn):
+    cols = _get_columns(conn)
+    if "resolution_confidence" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN resolution_confidence TEXT")
+
+
+def _m_add_bid_vol(conn):
+    cols = _get_columns(conn)
+    if "bid_vol" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN bid_vol REAL")
+
+
+def _m_add_ask_vol(conn):
+    cols = _get_columns(conn)
+    if "ask_vol" not in cols:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN ask_vol REAL")
+
+
 # Список миграций (остается прежним)
 MIGRATIONS: List[tuple[int, Callable]] = [
     (1, _m_add_market_price),
@@ -157,6 +241,18 @@ MIGRATIONS: List[tuple[int, Callable]] = [
     (14, _m_add_take_src),
     (15, _m_add_take_atr),
     (16, _m_add_day_range),
+    (17, _m_add_trend_at_open),
+    (18, _m_add_adx_at_open),
+    (19, _m_add_day_trend_at_open),
+    (20, _m_add_structure_at_open),
+    (21, _m_add_closed_at),
+    (22, _m_add_exit_price),
+    (23, _m_add_result_points),
+    (24, _m_add_result_rub),
+    (25, _m_add_bars_to_close),
+    (26, _m_add_resolution_confidence),
+    (27, _m_add_bid_vol),
+    (28, _m_add_ask_vol),
 ]
 
 

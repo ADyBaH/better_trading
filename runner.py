@@ -206,23 +206,28 @@ def run_once(log) -> bool:
             except Exception as e:
                 log.exception("notify упал: %s", e)
 
-        # 4. Real-торговля (МОК-РЕЖИМ, реальные ордера НЕ ставятся)
-        if paper_created > 0:
-            try:
-                from trader.real import open_real_trade
+        # 4. Real-торговля (явная проверка режима)
+        if paper_created > 0 and config.PAPER_ENABLED:
+            from core.real_mode import is_live
 
-                for sig in result.signals:
-                    real_trade = open_real_trade(sig)
-                    if real_trade:
-                        log.info(
-                            "real: %s %s %d @ %.3f (mock)",
-                            real_trade["trade_id"],
-                            real_trade["direction"],
-                            real_trade["size"],
-                            real_trade["entry_price"],
-                        )
-            except Exception as e:
-                log.exception("real-trading упал: %s", e)
+            if is_live():
+                try:
+                    from trader.real import open_real_trade
+
+                    for sig in result.signals:
+                        real_trade = open_real_trade(sig)
+                        if real_trade:
+                            log.info(
+                                "real: %s %s %d @ %.3f (live)",
+                                real_trade["trade_id"],
+                                real_trade["direction"],
+                                real_trade["size"],
+                                real_trade["entry_price"],
+                            )
+                except Exception as e:
+                    log.exception("real-trading упал: %s", e)
+            else:
+                log.debug("real-trading: mock, пропуск")
 
         # 5. Консольный вывод
         print(f"\n{'═' * 70}")

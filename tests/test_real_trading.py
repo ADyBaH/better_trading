@@ -5,6 +5,9 @@ import pytest
 from core.models import Signal
 from core.risk import calculate_position_size
 from trader.real import close_real_trade, open_real_trade
+from core.real_mode import RealModeError
+from trader.real import close_real_trade, open_real_trade
+import config
 
 
 @pytest.fixture
@@ -73,3 +76,18 @@ class TestCloseRealTrade:
     def test_close_trade(self):
         ok = close_real_trade("real-123")
         assert ok is True
+
+
+class TestLiveMode:
+    def test_open_real_trade_live_without_env_raises(self, make_signal, monkeypatch):
+        monkeypatch.setattr(config, "REAL_TRADING_MODE", "live")
+        monkeypatch.delenv("CONFIRM_LIVE", raising=False)
+        sig = make_signal()
+        with pytest.raises(RealModeError):
+            open_real_trade(sig)
+
+    def test_close_real_trade_live_without_env_raises(self, monkeypatch):
+        monkeypatch.setattr(config, "REAL_TRADING_MODE", "live")
+        monkeypatch.delenv("CONFIRM_LIVE", raising=False)
+        with pytest.raises(RealModeError):
+            close_real_trade("x")
