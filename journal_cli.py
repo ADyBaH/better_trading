@@ -503,13 +503,35 @@ def cmd_paper_stats(args) -> int:
     _print_group("По MAE ratio (стоп)", s.get("by_mae_ratio", {}))
     _print_group("По take_source", s.get("by_take_source", {}))
 
-    # by_score — сортируем по возрастанию score
+    # by_score — сортируем по возрастанию score, с CI
     if s["by_score"]:
         print()
         print("── По score " + "─" * 40)
         rows = []
         for key in sorted(s["by_score"].keys()):
             b = s["by_score"][key]
+            pf_ci = b.get("pf_ci")
+            exp_ci = b.get("exp_ci")
+            wr_ci = b.get("winrate_ci")
+
+            pf_str = "—"
+            if pf_ci:
+                pf_str = f"[{pf_ci[0]:.2f}, {pf_ci[1]:.2f}]"
+            elif b["total"] >= 5:
+                pf_str = "n/a"
+
+            exp_str = "—"
+            if exp_ci:
+                exp_str = f"[{exp_ci[0]:+.1f}, {exp_ci[1]:+.1f}]"
+            elif b["total"] >= 5:
+                exp_str = "n/a"
+
+            wr_str = "—"
+            if wr_ci:
+                wr_str = f"[{wr_ci[0]:.1f}%, {wr_ci[1]:.1f}%]"
+            elif b["total"] >= 5:
+                wr_str = "n/a"
+
             rows.append(
                 [
                     key,
@@ -519,12 +541,26 @@ def cmd_paper_stats(args) -> int:
                     b["timeout"],
                     f"{b['points']:+.1f}",
                     f"{b['rub']:+.2f}",
+                    pf_str,
+                    exp_str,
+                    wr_str,
                 ]
             )
         print(
             tabulate(
                 rows,
-                headers=["score", "Всего", "W", "L", "T", "Pts", "Rub"],
+                headers=[
+                    "score",
+                    "Всего",
+                    "W",
+                    "L",
+                    "T",
+                    "Pts",
+                    "Rub",
+                    "PF CI",
+                    "Exp CI",
+                    "Winrate CI",
+                ],
                 tablefmt="rounded_outline",
             )
         )

@@ -18,15 +18,6 @@
 
 ## 🟠 P1 — статистическая честность / стабильность
 
-### T-05. `paper_skipped` с reason (ablation «в живую»)
-
-**Приоритет:** P1. **Оценка:** 1.5 д. **Зависит:** T-01.
-**Симптом:** «runner блокировал по data_age=14» — следа нет.
-**Фикс:** миграция `paper_skipped(...)`; `journal_cli.py paper-skipped --by-reason`.
-**Приёмка:** на 1 дне live — counts по фильтрам; `paper_trades` не изменилась.
-
----
-
 ### T-07. Pre-registration экспериментов
 
 **Приоритет:** P1. **Оценка:** 0.5 д.
@@ -44,30 +35,6 @@
 ---
 
 ## 🟡 P2 — архитектура и надёжность
-
----
-
-### T-02b. Пересмотр фильтров (13.11: режут прибыль)
-
-**Приоритет:** P2 (после T-01b). **Оценка:** 0.5 д.
-**Симптом:** 5 фильтров отсекают 9 из 10 сигналов (+39.58 ₽ прибыльных), проходит 1 (−28.96 ₽).
-**Фикс:** `verify_filters.py` на 7 днях; `normal_breakout` / `pullback_bounce` — пересмотреть (OFF?).
-
----
-
-### T-12. Единый `REAL_TRADING_MODE`
-
-**Приоритет:** P2. **Оценка:** 0.5 д.
-**Фикс:** `config.REAL_TRADING_MODE`; `core/real_mode.py::check_real_mode()`; `tests/test_real_mode.py`.
-**Приёмка:** один источник истины; live без флага — не запускается.
-
----
-
-### T-13. `--by-score` + гипотеза «score не коррелирует с winrate»
-
-**Приоритет:** P2. **Оценка:** 0.5 д. **Зависит:** T-04.
-**Фикс:** `paper_stats.by_score` (бакеты <2, 2–3, 3–4, 4+); CI для winrate.
-**Приёмка:** `--by-score` с CI; решение в `EXPERIMENTS.md`.
 
 ---
 
@@ -130,6 +97,8 @@
 | **T-04**   | Bootstrap CI для PF/exp/winrate                  | ✅ trader/bootstrap.py, paper_stats возвращает \*\_ci, journal_cli выводит [lo, hi]                                              |
 | **T-05**   | paper_skipped с reason                           | ✅ paper_db.insert_skipped/get_skipped_stats, paper.save_skipped_signal, journal_cli paper-skipped --by-reason                   |
 | **T-06**   | **`schema_version` + миграции + рефакторинг БД** | 🟠 P1                                                                                                                            |
+| **T-12**   | `REAL_TRADING_MODE`                              | ✅                                                                                                                               |
+| **T-13**   | --by-score + CI                                  | ✅ paper_stats by_score с pf_ci/exp_ci/winrate_ci, journal_cli выводит                                                           |
 | **T-15**   | `vote()`                                         | ✅ 19 тестов                                                                                                                     |
 | **T-16**   | README → EXPERIMENTS/BRANCHES/CONFIG             | ✅ README ≤ 302                                                                                                                  |
 | **T-17**   | `test_filters.py`                                | ✅ 50 тестов                                                                                                                     |
@@ -148,15 +117,14 @@
 
 ## Сводка
 
-| ID    | Задача              | P     | Оценка |
-| ----- | ------------------- | ----- | ------ |
-| T-04  | Bootstrap CI        | 🟠 P1 | 1 д    |
-| T-07  | Pre-registration    | 🟠 P1 | 0.5 д  |
-| T-08  | Ablation study      | 🟠 P1 | 1.5 д  |
-| T-02b | Пересмотр фильтров  | 🟡 P2 | 0.5 д  |
-| T-12  | `REAL_TRADING_MODE` | 🟡 P2 | 0.5 д  |
-| T-13  | `--by-score`        | 🟡 P2 | 0.5 д  |
-| T-23  | ADAPTIVE_TAKE       | 🟢 P3 | 0.3 д  |
+| ID    | Задача             | P     | Оценка |
+| ----- | ------------------ | ----- | ------ |
+| T-04  | Bootstrap CI       | 🟠 P1 | 1 д    |
+| T-07  | Pre-registration   | 🟠 P1 | 0.5 д  |
+| T-08  | Ablation study     | 🟠 P1 | 1.5 д  |
+| T-02b | Пересмотр фильтров | 🟡 P2 | 0.5 д  |
+| T-13  | `--by-score`       | 🟡 P2 | 0.5 д  |
+| T-23  | ADAPTIVE_TAKE      | 🟢 P3 | 0.3 д  |
 
 **Рекомендуемый порядок:** BUG-03 (10 мин) → BUG-02 (10 мин) → T-12 (0.5 д) → T-01b (0.5 д) → T-04 (1 д) → T-07 (0.5 д) → T-06 (2 д) → T-05 (1.5 д) → T-08 (1.5 д) → T-02b (0.5 д) → T-13 (0.5 д) → T-23 (0.3 д).
 

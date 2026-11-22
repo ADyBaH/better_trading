@@ -915,22 +915,30 @@ def paper_stats(
         v["points"] = round(v["points"], 1)
         v["rub"] = round(v["rub"], 2)
 
-    # by_score — бакеты (1.0, 1.5, 2.0, 2.5, 3.0+)
+    # by_score — бакеты (1.0, 1.5, 2.0, 2.5, 3.0+) с bootstrap CI
+    from trader.bootstrap import (
+        _bootstrap_ci,
+        _pf_from_points,
+        _exp_from_points,
+        _winrate_from_points,
+    )
+
+    def _score_bucket(score):
+        if score is None:
+            return "unknown"
+        if score >= 3.0:
+            return "3.0+"
+        if score >= 2.5:
+            return "2.5"
+        if score >= 2.0:
+            return "2.0"
+        if score >= 1.5:
+            return "1.5"
+        return "1.0"
+
     by_score = {}
     for r in rows:
-        score = r["strength_score"]
-        if score is None:
-            bucket = "unknown"
-        elif score >= 3.0:
-            bucket = "3.0+"
-        elif score >= 2.5:
-            bucket = "2.5"
-        elif score >= 2.0:
-            bucket = "2.0"
-        elif score >= 1.5:
-            bucket = "1.5"
-        else:
-            bucket = "1.0"
+        bucket = _score_bucket(r["strength_score"])
         if bucket not in by_score:
             by_score[bucket] = {
                 "total": 0,
@@ -939,15 +947,27 @@ def paper_stats(
                 "timeout": 0,
                 "points": 0.0,
                 "rub": 0.0,
+                "_wl_points": [],
             }
-        by_score[bucket]["total"] += 1
+        b = by_score[bucket]
+        b["total"] += 1
         if r["result"] in ("win", "loss", "timeout"):
-            by_score[bucket][r["result"]] += 1
-        by_score[bucket]["points"] += r["result_points"] or 0
-        by_score[bucket]["rub"] += r["result_rub"] or 0
-    for v in by_score.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
+            b[r["result"]] += 1
+        b["points"] += r["result_points"] or 0
+        b["rub"] += r["result_rub"] or 0
+        if r["result"] in ("win", "loss") and r["result_points"] is not None:
+            b["_wl_points"].append(r["result_points"])
+
+    for b in by_score.values():
+        b["points"] = round(b["points"], 1)
+        b["rub"] = round(b["rub"], 2)
+        wl = b.pop("_wl_points")
+        if len(wl) >= 5:
+            b["pf_ci"] = _bootstrap_ci(wl, _pf_from_points)
+            b["exp_ci"] = _bootstrap_ci(wl, _exp_from_points)
+            b["winrate_ci"] = _bootstrap_ci(wl, _winrate_from_points)
+        else:
+            b["pf_ci"] = b["exp_ci"] = b["winrate_ci"] = None
 
     def _adx_bucket(adx):
         if adx is None:
