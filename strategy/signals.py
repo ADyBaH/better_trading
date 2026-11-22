@@ -13,6 +13,7 @@ from datetime import datetime
 from core.logger import get_logger
 from core.models import AnalysisResult, Level, Signal
 from core.instruments import get_instrument
+from strategy.strength import _compute_strength, _recalc_strength
 from strategy.patterns import (
     _is_rejection_candle,
     _is_engulfing,
@@ -816,49 +817,6 @@ def detect_trend_level(
         signals.append(signal)
 
     return signals
-
-
-# ============================================================
-# Подсчёт силы (без изменений)
-# ============================================================
-
-
-def _compute_strength(matched: list[str]) -> tuple[float, str]:
-    groups = {"A": [], "B": [], "C": [], "D": [], "E": []}
-    for c in matched:
-        g = c[0]
-        if g in groups:
-            groups[g].append(c)
-
-    effective = []
-    for g, items in groups.items():
-        limit = 3 if g == "A" else 2
-        effective.extend(items[:limit])
-
-    has_a = len(groups["A"]) > 0
-    has_c_or_d = len(groups["C"]) > 0 or len(groups["D"]) > 0
-    score = float(len(effective))
-
-    if not has_a or score < 1:
-        return 0.0, "none"
-    elif score == 1:
-        return score, "weak"
-    elif score == 2:
-        return score, "medium"
-    elif score >= 3 and has_c_or_d:
-        return score, "strong"
-    else:
-        return score, "medium"
-
-
-def _recalc_strength(score):
-    if score < 1.0:
-        return "none"
-    elif score < 2.0:
-        return "weak"
-    elif score < 3.0:
-        return "medium"
-    return "strong"
 
 
 # ============================================================
