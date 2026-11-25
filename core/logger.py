@@ -39,9 +39,28 @@ def setup_logging() -> None:
     formatter = logging.Formatter(config.LOG_FORMAT, datefmt=config.LOG_DATE_FORMAT)
 
     # --- Файл ---
+    # --- Файл ---
     from logging.handlers import RotatingFileHandler
 
-    file_handler = RotatingFileHandler(
+    class SafeRotatingFileHandler(RotatingFileHandler):
+        """RotatingFileHandler, устойчивый к WinError 32 (файл занят).
+
+        На Windows os.rename поверх открытого файла падает с PermissionError.
+        Здесь ротация пропускается, запись продолжается в текущий файл —
+        данные не теряются, спам 'Logging error' исчезает.
+        """
+
+        def doRollover(self):
+            try:
+                super().doRollover()
+            except PermissionError:
+                # файл занят другим процессом — откладываем ротацию
+                pass
+            except OSError:
+                # прочие ошибки ФС — тоже не роняем логгер
+                pass
+
+    file_handler = SafeRotatingFileHandler(
         config.LOG_PATH,
         maxBytes=10 * 1024 * 1024,  # 10 MB
         backupCount=5,  # хранить 5 старых файлов

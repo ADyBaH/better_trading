@@ -1,155 +1,195 @@
-"""Проверка trader.paper.virtual_pnl.
-
-Запуск: python tests/test_virtual_pnl.py
-"""
-
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
+"""Проверка trader.paper.virtual_pnl."""
 
 import pandas as pd
+import pytest
 
 from trader.paper import virtual_pnl
 
-PASSED = 0
-FAILED = 0
+# ============================================================
+# Фикстуры
+# ============================================================
 
 
-def check(name: str, actual, expected):
-    global PASSED, FAILED
-    if actual == expected:
-        PASSED += 1
-        print(f"  ✅ {name}")
-    else:
-        FAILED += 1
-        print(f"  ❌ {name}")
-        print(f"     expected: {expected!r}")
-        print(f"     actual:   {actual!r}")
+@pytest.fixture
+def make_candles():
+    """rows — список (high, low, close)."""
+
+    def _make(rows):
+        return pd.DataFrame(
+            [
+                {
+                    "open": (h + l) / 2,
+                    "high": h,
+                    "low": l,
+                    "close": c,
+                    "volume": 100,
+                }
+                for h, l, c in rows
+            ]
+        )
+
+    return _make
 
 
-def make_candles(rows):
-    """
-    rows — список (high, low, close). open/begin/volume не важны для virtual_pnl.
-    """
-    return pd.DataFrame(
-        [
-            {"open": (h + l) / 2, "high": h, "low": l, "close": c, "volume": 100}
-            for h, l, c in rows
-        ]
-    )
+# ============================================================
+# Long
+# ============================================================
 
 
-def main():
-    print("=" * 60)
-    print("Проверка virtual_pnl")
-    print("=" * 60)
+class TestLong:
+    def test_win(self, make_candles):
+        df = make_candles(
+            [
+                (12.510, 12.500, 12.505),
+                (12.535, 12.510, 12.530),  # high >= take
+            ]
+        )
+        r = virtual_pnl(df, "long", 12.500, 12.470, 12.530)
+        assert r["result"] == "win"
+        assert r["exit_price"] == 12.530
+        assert r["bars"] == 2
+        assert r["ambiguous"] is False
 
-    # --- Long win ---
-    print("\nLong win (entry=12.500, stop=12.470, take=12.530):")
-    df = make_candles(
-        [
-            (12.510, 12.500, 12.505),
-            (12.535, 12.510, 12.530),  # high >= take → win
-        ]
-    )
-    r = virtual_pnl(df, "long", 12.500, 12.470, 12.530)
-    check("result = win", r["result"], "win")
-    check("exit_price = take", r["exit_price"], 12.530)
-    check("bars = 2", r["bars"], 2)
-    check("ambiguous = False", r["ambiguous"], False)
-
-    # --- Long loss ---
-    print("\nLong loss:")
-    df = make_candles(
-        [
-            (12.510, 12.500, 12.505),
-            (12.510, 12.465, 12.470),  # low <= stop → loss
-        ]
-    )
-    r = virtual_pnl(df, "long", 12.500, 12.470, 12.530)
-    check("result = loss", r["result"], "loss")
-    check("exit_price = stop", r["exit_price"], 12.470)
-    check("bars = 2", r["bars"], 2)
-
-    # --- Short win ---
-    print("\nShort win (entry=12.530, stop=12.560, take=12.500):")
-    df = make_candles(
-        [
-            (12.535, 12.525, 12.530),
-            (12.530, 12.495, 12.500),  # low <= take → win
-        ]
-    )
-    r = virtual_pnl(df, "short", 12.530, 12.560, 12.500)
-    check("result = win", r["result"], "win")
-    check("exit_price = take", r["exit_price"], 12.500)
-
-    # --- Short loss ---
-    print("\nShort loss:")
-    df = make_candles(
-        [
-            (12.535, 12.525, 12.530),
-            (12.565, 12.530, 12.560),  # high >= stop → loss
-        ]
-    )
-    r = virtual_pnl(df, "short", 12.530, 12.560, 12.500)
-    check("result = loss", r["result"], "loss")
-    check("exit_price = stop", r["exit_price"], 12.560)
-
-    # --- Ambiguous (оба в одной свече) ---
-    print("\nAmbiguous (одна свеча: и high >= take, и low <= stop):")
-    df = make_candles(
-        [
-            (12.540, 12.460, 12.500),  # и take (12.530), и stop (12.470) задеты
-        ]
-    )
-    r = virtual_pnl(df, "long", 12.500, 12.470, 12.530)
-    check("result = loss (консервативно)", r["result"], "loss")
-    check("ambiguous = True", r["ambiguous"], True)
-
-    # --- Timeout ---
-    print("\nTimeout (max_bars=3, ни stop, ни take):")
-    df = make_candles(
-        [
-            (12.510, 12.490, 12.500),
-            (12.515, 12.495, 12.505),
-            (12.520, 12.500, 12.510),
-        ]
-    )
-    r = virtual_pnl(df, "long", 12.500, 12.470, 12.530, max_bars=3)
-    check("result = timeout", r["result"], "timeout")
-    check("exit_price = close последней", r["exit_price"], 12.510)
-    check("bars = 3", r["bars"], 3)
-
-    # --- Open (свечей меньше max_bars, ничего не задето) ---
-    print("\nOpen (2 свечи, max_bars=10, ничего не задето):")
-    df = make_candles(
-        [
-            (12.510, 12.490, 12.500),
-            (12.515, 12.495, 12.505),
-        ]
-    )
-    r = virtual_pnl(df, "long", 12.500, 12.470, 12.530, max_bars=10)
-    check("result = open", r["result"], "open")
-    check("exit_price = None", r["exit_price"], None)
-    check("bars = 2 (сколько было)", r["bars"], 2)
-
-    # --- No data ---
-    print("\nNo data (пустой DataFrame):")
-    r = virtual_pnl(pd.DataFrame(), "long", 12.500, 12.470, 12.530)
-    check("result = no_data", r["result"], "no_data")
-
-    # --- Сводка ---
-    print("\n" + "=" * 60)
-    total = PASSED + FAILED
-    print(f"Прoйдено: {PASSED} / {total}")
-    if FAILED:
-        print(f"❌ Провалено: {FAILED}")
-        sys.exit(1)
-    else:
-        print("✅ Все проверки пройдены")
-        sys.exit(0)
+    def test_loss(self, make_candles):
+        df = make_candles(
+            [
+                (12.510, 12.500, 12.505),
+                (12.510, 12.465, 12.470),  # low <= stop
+            ]
+        )
+        r = virtual_pnl(df, "long", 12.500, 12.470, 12.530)
+        assert r["result"] == "loss"
+        assert r["exit_price"] == 12.470
+        assert r["bars"] == 2
 
 
-if __name__ == "__main__":
-    main()
+# ============================================================
+# Short
+# ============================================================
+
+
+class TestShort:
+    def test_win(self, make_candles):
+        df = make_candles(
+            [
+                (12.535, 12.525, 12.530),
+                (12.530, 12.495, 12.500),  # low <= take
+            ]
+        )
+        r = virtual_pnl(df, "short", 12.530, 12.560, 12.500)
+        assert r["result"] == "win"
+        assert r["exit_price"] == 12.500
+
+    def test_loss(self, make_candles):
+        df = make_candles(
+            [
+                (12.535, 12.525, 12.530),
+                (12.565, 12.530, 12.560),  # high >= stop
+            ]
+        )
+        r = virtual_pnl(df, "short", 12.530, 12.560, 12.500)
+        assert r["result"] == "loss"
+        assert r["exit_price"] == 12.560
+
+
+# ============================================================
+# Ambiguous / timeout / open / no_data
+# ============================================================
+
+
+class TestEdgeCases:
+    def test_ambiguous_is_loss(self, make_candles):
+        df = make_candles([(12.540, 12.460, 12.500)])  # и take, и stop
+        r = virtual_pnl(df, "long", 12.500, 12.470, 12.530)
+        assert r["result"] == "loss"
+        assert r["ambiguous"] is True
+
+    def test_timeout(self, make_candles):
+        df = make_candles(
+            [
+                (12.510, 12.490, 12.500),
+                (12.515, 12.495, 12.505),
+                (12.520, 12.500, 12.510),
+            ]
+        )
+        r = virtual_pnl(df, "long", 12.500, 12.470, 12.530, max_bars=3)
+        assert r["result"] == "timeout"
+        assert r["exit_price"] == 12.510
+        assert r["bars"] == 3
+
+    def test_open(self, make_candles):
+        df = make_candles(
+            [
+                (12.510, 12.490, 12.500),
+                (12.515, 12.495, 12.505),
+            ]
+        )
+        r = virtual_pnl(df, "long", 12.500, 12.470, 12.530, max_bars=10)
+        assert r["result"] == "open"
+        assert r["exit_price"] is None
+        assert r["bars"] == 2
+
+    def test_no_data(self):
+        r = virtual_pnl(pd.DataFrame(), "long", 12.500, 12.470, 12.530)
+        assert r["result"] == "no_data"
+
+
+# ============================================================
+# T-24: вход по market_price_at_open
+# ============================================================
+
+
+class TestMarketEntry:
+    """T-24: _resolve_entry_price + virtual_pnl от нового entry."""
+
+    def test_uses_market_price_when_present(self, monkeypatch):
+        import config
+        from trader.paper import _resolve_entry_price
+
+        monkeypatch.setattr(config, "PAPER_USE_MARKET_PRICE", True)
+        trade = {"entry_price": 12.400, "market_price_at_open": 12.410}
+        assert _resolve_entry_price(trade) == 12.410
+
+    def test_fallback_to_close_when_missing(self, monkeypatch):
+        import config
+        from trader.paper import _resolve_entry_price
+
+        monkeypatch.setattr(config, "PAPER_USE_MARKET_PRICE", True)
+        trade = {"entry_price": 12.400, "market_price_at_open": None}
+        assert _resolve_entry_price(trade) == 12.400
+
+    def test_flag_disabled_uses_close(self, monkeypatch):
+        import config
+        from trader.paper import _resolve_entry_price
+
+        monkeypatch.setattr(config, "PAPER_USE_MARKET_PRICE", False)
+        trade = {"entry_price": 12.400, "market_price_at_open": 12.410}
+        assert _resolve_entry_price(trade) == 12.400
+
+    def test_mfe_mae_from_market_entry(self, make_candles):
+        """MFE/MAE считаются от нового entry (market), а не от close."""
+        df = make_candles(
+            [
+                (12.520, 12.400, 12.500),  # high 12.520, low 12.400
+            ]
+        )
+        # long, entry=12.410 (market), take=12.530, stop=12.380
+        r = virtual_pnl(df, "long", 12.410, 12.380, 12.530)
+        # MFE = (12.520 - 12.410) / 0.001 = 110
+        # MAE = (12.410 - 12.400) / 0.001 = 10
+        assert r["mfe_points"] == 110.0
+        assert r["mae_points"] == 10.0
+
+    def test_pnl_differs_with_and_without_market(self, make_candles):
+        """PnL с market entry ≠ PnL с close entry (при разных ценах)."""
+        df = make_candles(
+            [
+                (12.520, 12.400, 12.500),
+            ]
+        )
+        # close entry=12.400, market entry=12.410
+        r_close = virtual_pnl(df, "long", 12.400, 12.380, 12.530)
+        r_market = virtual_pnl(df, "long", 12.410, 12.380, 12.530)
+        assert r_close["mfe_points"] == 120.0  # (12.520-12.400)
+        assert r_market["mfe_points"] == 110.0  # (12.520-12.410)
+        assert r_close["mfe_points"] != r_market["mfe_points"]

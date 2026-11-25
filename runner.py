@@ -11,7 +11,7 @@
 
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import config
@@ -20,7 +20,6 @@ from core.analyzer import analyze
 from ui.render_console import render_console_to_string
 from ui.render_json import render_json
 
-INTERVAL_MIN = 5
 LOGS_DIR = Path(config.LOG_PATH).parent
 
 
@@ -42,6 +41,7 @@ def save_analysis(result) -> tuple[Path, Path]:
 
     # --- JSON: читаем, добавляем, записываем ---
     snapshot = json.loads(render_json(result, mode="full"))
+    snapshot["experiment_id"] = config.EXPERIMENT_ID
 
     if json_path.exists():
         try:
@@ -122,6 +122,22 @@ def run_once(log) -> bool:
                 with connect_journal() as conn:
                     init_paper_table(conn)
 
+                    # T-05b: пометить старые data_age > 60 как runner_restart.
+                    # Идемпотентно: повторный вызов вернёт 0.
+                    try:
+                        from trader.paper_db import mark_skipped_runner_restart
+
+                        n_restart = mark_skipped_runner_restart(
+                            conn, min_age_minutes=60
+                        )
+                        if n_restart:
+                            log.info(
+                                "T-05b: помечено %s skipped как runner_restart (data_age > 60)",
+                                n_restart,
+                            )
+                    except Exception as e:
+                        log.exception("mark_skipped_runner_restart упал: %s", e)
+
                     max_id_before = conn.execute(
                         "SELECT COALESCE(MAX(id), 0) FROM paper_trades"
                     ).fetchone()[0]
@@ -168,6 +184,20 @@ def run_once(log) -> bool:
                         market_price_at_open=market_price,
                     )
 
+                    # T-05: записать заблокированные сигналы
+                    try:
+                        from trader.paper import save_skipped_signal
+
+                        skipped_created = save_skipped_signal(
+                            conn,
+                            result,
+                            source_analysis_path=str(json_path),
+                        )
+                        if skipped_created:
+                            log.info("paper: skipped %d", skipped_created)
+                    except Exception as e:
+                        log.exception("save_skipped_signal упал: %s", e)
+
                     open_ids_before = set(
                         r["id"]
                         for r in conn.execute(
@@ -206,23 +236,28 @@ def run_once(log) -> bool:
             except Exception as e:
                 log.exception("notify упал: %s", e)
 
-        # 4. Real-торговля (МОК-РЕЖИМ, реальные ордера НЕ ставятся)
-        if paper_created > 0:
-            try:
-                from trader.real import open_real_trade
+        # 4. Real-торговля (явная проверка режима)
+        if paper_created > 0 and config.PAPER_ENABLED:
+            from core.real_mode import is_live
 
-                for sig in result.signals:
-                    real_trade = open_real_trade(sig)
-                    if real_trade:
-                        log.info(
-                            "real: %s %s %d @ %.3f (mock)",
-                            real_trade["trade_id"],
-                            real_trade["direction"],
-                            real_trade["size"],
-                            real_trade["entry_price"],
-                        )
-            except Exception as e:
-                log.exception("real-trading упал: %s", e)
+            if is_live():
+                try:
+                    from trader.real import open_real_trade
+
+                    for sig in result.signals:
+                        real_trade = open_real_trade(sig)
+                        if real_trade:
+                            log.info(
+                                "real: %s %s %d @ %.3f (live)",
+                                real_trade["trade_id"],
+                                real_trade["direction"],
+                                real_trade["size"],
+                                real_trade["entry_price"],
+                            )
+                except Exception as e:
+                    log.exception("real-trading упал: %s", e)
+            else:
+                log.debug("real-trading: mock, пропуск")
 
         # 5. Консольный вывод
         print(f"\n{'═' * 70}")
@@ -260,8 +295,8 @@ def main():
     setup_logging()
     log = get_logger(__name__)
 
-    log.info("=== runner стартует (интервал %d мин) ===", INTERVAL_MIN)
-    print(f"\nРаннер запущен. Интервал: {INTERVAL_MIN} мин.")
+    log.info("=== runner стартует (T-25: по закрытию M15, :00/:15/:30/:45 + 5 сек) ===")
+    print("\nРаннер запущен. Цикл: каждые 15 мин (по закрытию M15).")
     print(f"Логи: {LOGS_DIR}/YYYY-MM-DD/")
     print(f"Остановка: Ctrl+C\n")
 
@@ -274,11 +309,27 @@ def main():
 
             run_once(log)
 
-            next_run = datetime.now().timestamp() + INTERVAL_MIN * 60
-            print(
-                f"  Следующий запуск ~{datetime.fromtimestamp(next_run).strftime('%H:%M:%S')}"
+            # T-25: выравнивание на закрытие M15 (+5 сек на лаг ALOR)
+            now = datetime.now()
+            next_quarter = (now.minute // 15 + 1) * 15  # 15, 30, 45, 60
+            if next_quarter >= 60:
+                next_run = now.replace(minute=0, second=5, microsecond=0) + timedelta(
+                    hours=1
+                )
+            else:
+                next_run = now.replace(minute=next_quarter, second=5, microsecond=0)
+
+            wait_sec = (next_run - now).total_seconds()
+            log.info(
+                "T-25: следующий запуск в %s (через %.0f сек)",
+                next_run.strftime("%H:%M:%S"),
+                wait_sec,
             )
-            while datetime.now().timestamp() < next_run:
+            print(
+                f"  Следующий запуск ~{next_run.strftime('%H:%M:%S')} (через {wait_sec:.0f} сек)"
+            )
+
+            while datetime.now() < next_run:
                 time.sleep(1)
 
     except KeyboardInterrupt:

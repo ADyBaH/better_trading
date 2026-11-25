@@ -16,7 +16,7 @@ from tabulate import tabulate
 
 from core.logger import setup_logging, get_logger
 from trader import journal
-from trader.stats import compute_stats
+from trader.analytics import compute_stats
 
 import config
 
@@ -383,10 +383,17 @@ def cmd_stats(args) -> int:
 
 def cmd_paper_stats(args) -> int:
     """Статистика по paper_trades."""
-    from trader.paper import paper_stats, init_paper_table
+    from trader.paper import init_paper_table
+    from trader.analytics import paper_stats
 
     with journal.connect_journal() as conn:
         init_paper_table(conn)
+        
+        if getattr(args, "no_slippage", False):
+            import config
+            config.PAPER_USE_MARKET_PRICE = False
+            print("⚠️  --no-slippage: entry = close (сравнение, не пессимистично)\n")
+
         s = paper_stats(
             conn,
             since=args.since,
@@ -394,6 +401,7 @@ def cmd_paper_stats(args) -> int:
             symbol=args.symbol,
             known_only=getattr(args, "known_only", False),
             min_n=getattr(args, "min_n", 0),
+            experiment=getattr(args, "experiment", None),
         )
 
     print()
@@ -402,7 +410,14 @@ def cmd_paper_stats(args) -> int:
     print(f"  Loss:     {s['loss']}")
     print(f"  Timeout:  {s['timeout']}")
     if s["winrate"] is not None:
-        print(f"  Winrate:  {s['winrate']}% (без timeout)")
+        wr_ci = s.get("winrate_ci")
+        if wr_ci:
+            print(
+                f"  Winrate:  {s['winrate']}% (без timeout)"
+                f" [{wr_ci[0]:.1f}%, {wr_ci[1]:.1f}%]"
+            )
+        else:
+            print(f"  Winrate:  {s['winrate']}% (без timeout) [CI: n<5]")
     else:
         print("  Winrate:  —")
     print(f"  Total PnL: {s['total_points']:+.1f} pts / {s['total_rub']:+.2f} ₽")
@@ -415,12 +430,27 @@ def cmd_paper_stats(args) -> int:
     if s["avg_loss_points"] is not None:
         print(f"  Avg loss:  {s['avg_loss_points']:+.1f} pts")
 
-    if s["profit_factor"] is not None:
-        print(f"  Profit factor: {s['profit_factor']:.2f}")
+    # --- T-04: PF / Exp / Winrate с bootstrap CI ---
+    def _fmt_ci(ci, fmt: str, sep: str = " ") -> str:
+        """Форматирует CI: ' [low, high]' или ' [CI: n<5]'."""
+        if ci is None:
+            return " [CI: n<5]"
+        return f" [{fmt.format(ci[0])}, {fmt.format(ci[1])}]"
+
+    pf = s["profit_factor"]
+    if pf is not None:
+        print(
+            f"  Profit factor: {pf:.2f}{_fmt_ci(s.get('profit_factor_ci'), '{:.2f}')}"
+        )
     else:
         print("  Profit factor: —")
-    if s["expectancy"] is not None:
-        print(f"  Expectancy: {s['expectancy']:+.1f} pts")
+
+    exp = s["expectancy"]
+    if exp is not None:
+        print(
+            f"  Expectancy: {exp:+.1f} pts"
+            f"{_fmt_ci(s.get('expectancy_ci'), '{:+.1f}')}"
+        )
     else:
         print("  Expectancy: —")
 
@@ -430,24 +460,36 @@ def cmd_paper_stats(args) -> int:
         print()
         print(f"── {title} " + "─" * 40)
         rows = []
-        items = sorted(group.items()) if sort_key is None else sorted(group.items(), key=sort_key)
+        items = (
+            sorted(group.items())
+            if sort_key is None
+            else sorted(group.items(), key=sort_key)
+        )
         for key, b in items:
-            rows.append([
-                key,
-                b["total"],
-                b["win"],
-                b["loss"],
-                b["timeout"],
-                f"{b['points']:+.1f}",
-                f"{b['rub']:+.2f}",
-                # --- NEW: expectancy ---
-                f"{b.get('expectancy', 0):+.1f}" if b.get("expectancy") is not None else "—",
-            ])
-        print(tabulate(
-            rows,
-            headers=["", "Всего", "W", "L", "T", "Pts", "Rub", "Exp"],
-            tablefmt="rounded_outline",
-        ))
+            rows.append(
+                [
+                    key,
+                    b["total"],
+                    b["win"],
+                    b["loss"],
+                    b["timeout"],
+                    f"{b['points']:+.1f}",
+                    f"{b['rub']:+.2f}",
+                    # --- NEW: expectancy ---
+                    (
+                        f"{b.get('expectancy', 0):+.1f}"
+                        if b.get("expectancy") is not None
+                        else "—"
+                    ),
+                ]
+            )
+        print(
+            tabulate(
+                rows,
+                headers=["", "Всего", "W", "L", "T", "Pts", "Rub", "Exp"],
+                tablefmt="rounded_outline",
+            )
+        )
 
     _print_group("По типу сигнала", s["by_kind"])
     _print_group("По MFE ratio (тейк)", s["by_mfe_ratio"])
@@ -465,14 +507,40 @@ def cmd_paper_stats(args) -> int:
     _print_group("По RSI на входе", s["by_rsi"])
     _print_group("По волатильности (ATR percentile)", s["by_atr_percentile"])
     _print_group("По partial_day (день завершён?)", s["by_partial_day"])
+    _print_group("По volume ratio", s.get("by_volume_ratio", {}))
+    _print_group("По MAE ratio (стоп)", s.get("by_mae_ratio", {}))
+    _print_group("По take_source", s.get("by_take_source", {}))
+    _print_group("По day_range_atr (волатильность)", s.get("by_day_range_atr", {}))
 
-    # by_score — сортируем по возрастанию score
+    # by_score — сортируем по возрастанию score, с CI
     if s["by_score"]:
         print()
         print("── По score " + "─" * 40)
         rows = []
         for key in sorted(s["by_score"].keys()):
             b = s["by_score"][key]
+            pf_ci = b.get("pf_ci")
+            exp_ci = b.get("exp_ci")
+            wr_ci = b.get("winrate_ci")
+
+            pf_str = "—"
+            if pf_ci:
+                pf_str = f"[{pf_ci[0]:.2f}, {pf_ci[1]:.2f}]"
+            elif b["total"] >= 5:
+                pf_str = "n/a"
+
+            exp_str = "—"
+            if exp_ci:
+                exp_str = f"[{exp_ci[0]:+.1f}, {exp_ci[1]:+.1f}]"
+            elif b["total"] >= 5:
+                exp_str = "n/a"
+
+            wr_str = "—"
+            if wr_ci:
+                wr_str = f"[{wr_ci[0]:.1f}%, {wr_ci[1]:.1f}%]"
+            elif b["total"] >= 5:
+                wr_str = "n/a"
+
             rows.append(
                 [
                     key,
@@ -482,12 +550,26 @@ def cmd_paper_stats(args) -> int:
                     b["timeout"],
                     f"{b['points']:+.1f}",
                     f"{b['rub']:+.2f}",
+                    pf_str,
+                    exp_str,
+                    wr_str,
                 ]
             )
         print(
             tabulate(
                 rows,
-                headers=["score", "Всего", "W", "L", "T", "Pts", "Rub"],
+                headers=[
+                    "score",
+                    "Всего",
+                    "W",
+                    "L",
+                    "T",
+                    "Pts",
+                    "Rub",
+                    "PF CI",
+                    "Exp CI",
+                    "Winrate CI",
+                ],
                 tablefmt="rounded_outline",
             )
         )
@@ -553,6 +635,11 @@ def cmd_paper_trades(args) -> int:
                         else "—"
                     ),
                     f"{r['size'] or 1}",
+                    (
+                        f"{r['volume_ratio_at_open']:.2f}"
+                        if r["volume_ratio_at_open"] is not None
+                        else "—"
+                    ),
                 ]
             )
         table_rows.append(row_data)
@@ -573,7 +660,7 @@ def cmd_paper_trades(args) -> int:
         "Created",
     ]
     if args.wide:
-        headers.extend(["ADX", "Week", "Bid", "Ask", "R:R", "Mkt", "Size"])
+        headers.extend(["ADX", "Week", "Bid", "Ask", "R:R", "Vol", "Mkt", "Size"])
 
     print(
         tabulate(
@@ -679,6 +766,57 @@ def cmd_paper_vs_real(args) -> int:
     return 0
 
 
+def cmd_paper_skipped(args) -> int:
+    """T-05: заблокированные сигналы по reason."""
+    from trader.paper import init_paper_table
+    from trader.paper_db import get_skipped_stats
+
+    with journal.connect_journal() as conn:
+        init_paper_table(conn)
+        s = get_skipped_stats(
+            conn,
+            since=args.since,
+            until=args.until,
+            symbol=args.symbol,
+            experiment=getattr(args, "experiment", None),
+        )
+
+    print()
+    print(f"Всего skipped: {s['total']}")
+    if s["total"] == 0:
+        print("  (нет записей — paper_skipped пуст или все сигналы прошли)")
+        return 0
+
+    print()
+    print("── По reason " + "─" * 40)
+    rows = []
+    for reason, b in sorted(s["by_reason"].items(), key=lambda x: -x[1]["total"]):
+        rows.append([reason, b["total"], f"{b['pct']:.1f}%"])
+    print(
+        tabulate(
+            rows,
+            headers=["reason", "n", "pct"],
+            tablefmt="rounded_outline",
+        )
+    )
+
+    print()
+    print("── По kind " + "─" * 40)
+    rows = [[k, v] for k, v in sorted(s["by_kind"].items(), key=lambda x: -x[1])]
+    print(tabulate(rows, headers=["kind", "n"], tablefmt="rounded_outline"))
+
+    print()
+    print("── По направлению " + "─" * 40)
+    rows = [[d, v] for d, v in sorted(s["by_direction"].items(), key=lambda x: -x[1])]
+    print(tabulate(rows, headers=["direction", "n"], tablefmt="rounded_outline"))
+    if config.EXPERIMENT_ID:
+        print(f"  Experiment (current): {config.EXPERIMENT_ID}")
+    else:
+        print("  Experiment: baseline (вне эксперимента)")
+
+    return 0
+
+
 # ============================================================
 # main
 # ============================================================
@@ -749,6 +887,11 @@ def main() -> int:
         help="Убрать unknown в week_trend/market_state/RSI/ATR (чистые разрезы)",
     )
     p_paper.add_argument(
+        "--no-slippage",
+        action="store_true",
+        help="T-24: считать PnL по close (без market_price_at_open) — для сравнения",
+    )
+    p_paper.add_argument(
         "--min-n",
         type=int,
         default=0,
@@ -788,9 +931,72 @@ def main() -> int:
     p_vs.add_argument("--symbol", default=None, help="Фильтр по тикеру")
     p_vs.set_defaults(func=cmd_paper_vs_real)
 
-    args = parser.parse_args()  # ← ПОСЛЕ всех add_parser
+    # paper-skipped (T-05)
+    p_skip = sub.add_parser("paper-skipped", help="Заблокированные сигналы (T-05)")
+    p_skip.add_argument("--since", default=None, help="С даты (ISO)")
+    p_skip.add_argument("--until", default=None, help="До даты (ISO)")
+    p_skip.add_argument("--symbol", default=None, help="Фильтр по тикеру")
+    p_skip.add_argument("--experiment", default=None, help="Фильтр по EXPERIMENT_ID")
+    p_skip.set_defaults(func=cmd_paper_skipped)
+
+    p_paper.add_argument(
+        "--experiment",
+        default=None,
+        help="Фильтр по EXPERIMENT_ID (например, EXP-20261122-01)",
+    )
+    args = parser.parse_args()
 
     journal.init_db()
+
+    # --- Рекомендация stop/take (по MFE/MAE, Задача 5) ---
+    try:
+        from scripts.optimize_stops import STOP_GRID, TAKE_GRID, run_grid
+        from core.instruments import get_instrument
+        from trader.paper import init_paper_table
+
+        # Достаём сделки с MFE/MAE
+        with journal.connect_journal() as conn:
+            init_paper_table(conn)
+            rows = conn.execute("""
+                SELECT * FROM paper_trades
+                WHERE mfe_points IS NOT NULL AND mae_points IS NOT NULL
+                  AND result IN ('win', 'loss', 'timeout')
+                  AND mfe_source IN ('live', 'backfill')
+                """).fetchall()
+
+        if len(rows) >= 5:
+            inst = get_instrument(config.DEFAULT_INSTRUMENT)
+            rows_dict = [dict(r) for r in rows]
+
+            # Текущее
+            cur = run_grid(rows_dict, inst, config.STOP_ATR_MULT, config.TAKE_ATR_MULT)
+
+            # Лучшее из сетки
+            best = None
+            for stop in STOP_GRID:
+                for take in TAKE_GRID:
+                    res = run_grid(rows_dict, inst, stop, take)
+                    if res["pf"] is not None and (
+                        best is None or (res["pf"] or 0) > (best["pf"] or 0)
+                    ):
+                        best = res
+
+            print()
+            print("── Рекомендация stop/take (по MFE/MAE) ──")
+            print(
+                f"  Текущее:   stop={config.STOP_ATR_MULT:.1f}, take={config.TAKE_ATR_MULT:.1f} | "
+                f"n={cur['n']} | PF={cur['pf']} | Exp={cur['exp']}"
+            )
+            if best:
+                print(
+                    f"  Best(grid): stop={best['stop']:.1f}, take={best['take']:.1f} | "
+                    f"n={best['n']} | PF={best['pf']} | Exp={best['exp']}"
+                )
+
+            conf = "low (n<30, предварительно)" if len(rows) < 30 else "medium (n>=30)"
+            print(f"  Confidence: {conf} — НЕ менять config автоматически")
+    except Exception as e:
+        print(f"\n(Рекомендация stop/take недоступна: {e})")
 
     return args.func(args)
 

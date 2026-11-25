@@ -109,3 +109,16 @@ def compute_trade_result(
     comm = commission_round if commission_round is not None else inst.commission_round
     rub = round(gross_rub - comm * size, 2)
     return points, rub
+
+
+def commission_in_price(symbol: str) -> float:
+    """
+    Комиссия за круг в единицах цены (для net_rr).
+
+    commission_round (руб) → пункты (через step_cost) → цена (через price_step).
+    """
+    inst = get_instrument(symbol)
+    if inst.step_cost == 0:
+        return 0.0
+    commission_points = inst.commission_round / inst.step_cost
+    return commission_points * inst.price_step

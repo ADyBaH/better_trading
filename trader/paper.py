@@ -8,6 +8,8 @@ from typing import Optional
 from core.logger import get_logger
 from core.risk import calculate_position_size
 from core.instruments import get_instrument
+from typing import Optional, Dict, List
+import trader.paper_db as db
 
 import config
 import os
@@ -24,90 +26,8 @@ RESET = "\033[0m" if _USE_COLOR else ""
 log = get_logger(__name__)
 
 
-# ============================================================
-# Схема
-# ============================================================
-
-CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS paper_trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    signal_id TEXT UNIQUE,
-    source_analysis_path TEXT,
-    symbol TEXT NOT NULL,
-    direction TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    strength TEXT,
-    strength_score REAL,
-    entry_price REAL NOT NULL,
-    stop_price REAL NOT NULL,
-    take_price REAL NOT NULL,
-    level_price REAL,
-    risk_reward REAL,
-    net_rr REAL,
-    trend_at_open TEXT,
-    adx_at_open REAL,
-    day_trend_at_open TEXT,
-    structure_at_open TEXT,
-    week_trend_at_open TEXT,
-    market_state_at_open TEXT,
-    rsi_at_open REAL,
-    atr_percentile_at_open REAL,
-    created_at TEXT NOT NULL,
-    closed_at TEXT,
-    exit_price REAL,
-    result TEXT DEFAULT 'open',
-    result_points REAL,
-    result_rub REAL,
-    bars_to_close INTEGER,
-    resolution_confidence TEXT,
-    warnings TEXT,
-    context TEXT,
-    bid_vol REAL,
-    ask_vol REAL,
-    market_price_at_open REAL,
-    size INTEGER DEFAULT 1,
-    balance_after REAL
-);
-CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_trades(result);
-CREATE INDEX IF NOT EXISTS idx_paper_created ON paper_trades(created_at);
-CREATE INDEX IF NOT EXISTS idx_paper_symbol ON paper_trades(symbol);
-"""
-
-
 def init_paper_table(conn: sqlite3.Connection) -> None:
-    """Идемпотентно создаёт таблицу paper_trades и добавляет новые колонки."""
-    conn.row_factory = sqlite3.Row  # чтобы работало row["name"] даже на голом conn
-    conn.executescript(CREATE_TABLE_SQL)
-
-    # Миграция: добавляем колонки, если их нет (для старых БД)
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)")}
-
-    if "market_price_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN market_price_at_open REAL")
-    if "size" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN size INTEGER DEFAULT 1")
-    if "balance_after" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN balance_after REAL")
-    if "week_trend_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN week_trend_at_open TEXT")
-    if "market_state_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN market_state_at_open TEXT")
-    if "rsi_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN rsi_at_open REAL")
-    if "atr_percentile_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN atr_percentile_at_open REAL")
-    if "mfe_points" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN mfe_points REAL")
-    if "mae_points" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN mae_points REAL")
-    if "partial_day_at_open" not in existing:
-        conn.execute("ALTER TABLE paper_trades ADD COLUMN partial_day_at_open INTEGER")
-    conn.commit()
-
-
-# ============================================================
-# Утилиты
-# ============================================================
+    db.init_db(conn)
 
 
 def _signal_id(signal, symbol: str, created_at: datetime) -> str:
@@ -115,6 +35,15 @@ def _signal_id(signal, symbol: str, created_at: datetime) -> str:
     raw = (
         f"{symbol}|{signal.direction}|{signal.kind}|"
         f"{round(signal.entry_price, 5)}|{created_at.isoformat()}"
+    )
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _signal_id_from_dict(s: dict, symbol: str, created_at: datetime) -> str:
+    """sha1 для skipped (dict, а не Signal)."""
+    raw = (
+        f"{symbol}|{s.get('direction')}|{s.get('kind')}|"
+        f"{round(s.get('entry_price', 0.0), 5)}|{created_at.isoformat()}"
     )
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -132,9 +61,17 @@ def _is_in_paper_hours(dt: datetime) -> bool:
     return time(start_h, start_m) <= t < time(end_h, end_m)
 
 
-# ============================================================
-# Резолв PnL
-# ============================================================
+def _resolve_entry_price(trade: dict) -> float:
+    """
+    T-24: вход по фактической рыночной цене.
+
+    True  → market_price_at_open (если есть)
+    False → entry_price (close)
+    Fallback на entry_price, если market_price_at_open = None.
+    """
+    if not getattr(config, "PAPER_USE_MARKET_PRICE", False):
+        return trade["entry_price"]
+    return trade.get("market_price_at_open") or trade["entry_price"]
 
 
 def virtual_pnl(
@@ -165,8 +102,12 @@ def virtual_pnl(
     import pandas as pd
 
     empty = {
-        "result": "no_data", "exit_price": None, "bars": 0,
-        "ambiguous": False, "mfe_points": 0.0, "mae_points": 0.0,
+        "result": "no_data",
+        "exit_price": None,
+        "bars": 0,
+        "ambiguous": False,
+        "mfe_points": 0.0,
+        "mae_points": 0.0,
     }
 
     if max_bars is None:
@@ -184,11 +125,11 @@ def virtual_pnl(
 
         # --- MFE/MAE по этой свече ---
         if direction == "long":
-            fav = (high - entry) / price_step      # в пользу long
-            adv = (entry - low) / price_step       # против long
+            fav = (high - entry) / price_step  # в пользу long
+            adv = (entry - low) / price_step  # против long
         else:  # short
-            fav = (entry - low) / price_step       # в пользу short
-            adv = (high - entry) / price_step      # против short
+            fav = (entry - low) / price_step  # в пользу short
+            adv = (high - entry) / price_step  # против short
 
         if fav > mfe:
             mfe = fav
@@ -205,7 +146,9 @@ def virtual_pnl(
 
         if hit_take and hit_stop:
             return {
-                "result": "loss", "exit_price": stop, "bars": i,
+                "result": "loss",
+                "exit_price": stop,
+                "bars": i,
                 "ambiguous": True,
                 "mfe_points": round(mfe, 1),
                 "mae_points": round(mae, 1),
@@ -213,7 +156,9 @@ def virtual_pnl(
 
         if hit_take:
             return {
-                "result": "win", "exit_price": take, "bars": i,
+                "result": "win",
+                "exit_price": take,
+                "bars": i,
                 "ambiguous": False,
                 "mfe_points": round(mfe, 1),
                 "mae_points": round(mae, 1),
@@ -221,7 +166,9 @@ def virtual_pnl(
 
         if hit_stop:
             return {
-                "result": "loss", "exit_price": stop, "bars": i,
+                "result": "loss",
+                "exit_price": stop,
+                "bars": i,
                 "ambiguous": False,
                 "mfe_points": round(mfe, 1),
                 "mae_points": round(mae, 1),
@@ -229,23 +176,22 @@ def virtual_pnl(
 
         if i >= max_bars:
             return {
-                "result": "timeout", "exit_price": float(row.close), "bars": i,
+                "result": "timeout",
+                "exit_price": float(row.close),
+                "bars": i,
                 "ambiguous": False,
                 "mfe_points": round(mfe, 1),
                 "mae_points": round(mae, 1),
             }
 
     return {
-        "result": "open", "exit_price": None, "bars": len(df_future),
+        "result": "open",
+        "exit_price": None,
+        "bars": len(df_future),
         "ambiguous": False,
         "mfe_points": round(mfe, 1),
         "mae_points": round(mae, 1),
     }
-
-
-# ============================================================
-# Дедупликация
-# ============================================================
 
 
 def _is_duplicate(
@@ -306,11 +252,6 @@ def _is_duplicate(
     return False
 
 
-# ============================================================
-# Создание paper-сделки
-# ============================================================
-
-
 def save_signal_as_paper(
     conn: sqlite3.Connection,
     signals: list,
@@ -320,55 +261,33 @@ def save_signal_as_paper(
     ask_vol: float | None = None,
     market_price_at_open: float | None = None,
 ) -> int:
-    """
-    Создаёт paper-сделки из сигналов.
-
-    Правила:
-    - если не в PAPER_TRADING_HOURS — пропускаем (сделки не создаются);
-    - если дубль по _is_duplicate — пропускаем;
-    - INSERT OR IGNORE по signal_id (UNIQUE) — страховка от гонок.
-
-    Возвращает количество созданных записей.
-    """
     if not config.PAPER_ENABLED:
         return 0
 
     if not _is_in_paper_hours(result.timestamp):
-        log.debug(
-            "paper: %s вне PAPER_TRADING_HOURS — пропуск",
-            result.timestamp.strftime("%H:%M"),
-        )
         return 0
 
-    # --- Виртуальный депозит ---
-    inst = get_instrument(result.symbol)
-    risk_rub = config.VIRTUAL_DEPOSIT * config.RISK_PER_TRADE_PCT
-
-    # --- Не более 1 открытой paper-сделки ---
+    # Проверка лимита открытых сделок через БД
     open_count = conn.execute(
         "SELECT COUNT(*) FROM paper_trades WHERE result = 'open'"
     ).fetchone()[0]
-    if open_count >= 1:
-        log.debug("paper: уже есть открытая сделка (%d) — пропуск", open_count)
+    max_open = getattr(config, "PAPER_MAX_OPEN", 1)
+    if max_open > 0 and open_count >= max_open:
+        log.debug("paper: лимит %d достигнут", max_open)
         return 0
 
     created = 0
+    inst = get_instrument(result.symbol)
+    risk_rub = config.VIRTUAL_DEPOSIT * config.RISK_PER_TRADE_PCT
 
     for sig in signals:
+        # Дедупликация через БД (T-05: единая функция)
         if _is_duplicate(conn, sig, result.symbol, result.atr, result.timestamp):
-            log.debug(
-                "paper: дубль %s %s @ %.5f — пропуск",
-                sig.direction,
-                sig.kind,
-                sig.entry_price,
-            )
             continue
 
         sid = _signal_id(sig, result.symbol, result.timestamp)
 
-        ind = result.indicators
-        adx_val = round(ind.adx, 2) if ind.adx is not None else None
-        # Размер от риска
+        # Расчет размера позиции (Бизнес-логика)
         size = calculate_position_size(
             risk_rub=risk_rub,
             entry_price=sig.entry_price,
@@ -376,84 +295,120 @@ def save_signal_as_paper(
             step_cost=inst.step_cost,
             price_step=inst.price_step,
         )
+
         if size <= 0:
-            log.debug("paper: size=0, пропуск")
             continue
 
-        try:
-            _columns = (
-                "signal_id, source_analysis_path, symbol, direction, kind, "
-                "strength, strength_score, entry_price, stop_price, take_price, "
-                "level_price, risk_reward, net_rr, "
-                "trend_at_open, adx_at_open, day_trend_at_open, structure_at_open, "
-                "partial_day_at_open, "
-                "week_trend_at_open, market_state_at_open, "
-                "rsi_at_open, atr_percentile_at_open, "
-                "created_at, result, warnings, context, "
-                "bid_vol, ask_vol, market_price_at_open, size, balance_after"
-            )
-            _placeholders = ", ".join(["?"] * len(_columns.split(",")))
-            changes_before = conn.total_changes
-            conn.execute(
-                f"INSERT OR IGNORE INTO paper_trades ({_columns}) VALUES ({_placeholders})",
-                (
-                    sid,
-                    source_analysis_path,
-                    result.symbol,
-                    sig.direction,
-                    sig.kind,
-                    sig.strength,
-                    sig.strength_score,
-                    sig.entry_price,
-                    sig.stop_price,
-                    sig.take_price,
-                    sig.level_price,
-                    sig.risk_reward,
-                    sig.net_rr,
-                    ind.trend,
-                    adx_val,
-                    ind.day_trend,
-                    ind.structure,
-                    1 if ind.partial_day else 0,
-                    ind.week_trend,
-                    ind.market_state,
-                    ind.rsi,
-                    sig.context.get("atr_percentile"),
-                    result.timestamp.isoformat(),
-                    "open",
-                    (
-                        json.dumps(sig.warnings, ensure_ascii=False)
-                        if sig.warnings
-                        else None
-                    ),
-                    (
-                        json.dumps(sig.context, ensure_ascii=False, default=str)
-                        if sig.context
-                        else None
-                    ),
-                    bid_vol,
-                    ask_vol,
-                    market_price_at_open,
-                    size,
-                    None,  # balance_after
-                ),
-            )
-            inserted = conn.total_changes - changes_before
-            if inserted > 0:
-                created += 1
-        except sqlite3.IntegrityError:
-            log.debug("paper: signal_id=%s уже существует", sid)
-            continue
+        # Формируем плоский словарь данных
+        data = {
+            "signal_id": sid,
+            "source_analysis_path": source_analysis_path,
+            "symbol": result.symbol,
+            "direction": sig.direction,
+            "kind": sig.kind,
+            "strength": sig.strength,
+            "strength_score": sig.strength_score,
+            "entry_price": sig.entry_price,
+            "stop_price": sig.stop_price,
+            "take_price": sig.take_price,
+            "level_price": sig.level_price,
+            "risk_reward": sig.risk_reward,
+            "net_rr": sig.net_rr,
+            "trend_at_open": result.indicators.trend,
+            "adx_at_open": (
+                round(result.indicators.adx, 2) if result.indicators.adx else None
+            ),
+            "day_trend_at_open": result.indicators.day_trend,
+            "structure_at_open": result.indicators.structure,
+            "partial_day_at_open": 1 if result.indicators.partial_day else 0,
+            "week_trend_at_open": result.indicators.week_trend,
+            "market_state_at_open": result.indicators.market_state,
+            "rsi_at_open": result.indicators.rsi,
+            "atr_percentile_at_open": sig.context.get("atr_percentile"),
+            "created_at": result.timestamp.isoformat(),
+            "result": "open",
+            "warnings": (
+                json.dumps(sig.warnings, ensure_ascii=False) if sig.warnings else None
+            ),
+            "context": (
+                json.dumps(sig.context, ensure_ascii=False, default=str)
+                if sig.context
+                else None
+            ),
+            "bid_vol": bid_vol,
+            "ask_vol": ask_vol,
+            "market_price_at_open": market_price_at_open,
+            "size": size,
+            "balance_after": None,
+            "mfe_source": "live",
+            "mae_source": "live",
+            "take_source": sig.take_source,
+            "take_atr_value": sig.take_atr_value,
+            "day_range_atr_at_open": sig.day_range_atr_at_open,
+            "experiment_id": config.EXPERIMENT_ID,
+        }
+
+        if db.insert_trade(conn, data):
+            created += 1
 
     conn.commit()
-    if created:
-        log.info("paper: создано %d сделок", created)
     return created
 
 
-# ============================================================
-# Резолв открытых сделок
-# ============================================================
+def save_skipped_signal(
+    conn: sqlite3.Connection,
+    result,
+    source_analysis_path: str | None = None,
+) -> int:
+    """
+    T-05: записывает заблокированные сигналы из result.skipped_signals в paper_skipped.
+    Возвращает число записанных.
+    """
+    if not config.PAPER_ENABLED:
+        return 0
+    if not _is_in_paper_hours(result.timestamp):
+        return 0
+
+    skipped = getattr(result, "skipped_signals", [])
+    if not skipped:
+        return 0
+
+    created = 0
+    for s in skipped:
+        reason = s.get("reason", "unknown")
+
+        # T-05b: не писать skipped с data_age > 60 — это рестарт runner,
+        # а не рыночный лаг (DATA_MAX_AGE_BLOCK=30, ALOR-лаг ~15–28 мин).
+        if reason.startswith("data_age:"):
+            try:
+                age = int(reason.split(":", 1)[1])
+            except (ValueError, IndexError):
+                age = 0
+            if age > 60:
+                log.warning(
+                    "skip data_age=%s (>60) — похоже на рестарт runner, "
+                    "не пишем в paper_skipped",
+                    age,
+                )
+                continue
+
+        sid = _signal_id_from_dict(s, result.symbol, result.timestamp)
+        data = {
+            "signal_id": sid,
+            "symbol": result.symbol,
+            "direction": s.get("direction", "any"),
+            "kind": s.get("kind", "unknown"),
+            "entry_price": s.get("entry_price", 0.0),
+            "strength_score": s.get("strength_score"),
+            "reason": reason,
+            "context": None,
+            "created_at": result.timestamp.isoformat(),
+        }
+        if db.insert_skipped(conn, data):
+            created += 1
+
+    conn.commit()
+    return created
 
 
 def _row_to_trade(row: sqlite3.Row) -> dict:
@@ -519,10 +474,7 @@ def resolve_open_trades(
     """
     from data.api_facade import get_candles_tf
 
-    rows = conn.execute(
-        "SELECT * FROM paper_trades WHERE symbol = ? AND result = 'open'",
-        (symbol,),
-    ).fetchall()
+    rows = db.get_open_trades_by_symbol(conn, symbol)
 
     if not rows:
         return 0
@@ -589,11 +541,11 @@ def resolve_open_trades(
         # Только свечи строго после created_at
         # (свеча, в которой открыт сигнал, не участвует — это «нулевой» бар)
         df_future = df_m15[df_m15["begin"] > created_at].copy()
-
+        entry = _resolve_entry_price(trade)
         pnl = virtual_pnl(
             df_future,
             trade["direction"],
-            trade["entry_price"],
+            entry,
             trade["stop_price"],
             trade["take_price"],
             max_bars=config.PAPER_TIMEOUT_BARS,
@@ -678,584 +630,6 @@ def resolve_open_trades(
     if closed:
         log.info("paper: закрыто %d сделок по %s", closed, symbol)
     return closed
-
-
-# ============================================================
-# Статистика
-# ============================================================
-
-
-def paper_stats(
-    conn: sqlite3.Connection,
-    since: str | None = None,
-    until: str | None = None,
-    symbol: str | None = None,
-    known_only: bool = False,
-    min_n: int = 0,
-) -> dict:
-    """
-    Агрегаты по paper_trades.
-
-    since/until — ISO-строки (например, "2026-10-17" или "2026-10-17T09:00:00").
-    symbol — фильтр по тикеру (None = все).
-
-    Возвращает dict:
-        total, open, win, loss, timeout,
-        winrate (по закрытым win/(win+loss), timeout не считается),
-        total_points, total_rub,
-        avg_win_points, avg_loss_points,
-        by_kind, by_trend, by_score, by_day_trend, by_adx, by_session
-    """
-    from datetime import datetime
-
-    where = []
-    params = []
-
-    if since:
-        where.append("created_at >= ?")
-        params.append(since)
-    if until:
-        where.append("created_at < ?")
-        params.append(until)
-    if symbol:
-        where.append("symbol = ?")
-        params.append(symbol)
-
-    # --- known_only: убираем unknown в ключевых разрезах ---
-    if known_only:
-        where.append("""
-            (week_trend_at_open IS NOT NULL AND week_trend_at_open != 'unknown')
-            AND (market_state_at_open IS NOT NULL AND market_state_at_open != 'unknown')
-            AND (rsi_at_open IS NOT NULL)
-            AND (atr_percentile_at_open IS NOT NULL)
-        """)
-
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-
-    rows = conn.execute(
-        f"SELECT * FROM paper_trades {where_sql} ORDER BY created_at",
-        params,
-    ).fetchall()
-
-    total = len(rows)
-    open_count = sum(1 for r in rows if r["result"] == "open")
-    win = sum(1 for r in rows if r["result"] == "win")
-    loss = sum(1 for r in rows if r["result"] == "loss")
-    timeout = sum(1 for r in rows if r["result"] == "timeout")
-
-    closed = win + loss + timeout
-    closed_wl = win + loss  # winrate без timeout
-    winrate = round(100 * win / closed_wl, 1) if closed_wl > 0 else None
-
-    total_points = round(sum(r["result_points"] or 0 for r in rows), 1)
-    total_rub = round(sum(r["result_rub"] or 0 for r in rows), 2)
-
-    win_points = [
-        r["result_points"]
-        for r in rows
-        if r["result"] == "win" and r["result_points"] is not None
-    ]
-    loss_points = [
-        r["result_points"]
-        for r in rows
-        if r["result"] == "loss" and r["result_points"] is not None
-    ]
-    avg_win = round(sum(win_points) / len(win_points), 1) if win_points else None
-    avg_loss = round(sum(loss_points) / len(loss_points), 1) if loss_points else None
-
-    # --- PF и expectancy ---
-    win_rub = sum(r["result_rub"] or 0 for r in rows if r["result"] == "win")
-    loss_rub = abs(sum(r["result_rub"] or 0 for r in rows if r["result"] == "loss"))
-    profit_factor = round(win_rub / loss_rub, 2) if loss_rub > 0 else None
-    expectancy = None
-    if winrate is not None and avg_win is not None and avg_loss is not None:
-        p = winrate / 100
-        expectancy = round(p * avg_win + (1 - p) * avg_loss, 1)
-
-    # --- Разбивки ---
-    def _group(key: str) -> dict:
-        result = {}
-        for r in rows:
-            val = r[key]
-            if val is None:
-                val = "unknown"
-            if val not in result:
-                result[val] = {
-                    "total": 0,
-                    "win": 0,
-                    "loss": 0,
-                    "timeout": 0,
-                    "points": 0.0,
-                    "rub": 0.0,
-                }
-            result[val]["total"] += 1
-            if r["result"] in ("win", "loss", "timeout"):
-                result[val][r["result"]] += 1
-            result[val]["points"] += r["result_points"] or 0
-            result[val]["rub"] += r["result_rub"] or 0
-        # Округляем
-        for v in result.values():
-            v["points"] = round(v["points"], 1)
-            v["rub"] = round(v["rub"], 2)
-        return result
-
-    by_kind = _group("kind")
-    by_trend = _group("trend_at_open")
-    by_day_trend = _group("day_trend_at_open")
-    by_week_trend = _group("week_trend_at_open")
-
-    # --- Разрез week_trend × direction ---
-    by_week_trend_direction = {}
-
-    for r in rows:
-        week = r["week_trend_at_open"] or "unknown"
-        direction = r["direction"] or "unknown"
-        key = f"{week} / {direction}"
-        if key not in by_week_trend_direction:
-            by_week_trend_direction[key] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        b = by_week_trend_direction[key]
-        b["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            b[r["result"]] += 1
-        b["points"] += r["result_points"] or 0
-        b["rub"] += r["result_rub"] or 0
-    for v in by_week_trend_direction.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-
-    # --- by_market_state ---
-    by_market_state = _group("market_state_at_open")
-
-    # --- by_rsi ---
-    def _rsi_bucket(rsi):
-        if rsi is None:
-            return "unknown"
-        if rsi < 30:
-            return "<30 (oversold)"
-        elif rsi < 50:
-            return "30-50"
-        elif rsi < 70:
-            return "50-70"
-        return ">70 (overbought)"
-
-    by_rsi = {}
-    for r in rows:
-        bucket = _rsi_bucket(r["rsi_at_open"])
-        if bucket not in by_rsi:
-            by_rsi[bucket] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        b = by_rsi[bucket]
-        b["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            b[r["result"]] += 1
-        b["points"] += r["result_points"] or 0
-        b["rub"] += r["result_rub"] or 0
-    for v in by_rsi.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-    
-    # --- by_partial_day ---
-    by_partial_day = {}
-    for r in rows:
-        val = r["partial_day_at_open"]
-        if val is None:
-            bucket = "unknown"
-        elif val:
-            bucket = "partial (до 18:00)"
-        else:
-            bucket = "full day"
-        if bucket not in by_partial_day:
-            by_partial_day[bucket] = {
-                "total": 0, "win": 0, "loss": 0, "timeout": 0,
-                "points": 0.0, "rub": 0.0,
-            }
-        b = by_partial_day[bucket]
-        b["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            b[r["result"]] += 1
-        b["points"] += r["result_points"] or 0
-        b["rub"] += r["result_rub"] or 0
-    for v in by_partial_day.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-    
-    # --- by_atr_percentile ---
-    def _atr_pct_bucket(pct):
-        if pct is None:
-            return "unknown"
-        if pct < 0.25:
-            return "<0.25 (low)"
-        elif pct > 0.75:
-            return ">0.75 (high)"
-        return "0.25-0.75"
-
-    by_atr_percentile = {}
-    for r in rows:
-        bucket = _atr_pct_bucket(r["atr_percentile_at_open"])
-        if bucket not in by_atr_percentile:
-            by_atr_percentile[bucket] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        b = by_atr_percentile[bucket]
-        b["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            b[r["result"]] += 1
-        b["points"] += r["result_points"] or 0
-        b["rub"] += r["result_rub"] or 0
-    for v in by_atr_percentile.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-
-    # by_score — бакеты (1.0, 1.5, 2.0, 2.5, 3.0+)
-    by_score = {}
-    for r in rows:
-        score = r["strength_score"]
-        if score is None:
-            bucket = "unknown"
-        elif score >= 3.0:
-            bucket = "3.0+"
-        elif score >= 2.5:
-            bucket = "2.5"
-        elif score >= 2.0:
-            bucket = "2.0"
-        elif score >= 1.5:
-            bucket = "1.5"
-        else:
-            bucket = "1.0"
-        if bucket not in by_score:
-            by_score[bucket] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        by_score[bucket]["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            by_score[bucket][r["result"]] += 1
-        by_score[bucket]["points"] += r["result_points"] or 0
-        by_score[bucket]["rub"] += r["result_rub"] or 0
-    for v in by_score.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-
-    def _adx_bucket(adx):
-        if adx is None:
-            return "unknown"
-        if adx < 20:
-            return "flat (<20)"
-        elif adx < 25:
-            return "trend (20-25)"
-        else:
-            return "strong (>25)"
-
-    by_adx = {}
-    for r in rows:
-        bucket = _adx_bucket(r["adx_at_open"])
-        if bucket not in by_adx:
-            by_adx[bucket] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        by_adx[bucket]["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            by_adx[bucket][r["result"]] += 1
-        by_adx[bucket]["points"] += r["result_points"] or 0
-        by_adx[bucket]["rub"] += r["result_rub"] or 0
-    for v in by_adx.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-
-    def _session(created_at_str):
-        try:
-            dt = datetime.fromisoformat(created_at_str)
-        except Exception:
-            return "unknown"
-        h = dt.hour
-        if 9 <= h < 12:
-            return "morning (09-12)"
-        elif 12 <= h < 17:
-            return "day (12-17)"
-        elif 17 <= h < 20:
-            return "evening (17-20)"
-        else:
-            return "night (20-09)"
-
-    by_session = {}
-    for r in rows:
-        bucket = _session(r["created_at"])
-        if bucket not in by_session:
-            by_session[bucket] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        by_session[bucket]["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            by_session[bucket][r["result"]] += 1
-        by_session[bucket]["points"] += r["result_points"] or 0
-        by_session[bucket]["rub"] += r["result_rub"] or 0
-    for v in by_session.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-
-    # --- by_pressure (стакан на входе) ---
-    def _pressure_bucket(bid, ask):
-        if bid is None or ask is None:
-            return "unknown"
-        total = bid + ask
-        if total <= 0:
-            return "unknown"
-        pct = bid / total * 100
-        if pct < 40:
-            return "ask-heavy (<40)"
-        elif pct > 60:
-            return "bid-heavy (>60)"
-        return "balanced (40-60)"
-
-    by_pressure = {}
-    for r in rows:
-        bucket = _pressure_bucket(r["bid_vol"], r["ask_vol"])
-        if bucket not in by_pressure:
-            by_pressure[bucket] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        b = by_pressure[bucket]
-        b["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            b[r["result"]] += 1
-        b["points"] += r["result_points"] or 0
-        b["rub"] += r["result_rub"] or 0
-    for v in by_pressure.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-
-    # --- by_bars (скорость закрытия) ---
-    def _bars_bucket(bars):
-        if bars is None:
-            return "unknown"
-        if bars <= 3:
-            return "1-3"
-        elif bars <= 10:
-            return "4-10"
-        elif bars <= 30:
-            return "11-30"
-        return "30+"
-
-    by_bars = {}
-    for r in rows:
-        bucket = _bars_bucket(r["bars_to_close"])
-        if bucket not in by_bars:
-            by_bars[bucket] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        b = by_bars[bucket]
-        b["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            b[r["result"]] += 1
-        b["points"] += r["result_points"] or 0
-        b["rub"] += r["result_rub"] or 0
-    for v in by_bars.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-
-    # --- by_hour ---
-    by_hour = {}
-    for r in rows:
-        try:
-            dt = datetime.fromisoformat(r["created_at"])
-            bucket = f"{dt.hour:02d}:00"
-        except Exception:
-            bucket = "unknown"
-        if bucket not in by_hour:
-            by_hour[bucket] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        by_hour[bucket]["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            by_hour[bucket][r["result"]] += 1
-        by_hour[bucket]["points"] += r["result_points"] or 0
-        by_hour[bucket]["rub"] += r["result_rub"] or 0
-    for v in by_hour.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-
-    # --- by_weekday ---
-    by_weekday = {}
-    for r in rows:
-        try:
-            dt = datetime.fromisoformat(r["created_at"])
-            bucket = dt.strftime("%a")  # Mon, Tue, ...
-        except Exception:
-            bucket = "unknown"
-        if bucket not in by_weekday:
-            by_weekday[bucket] = {
-                "total": 0,
-                "win": 0,
-                "loss": 0,
-                "timeout": 0,
-                "points": 0.0,
-                "rub": 0.0,
-            }
-        by_weekday[bucket]["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            by_weekday[bucket][r["result"]] += 1
-        by_weekday[bucket]["points"] += r["result_points"] or 0
-        by_weekday[bucket]["rub"] += r["result_rub"] or 0
-    for v in by_weekday.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-
-    # --- Виртуальный депозит ---
-    closed_rows = [r for r in rows if r["result"] in ("win", "loss")]
-    balance_after = config.VIRTUAL_DEPOSIT
-    max_balance = config.VIRTUAL_DEPOSIT
-    max_drawdown = 0.0
-
-    for r in closed_rows:
-        if r["balance_after"] is not None:
-            balance_after = r["balance_after"]
-            max_balance = max(max_balance, balance_after)
-            drawdown = (max_balance - balance_after) / max_balance * 100
-            max_drawdown = max(max_drawdown, drawdown)
-
-    final_pnl_pct = (
-        (balance_after - config.VIRTUAL_DEPOSIT) / config.VIRTUAL_DEPOSIT * 100
-    )
-    
-    def _enrich(bucket_dict: dict) -> dict:
-        for v in bucket_dict.values():
-            wins = v.get("win", 0)
-            losses = v.get("loss", 0)
-            total_wl = wins + losses
-            v["expectancy"] = round(v["points"] / total_wl, 1) if total_wl > 0 else None
-        return bucket_dict
-
-    def _filter_min_n(bucket_dict: dict, min_n: int) -> dict:
-        if min_n <= 0:
-            return bucket_dict
-        return {k: v for k, v in bucket_dict.items() if v.get("total", 0) >= min_n}
-
-    def _process(bucket_dict: dict) -> dict:
-        return _filter_min_n(_enrich(bucket_dict), min_n)
-
-        # --- by_mfe_ratio: MFE / take_distance ---
-    def _mfe_bucket(ratio):
-        if ratio is None:
-            return "unknown"
-        if ratio < 0.3:
-            return "<0.3 (не дошла)"
-        elif ratio <= 0.7:
-            return "0.3-0.7 (частично)"
-        return ">0.7 (почти/дошла)"
-
-    by_mfe_ratio = {}
-    for r in rows:
-        mfe = r["mfe_points"]
-        # take_distance в пунктах
-        take_dist = abs(r["take_price"] - r["entry_price"]) / 0.001  # price_step
-        if mfe is None or take_dist <= 0:
-            bucket = "unknown"
-        else:
-            bucket = _mfe_bucket(mfe / take_dist)
-
-        if bucket not in by_mfe_ratio:
-            by_mfe_ratio[bucket] = {
-                "total": 0, "win": 0, "loss": 0, "timeout": 0,
-                "points": 0.0, "rub": 0.0,
-            }
-        b = by_mfe_ratio[bucket]
-        b["total"] += 1
-        if r["result"] in ("win", "loss", "timeout"):
-            b[r["result"]] += 1
-        b["points"] += r["result_points"] or 0
-        b["rub"] += r["result_rub"] or 0
-    for v in by_mfe_ratio.values():
-        v["points"] = round(v["points"], 1)
-        v["rub"] = round(v["rub"], 2)
-        
-    return {
-        "total": total,
-        "open": open_count,
-        "closed": closed,
-        "win": win,
-        "loss": loss,
-        "timeout": timeout,
-        "winrate": winrate,
-        "total_points": total_points,
-        "total_rub": total_rub,
-        "avg_win_points": avg_win,
-        "avg_loss_points": avg_loss,
-        "by_kind": _process(by_kind),
-        "by_trend": _process(by_trend),
-        "by_day_trend": _process(by_day_trend),
-        "by_week_trend": _process(by_week_trend),
-        "by_week_trend_direction": _process(by_week_trend_direction),
-        "by_market_state": _process(by_market_state),
-        "by_rsi": _process(by_rsi),
-        "by_atr_percentile": _process(by_atr_percentile),
-        "by_score": _process(by_score),
-        "by_adx": _process(by_adx),
-        "by_pressure": _process(by_pressure),
-        "by_bars": _process(by_bars),
-        "by_session": _process(by_session),
-        "by_hour": _process(by_hour),
-        "by_weekday": _process(by_weekday),
-        "virtual_deposit_start": config.VIRTUAL_DEPOSIT,
-        "virtual_deposit_end": balance_after,
-        "virtual_pnl_pct": round(final_pnl_pct, 2),
-        "max_drawdown_pct": round(max_drawdown, 2),
-        "profit_factor": profit_factor,
-        "expectancy": expectancy,
-        "by_mfe_ratio": _process(by_mfe_ratio),
-        "by_partial_day": _process(by_partial_day),
-    }
-
-
-# ============================================================
-# Форматирование для вывода
-# ============================================================
 
 
 def format_paper_trade_short(row) -> str:

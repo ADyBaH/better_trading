@@ -13,11 +13,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 
 from core.models import AnalysisResult, IndicatorSnapshot, Level, Signal
+from core.instruments import commission_in_price as _commission_in_price
 from strategy.signals import (
     _build_context,
     _build_warnings,
     _finalize_signal,
-    _commission_in_price,
 )
 
 
@@ -116,20 +116,8 @@ def test_context():
     missing = expected_keys - actual_keys
     extra = actual_keys - expected_keys
 
-    if missing:
-        print(f"  ❌ Отсутствуют ключи: {missing}")
-        return False
-    if extra:
-        print(f"  ⚠ Лишние ключи: {extra}")
-
+    assert not missing, f"Отсутствуют ключи: {missing}"
     print(f"  ✓ Все {len(expected_keys)} полей на месте")
-    print(f"  adx_state = {ctx['adx_state']}")
-    print(f"  rsi_state = {ctx['rsi_state']}")
-    print(f"  ema_alignment = {ctx['ema_alignment']}")
-    print(f"  session = {ctx['session']}, hour_utc = {ctx['hour_utc']}")
-    print(f"  level_tags = {ctx['level_tags']}")
-    print(f"  distance_to_level_atr = {ctx['distance_to_level_atr']}")
-    return True
 
 
 def test_warnings():
@@ -166,7 +154,7 @@ def test_warnings():
         print(f"  {mark} {name}")
         if not ok:
             all_ok = False
-    return all_ok
+    assert all_ok, "Не все warnings сработали"
 
 
 def test_cooldown_warning():
@@ -194,7 +182,8 @@ def test_cooldown_warning():
     else:
         print("  ❌ Ложное предупреждение при совпадении direction")
 
-    return has_cooldown and not has_wrong_cooldown
+    assert has_cooldown, "Cooldown-предупреждение не сработало"
+    assert not has_wrong_cooldown, "Ложное предупреждение при совпадении direction"
 
 
 def test_rr():
@@ -231,7 +220,8 @@ def test_rr():
 
     print(f"  {'✓' if ok_gross else '❌'} gross R:R ≈ 2.0")
     print(f"  {'✓' if ok_net else '❌'} net R:R в диапазоне 1.75–1.90")
-    return ok_gross and ok_net
+    assert ok_gross, "gross R:R не ≈ 2.0"
+    assert ok_net, "net R:R не в диапазоне 1.75–1.90"
 
 
 def test_finalize():
@@ -266,7 +256,7 @@ def test_finalize():
         print(f"  {mark} {name}")
         if not ok:
             all_ok = False
-    return all_ok
+    assert all_ok, "Не все warnings сработали"
 
 
 def main():
@@ -308,15 +298,15 @@ def test_atr_stops():
     entry = 12.500
     atr = 0.0300
 
-    # Long
-    stop, take = _compute_stops(entry, "long", atr)
+    # Long — _compute_stops возвращает (stop, take, meta)
+    stop, take, _meta = _compute_stops(entry, "long", atr)
     expected_stop = entry - config.STOP_ATR_MULT * atr
     expected_take = entry + config.TAKE_ATR_MULT * atr
 
     ok_long = abs(stop - expected_stop) < 0.0001 and abs(take - expected_take) < 0.0001
 
     # Short
-    stop_s, take_s = _compute_stops(entry, "short", atr)
+    stop_s, take_s, _meta_s = _compute_stops(entry, "short", atr)
     expected_stop_s = entry + config.STOP_ATR_MULT * atr
     expected_take_s = entry - config.TAKE_ATR_MULT * atr
 
@@ -330,7 +320,8 @@ def test_atr_stops():
     print(f"  {'✓' if ok_long else '❌'} LONG (стоп ниже, тейк выше)")
     print(f"  {'✓' if ok_short else '❌'} SHORT (стоп выше, тейк ниже)")
 
-    return ok_long and ok_short
+    assert ok_long, "LONG: стоп/тейк не совпали с ожиданием"
+    assert ok_short, "SHORT: стоп/тейк не совпали с ожиданием"
 
 
 if __name__ == "__main__":

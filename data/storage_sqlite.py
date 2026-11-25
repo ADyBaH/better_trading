@@ -6,6 +6,8 @@
 import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
+from trader.db import migrate, get_version
+from typing import Callable
 
 import pandas as pd
 
@@ -13,6 +15,13 @@ from core.logger import get_logger
 import config
 
 log = get_logger(__name__)
+
+MIGRATIONS_CANDLES: list[tuple[int, Callable]] = [
+    # version 1 — базовая схема (CREATE TABLE уже в init_db)
+    (1, lambda conn: None),
+    # При добавлении колонки:
+    # (2, _m_add_candles_column_xxx),
+]
 
 
 @contextmanager
@@ -28,7 +37,7 @@ def _connect():
 
 
 def init_db() -> None:
-    """Создаёт таблицу candles, если её нет."""
+    """Создаёт таблицу candles и применяет миграции (T-06: schema_versions)."""
     with _connect() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS candles (
@@ -47,7 +56,9 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_candles_symbol_interval_begin
             ON candles (symbol, interval, begin)
         """)
-    log.debug("БД инициализирована: %s", config.DB_PATH)
+        # T-06: миграции через schema_versions
+        version = migrate(conn, "candles", MIGRATIONS_CANDLES)
+    log.debug("БД инициализирована: %s (candles schema=%d)", config.DB_PATH, version)
 
 
 def save_candles(symbol: str, interval: int, df: pd.DataFrame) -> int:

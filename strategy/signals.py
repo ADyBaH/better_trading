@@ -9,833 +9,35 @@ MVP-1: bounce, breakout, trend_level.
 
 import pandas as pd
 from datetime import datetime
-
 from core.logger import get_logger
 from core.models import AnalysisResult, Level, Signal
-from core.instruments import get_instrument
+from core.instruments import commission_in_price
+from strategy.penalties import _apply_penalties
+from strategy.dedup import _deduplicate_signals
+
+# --- Реэкспорт для тестов (test_signals.py импортирует из strategy.signals) ---
+from strategy.patterns import (
+    _is_rejection_candle,
+    _is_engulfing,
+    _has_volume_confirmation,
+)
+from strategy.strength import _compute_strength, _recalc_strength
+from strategy.context import _build_context, _compute_session
+from strategy.warnings import _build_warnings
+from strategy.stops import _compute_stops
+from strategy.finalize import _finalize_signal
+from strategy.direction import _is_direction_allowed
+from strategy.detectors import (
+    detect_retest,
+    detect_bounce,
+    detect_breakout,
+    detect_trend_level,
+)
+from strategy.filters.breakout import _breakout_passes_filter
 
 import config
 
 log = get_logger(__name__)
-
-
-# ============================================================
-# Вспомогательные: свечи-паттерны
-# ============================================================
-
-
-def _is_rejection_candle(row: pd.Series, direction: str) -> bool:
-    o, h, l, c = row["open"], row["high"], row["low"], row["close"]
-    body = abs(c - o)
-    total_range = h - l
-    if total_range == 0:
-        return False
-    upper_shadow = h - max(o, c)
-    lower_shadow = min(o, c) - l
-    if direction == "long":
-        return lower_shadow > 2 * body and lower_shadow > total_range * 0.5
-    else:
-        return upper_shadow > 2 * body and upper_shadow > total_range * 0.5
-
-
-def _is_engulfing(df: pd.DataFrame, direction: str) -> bool:
-    if len(df) < 2:
-        return False
-    prev = df.iloc[-2]
-    cur = df.iloc[-1]
-    if direction == "long":
-        return (
-            cur["close"] > cur["open"]
-            and prev["close"] < prev["open"]
-            and cur["close"] > prev["open"]
-            and cur["open"] < prev["close"]
-        )
-    else:
-        return (
-            cur["close"] < cur["open"]
-            and prev["close"] > prev["open"]
-            and cur["close"] < prev["open"]
-            and cur["open"] > prev["close"]
-        )
-
-
-def _has_volume_confirmation(df):
-    if len(df) < config.VOLUME_LOOKBACK + 1:
-        return False
-    avg_volume = df["volume"].iloc[-config.VOLUME_LOOKBACK - 1 : -1].mean()
-    if avg_volume <= 0:
-        return False
-    ratio = min(df["volume"].iloc[-1] / avg_volume, config.VOLUME_RATIO_CAP)
-    return ratio > config.VOLUME_MULTIPLIER
-
-
-def _nearest_level(
-    levels: list[Level], price: float, direction: str = "any"
-) -> Level | None:
-    candidates = []
-    for lv in levels:
-        if direction == "above" and lv.price <= price:
-            continue
-        if direction == "below" and lv.price >= price:
-            continue
-        candidates.append(lv)
-    if not candidates:
-        return None
-    return min(candidates, key=lambda lv: abs(lv.price - price))
-
-
-# ============================================================
-# Контекст и предупреждения
-# ============================================================
-
-
-def _compute_session(hour_msk: int) -> str:
-    """Сессия по МСК."""
-    if 9 <= hour_msk < 12:
-        return "morning"
-    elif 12 <= hour_msk < 17:
-        return "day"
-    elif 17 <= hour_msk < 20:
-        return "evening"
-    return "night"
-
-
-def _build_context(
-    result: AnalysisResult,
-    df: pd.DataFrame,
-    level: Level | None,
-    recent_signal: dict | None,
-) -> dict:
-    """
-    Собирает context сигнала — 19 полей.
-    """
-    ind = result.indicators
-
-    # Цена vs EMA
-    price = result.current_price
-    price_vs_fast = "above" if (ind.ema_fast and price > ind.ema_fast) else "below"
-    price_vs_slow = "above" if (ind.ema_slow and price > ind.ema_slow) else "below"
-
-    # EMA alignment
-    if ind.ema_fast and ind.ema_slow:
-        ema_alignment = "bullish" if ind.ema_fast > ind.ema_slow else "bearish"
-    else:
-        ema_alignment = "unknown"
-
-    # ATR percentile (относительно последних 200 свечей H1 — считаем здесь упрощённо)
-    atr_percentile = None
-    volatility_state = "unknown"
-    # Считаем процентиль по последним 200 свечам того же ТФ, что и df
-    try:
-        import pandas_ta as ta
-
-        atr_series = ta.atr(
-            high=df["high"], low=df["low"], close=df["close"], length=config.ATR_PERIOD
-        )
-        if atr_series is not None and not atr_series.dropna().empty:
-            current_atr = atr_series.dropna().iloc[-1]
-            pct = (atr_series.dropna() < current_atr).mean()
-            atr_percentile = round(float(pct), 2)
-            if pct > 0.75:
-                volatility_state = "high"
-            elif pct < 0.25:
-                volatility_state = "low"
-            else:
-                volatility_state = "normal"
-    except Exception:
-        pass
-
-    # Уровень
-    level_price = level.price if level else None
-    level_type = level.type if level else None
-    level_strength = level.strength_score if level else None
-    level_tags = list(level.tags) if level else []
-    distance_to_level_atr = None
-    if level is not None and result.atr > 0:
-        distance_to_level_atr = round(abs(price - level.price) / result.atr, 2)
-
-    # Свежесть данных
-    data_age_minutes = None
-    last_candle_time = None
-    if len(df) > 0:
-        try:
-            last_candle_time = df["begin"].iloc[-1]
-            if hasattr(last_candle_time, "to_pydatetime"):
-                last_candle_time = last_candle_time.to_pydatetime()
-            data_age_minutes = int(
-                (result.timestamp - last_candle_time).total_seconds() / 60
-            )
-        except Exception:
-            pass
-
-    # Время
-    now = result.timestamp
-    hour_utc = now.utctimetuple().tm_hour
-    # МСК = UTC+3
-    hour_msk = (hour_utc + 3) % 24
-    session = _compute_session(hour_msk)
-
-    # История сигналов
-    recent_dir = recent_signal["direction"] if recent_signal else None
-    recent_age = recent_signal["age_min"] if recent_signal else None
-
-    return {
-        "adx": round(ind.adx, 2) if ind.adx else None,
-        "adx_state": ind.adx_state,
-        "rsi": round(ind.rsi, 2) if ind.rsi else None,
-        "rsi_state": ind.rsi_state,
-        "trend": ind.trend,
-        "ema_alignment": ema_alignment,
-        "price_vs_ema_fast": price_vs_fast,
-        "price_vs_ema_slow": price_vs_slow,
-        "atr": round(result.atr, 5),
-        "atr_percentile": atr_percentile,
-        "volatility_state": volatility_state,
-        "level_price": round(level_price, 5) if level_price else None,
-        "level_type": level_type,
-        "level_strength_score": level_strength,
-        "level_tags": level_tags,
-        "distance_to_level_atr": distance_to_level_atr,
-        "recent_signal_direction": recent_dir,
-        "recent_signal_age_min": recent_age,
-        "session": session,
-        "hour_utc": hour_utc,
-        "data_age_minutes": data_age_minutes,
-        "last_candle_time": last_candle_time.isoformat() if last_candle_time else None,
-    }
-
-
-def _trend_conflict(ind) -> dict:
-    """
-    Проверяет конфликты между источниками тренда.
-    Возвращает dict:
-        has_conflict: bool — есть ли конфликт
-        double_conflict: bool — двойной конфликт (transition + day против)
-    """
-    # Одиночный конфликт: EMA против day_trend
-    ema = (
-        "up"
-        if ind.ema_fast and ind.ema_slow and ind.ema_fast > ind.ema_slow
-        else "down"
-    )
-    conflict = (ema == "down" and ind.day_trend == "bullish") or (
-        ema == "up" and ind.day_trend == "bearish"
-    )
-
-    # Двойной: transition + day_trend против основного
-    double = ind.trend == "transition" and ind.day_trend in ("bullish", "bearish")
-
-    return {
-        "has_conflict": conflict,
-        "double_conflict": double,
-    }
-
-
-def _build_warnings(
-    direction: str,
-    result: AnalysisResult,
-    level: Level | None,
-    recent_signal: dict | None,
-    df: pd.DataFrame,
-) -> list[str]:
-    """
-    Предупреждения о рисках. НЕ меняют score.
-    Шаг 1: только информационные пометки.
-    """
-    warnings = []
-    ind = result.indicators
-
-    # ADX флэт
-    if ind.adx is not None and ind.adx < config.ADX_THRESHOLD:
-        warnings.append(f"ADX {ind.adx:.1f} flat — нет тренда")
-
-    # --- Состояние рынка ---
-    if ind.market_state == "pullback":
-        warnings.append(
-            f"🔄 Откат после импульса ({ind.impulse_atr:.1f} ATR) — вход против отката"
-        )
-    elif ind.market_state == "impulse":
-        warnings.append(f"🚀 Импульс {ind.impulse_atr:.1f} ATR — риск входа на пике")
-
-    # --- Недельный тренд ---
-    if ind.week_trend == "neutral" and direction == "long":
-        warnings.append("✅ neutral week + long — хороший контекст")
-
-    # --- Стакан против входа ---
-    ob = getattr(result, "order_book", None) or {}
-    pressure = ob.get("pressure_pct")
-    if pressure is not None:
-        if direction == "short" and pressure > 60:
-            warnings.append(f"⚠ bid-heavy ({pressure:.0f}%) — шорт против покупателей")
-        elif direction == "long" and pressure < 40:
-            warnings.append(f"⚠ ask-heavy ({pressure:.0f}%) — лонг против продавцов")
-
-    # Против тренда
-    if ind.trend != "none":
-        if direction == "long" and ind.trend == "down":
-            warnings.append(f"LONG против тренда {ind.trend.upper()}")
-        elif direction == "short" and ind.trend == "up":
-            warnings.append(f"SHORT против тренда {ind.trend.upper()}")
-
-    # RSI риск
-    if ind.rsi is not None:
-        if direction == "short":
-            if ind.rsi < config.RSI_OVERSOLD:
-                warnings.append(f"RSI {ind.rsi:.1f} перепродан — риск отскока")
-            elif ind.rsi < config.RSI_NEAR_OVERSOLD:
-                warnings.append(f"RSI {ind.rsi:.1f} near_oversold — риск отскока")
-        else:  # long
-            if ind.rsi > config.RSI_OVERBOUGHT:
-                warnings.append(f"RSI {ind.rsi:.1f} перекуплен — риск коррекции")
-            elif ind.rsi > config.RSI_NEAR_OVERBOUGHT:
-                warnings.append(f"RSI {ind.rsi:.1f} near_overbought — риск коррекции")
-
-    # Уровень
-    if level is not None:
-        if level.strength_score and level.strength_score > 40:
-            warnings.append(f"Уровень сильный (score {level.strength_score:.0f})")
-
-        if level.tags:
-            warnings.append(f"Совпадение референсов: {', '.join(level.tags)}")
-
-        # Цена прямо на уровне
-        if level.distance_atr is not None and level.distance_atr < 0.1:
-            warnings.append("Цена прямо на уровне — высокий риск ложного пробоя")
-
-    # Cooldown: противоположный сигнал недавно
-    if recent_signal is not None:
-        recent_dir = recent_signal.get("direction")
-        age = recent_signal.get("age_min")
-        if recent_dir and recent_dir != direction and age is not None and age < 120:
-            warnings.append(f"{age} мин назад был {recent_dir.upper()} — риск пилы")
-
-    # Свежесть данных
-    if len(df) > 0:
-        try:
-            last = df["begin"].iloc[-1]
-            if hasattr(last, "to_pydatetime"):
-                last = last.to_pydatetime()
-            age_min = int((datetime.now() - last).total_seconds() / 60)
-            if age_min > config.DATA_MAX_AGE_BLOCK:
-                warnings.append(f"Данные устарели на {age_min} мин — блокировка")
-            elif age_min > config.DATA_MAX_AGE_MIN:
-                warnings.append(f"Данные устарели на {age_min} мин (лаг биржи)")
-        except Exception:
-            pass
-
-    # --- Конфликты тренда ---
-    ind = result.indicators
-
-    if ind.day_trend == "bullish" and direction == "short":
-        warnings.append(f"⚠ День бычий ({ind.day_change_atr:+.1f} ATR) — не шорти")
-    elif ind.day_trend == "bearish" and direction == "long":
-        warnings.append(f"⚠ День медвежий ({ind.day_change_atr:+.1f} ATR) — не лонгуй")
-
-    if ind.structure == "bullish" and direction == "short":
-        warnings.append("⚠ Структура бычья (HH/HL) — не шорти")
-    elif ind.structure == "bearish" and direction == "long":
-        warnings.append("⚠ Структура медвежья (LH/LL) — не лонгуй")
-
-    ema_trend = (
-        "up"
-        if ind.ema_fast and ind.ema_slow and ind.ema_fast > ind.ema_slow
-        else "down"
-    )
-    if ema_trend == "down" and ind.day_trend == "bullish":
-        warnings.append(
-            f"⚠ Конфликт: EMA вниз, но день бычий ({ind.day_change_atr:+.1f} ATR)"
-        )
-    elif ema_trend == "up" and ind.day_trend == "bearish":
-        warnings.append(
-            f"⚠ Конфликт: EMA вверх, но день медвежий ({ind.day_change_atr:+.1f} ATR)"
-        )
-
-    if ind.trend == "transition":
-        warnings.append(
-            f"⚠ Тренд transition (голосов {ind.vote_sum:+d}) — сигнал ненадёжный"
-        )
-
-    # Время суток
-    now = datetime.now()
-    hour_msk = (now.utctimetuple().tm_hour + 3) % 24
-    if hour_msk >= 18 or hour_msk < 9:
-        warnings.append("Низкая ликвидность (вне основных часов)")
-
-    # --- Late/chase: цена уже прошла > 1 ATR от уровня ---
-    if level is not None and level.distance_atr is not None:
-        if level.distance_atr > 1.0:
-            warnings.append(
-                f"⚠ late/chase: цена прошла {level.distance_atr:.1f} ATR от уровня"
-            )
-
-    return warnings
-
-
-def _commission_in_price(symbol: str) -> float:
-    """Комиссия за круг в единицах цены (для net_rr)."""
-    inst = get_instrument(symbol)
-    if inst.step_cost == 0:
-        return 0.0
-    # commission_round в рублях, делим на step_cost → получаем пункты,
-    # умножаем на price_step → получаем в цене
-    commission_points = inst.commission_round / inst.step_cost
-    return commission_points * inst.price_step
-
-
-def _compute_stops(
-    entry: float, direction: str, atr: float, day_range_atr: float | None = None
-) -> tuple[float, float]:
-    if config.USE_ATR_STOPS:
-        stop_dist = config.STOP_ATR_MULT * atr
-        # take ≤ 0.6 × day_range, но не меньше 1.0 ATR
-        take_mult = config.TAKE_ATR_MULT
-        if day_range_atr is not None and day_range_atr > 0:
-            take_mult = min(take_mult, max(1.0, day_range_atr * 0.6))
-        take_dist = take_mult * atr
-    else:
-        stop_dist = config.STOP_POINTS * config.PRICE_STEP
-        take_dist = config.TAKE_POINTS * config.PRICE_STEP
-
-    if stop_dist <= 0:
-        log.warning("_compute_stops: stop_dist=0 (atr=%.5f), fallback", atr)
-        stop_dist = config.STOP_POINTS * config.PRICE_STEP
-    if take_dist <= 0:
-        take_dist = config.TAKE_POINTS * config.PRICE_STEP
-
-    if direction == "long":
-        return entry - stop_dist, entry + take_dist
-    else:
-        return entry + stop_dist, entry - take_dist
-
-
-def _finalize_signal(
-    signal: Signal,
-    result: AnalysisResult,
-    df: pd.DataFrame,
-    level: Level | None,
-    recent_signal: dict | None,
-    symbol: str,
-) -> Signal:
-    """Заполняет context, warnings, R:R. Не бросает исключения наружу."""
-    try:
-        signal.context = _build_context(result, df, level, recent_signal)
-    except Exception as e:
-        log.exception(
-            "_build_context упал (signal=%s %s): %s", signal.direction, signal.kind, e
-        )
-        signal.context = {}
-
-    signal.market_state = result.indicators.market_state
-
-    try:
-        signal.warnings = _build_warnings(
-            signal.direction, result, level, recent_signal, df
-        )
-    except Exception as e:
-        log.exception(
-            "_build_warnings упал (signal=%s %s): %s", signal.direction, signal.kind, e
-        )
-        signal.warnings = []
-
-    # --- R:R — критично, всегда заполняем ---
-    try:
-        signal.compute_rr(commission_round=_commission_in_price(symbol))
-    except Exception as e:
-        log.exception(
-            "compute_rr упал (signal=%s %s): %s", signal.direction, signal.kind, e
-        )
-
-    # --- Fallback: если RR всё ещё None — считаем вручную ---
-    if signal.risk_reward is None or signal.net_rr is None:
-        gross_risk = abs(signal.entry_price - signal.stop_price)
-        gross_reward = abs(signal.take_price - signal.entry_price)
-        if gross_risk > 0:
-            comm = _commission_in_price(symbol)
-            if signal.risk_reward is None:
-                signal.risk_reward = round(gross_reward / gross_risk, 2)
-            if signal.net_rr is None:
-                net_risk = gross_risk + comm
-                net_reward = gross_reward - comm
-                if net_risk > 0:
-                    signal.net_rr = round(net_reward / net_risk, 2)
-            log.warning(
-                "RR fallback: %s %s entry=%.3f stop=%.3f take=%.3f → RR=%.2f net=%.2f",
-                signal.direction,
-                signal.kind,
-                signal.entry_price,
-                signal.stop_price,
-                signal.take_price,
-                signal.risk_reward,
-                signal.net_rr,
-            )
-        else:
-            log.error(
-                "RR невозможно посчитать: gross_risk=0 (entry=%.3f, stop=%.3f)",
-                signal.entry_price,
-                signal.stop_price,
-            )
-            signal._rr_invalid = True
-
-    return signal
-
-
-def _is_direction_allowed(direction: str, trend: str, kind: str) -> bool:
-    """
-    Проверяет, можно ли торговать в эту сторону при данном тренде.
-
-    Правило:
-    - trend_level — не трогаем (уже согласован).
-    - bounce/breakout при up/strong_up → нет SHORT.
-    - bounce/breakout при down/strong_down → нет LONG.
-    - при transition — разрешено (штраф применяется отдельно).
-    """
-    if kind == "trend_level":
-        return True
-
-    if trend in ("up", "strong_up") and direction == "short":
-        return False
-    if trend in ("down", "strong_down") and direction == "long":
-        return False
-
-    return True
-
-
-# ============================================================
-# Детектор: Bounce
-# ============================================================
-
-
-def detect_bounce(
-    result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0
-) -> list[Signal]:
-    signals = []
-    price = result.current_price
-    atr = result.atr
-    tol = config.BOUNCE_TOLERANCE_ATR * atr
-
-    for lv in result.levels:
-        dist = abs(lv.price - price)
-
-        if dist > tol:
-            continue
-        direction = "long" if lv.price <= price else "short"
-
-        if not _is_direction_allowed(direction, result.indicators.trend, "bounce"):
-            continue
-
-        has_candle = _is_rejection_candle(df.iloc[-1], direction) or _is_engulfing(
-            df, direction
-        )
-
-        if not has_candle:
-            continue
-
-        matched = ["A1", "A2"]
-        reasons = [
-            f"цена у уровня {lv.price:.3f} (d={dist/atr:.2f} ATR)",
-            "свеча-разворот",
-        ]
-
-        rsi = result.indicators.rsi
-        if rsi is not None:
-            if direction == "long" and rsi < config.RSI_BOUNCE_LONG:
-                matched.append("B1")
-                reasons.append(f"RSI {rsi:.1f} < {config.RSI_BOUNCE_LONG}")
-            elif direction == "short" and rsi > config.RSI_BOUNCE_SHORT:
-                matched.append("B1")
-                reasons.append(f"RSI {rsi:.1f} > {config.RSI_BOUNCE_SHORT}")
-
-        if _has_volume_confirmation(df):
-            matched.append("D3")
-            reasons.append("объём выше среднего")
-
-        score, strength = _compute_strength(matched)
-        if strength == "none":
-            continue
-
-        # --- Штраф за transition ---
-        if result.indicators.trend == "transition":
-            penalty = config.PENALTY_BOUNCE_TRANSITION
-            score = max(0.0, score - penalty)
-            reasons.append(f"штраф за transition: -{penalty}")
-
-            if score < 1.0:
-                strength = "none"
-            elif score < 2.0:
-                strength = "weak"
-            elif score < 3.0:
-                strength = "medium"
-            else:
-                strength = "strong"
-
-            if strength == "none":
-                continue
-
-        entry = price
-        stop, take = _compute_stops(
-            entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
-        )
-
-        signal = Signal(
-            direction=direction,
-            kind="bounce",
-            strength=strength,
-            strength_score=score,
-            entry_price=entry,
-            stop_price=stop,
-            take_price=take,
-            matched_criteria=matched,
-            reasons=reasons,
-            level_price=lv.price,
-        )
-        signals.append(signal)
-
-    return signals
-
-
-# ============================================================
-# Детектор: Breakout
-# ============================================================
-
-
-def detect_breakout(
-    result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0
-) -> list[Signal]:
-    """
-    Пробой уровня.
-    A1: последняя свеча ЗАКРЫЛАСЬ за уровнем, предыдущая — нет.
-    B2: ADX > ADX_BREAKOUT_THRESHOLD.
-    D3: объём выше среднего.
-    """
-    if len(df) < 2:
-        return []
-
-    signals = []
-    price = result.current_price
-    atr = result.atr
-    buffer = config.BREAKOUT_BUFFER_ATR * atr
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
-    ind = result.indicators
-
-    for lv in result.levels:
-        # 1. Определение direction
-        if (
-            prev["close"] <= lv.price
-            and last["close"] > lv.price + buffer
-            and price > lv.price
-        ):
-            direction = "long"
-        elif (
-            prev["close"] >= lv.price
-            and last["close"] < lv.price - buffer
-            and price < lv.price
-        ):
-            direction = "short"
-        else:
-            continue
-
-        # 2. НОВОЕ: фильтр против тренда  ← ВСТАВЬ ЭТО
-        if not _is_direction_allowed(direction, ind.trend, "breakout"):
-            continue
-
-        # 3. Блокировка двойного конфликта  ← ТВОЙ БЛОК, ОСТАВЛЯЙ
-        if ind.trend == "transition":
-            if ind.day_trend == "bullish" and direction == "short":
-                log.info("breakout SHORT заблокирован: transition + day bullish")
-                continue
-            if ind.day_trend == "bearish" and direction == "long":
-                log.info("breakout LONG заблокирован: transition + day bearish")
-                continue
-
-        matched = ["A1"]
-        reasons = [f"свежий пробой уровня {lv.price:.3f}"]
-
-        adx = ind.adx
-        if adx is not None and adx > config.ADX_BREAKOUT_THRESHOLD:
-            matched.append("B2")
-            reasons.append(f"ADX {adx:.1f} > {config.ADX_BREAKOUT_THRESHOLD}")
-
-        if _has_volume_confirmation(df):
-            matched.append("D3")
-            reasons.append("объём выше среднего")
-
-        score, strength = _compute_strength(matched)
-        if strength == "none":
-            continue
-
-        # --- Штраф за transition ---
-        if ind.trend == "transition":
-            penalty = config.PENALTY_BREAKOUT_TRANSITION
-            score = max(0.0, score - penalty)
-            reasons.append(f"штраф за transition: -{penalty}")
-
-            # Пересчёт strength
-            if score < 1.0:
-                strength = "none"
-            elif score < 2.0:
-                strength = "weak"
-            elif score < 3.0:
-                strength = "medium"
-            else:
-                strength = "strong"
-
-            if strength == "none":
-                continue
-
-        entry = price
-        stop, take = _compute_stops(
-            entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
-        )
-
-        signal = Signal(
-            direction=direction,
-            kind="breakout",
-            strength=strength,
-            strength_score=score,
-            entry_price=entry,
-            stop_price=stop,
-            take_price=take,
-            matched_criteria=matched,
-            reasons=reasons,
-            level_price=lv.price,
-        )
-        signals.append(signal)
-
-    return signals
-
-
-# ============================================================
-# Детектор: Trend + Level
-# ============================================================
-
-
-def detect_trend_level(
-    result: AnalysisResult, df: pd.DataFrame, day_range_atr: float = 0.0
-) -> list[Signal]:
-    """
-    Тренд + отбой от уровня.
-    A1: цена у уровня.
-    A2: свеча-подтверждение.
-    A3: тренд по голосованию совпадает с направлением.
-
-    ВАЖНО: при trend=transition/none сигнал НЕ создаётся (return []).
-    Штраф PENALTY_TREND_TRANSITION здесь не применяется — transition
-    отсекается раньше. Если позже понадобится разрешить trend_level
-    при transition — вернуть блок штрафа (см. git history / NOTES).
-    """
-    signals = []
-    price = result.current_price
-    atr = result.atr
-    tol = config.TREND_LEVEL_TOLERANCE_ATR * atr
-    ind = result.indicators
-
-    # --- Направление по главному тренду ---
-    if ind.trend in ("up", "strong_up"):
-        direction = "long"
-    elif ind.trend in ("down", "strong_down"):
-        direction = "short"
-    else:
-        # transition или none — не создаём trend_level
-        log.debug("trend_level пропущен: trend=%s", ind.trend)
-        return []
-
-    for lv in result.levels:
-        # Для лонга — уровень ниже цены (поддержка), для шорта — выше (сопротивление)
-        if direction == "long" and lv.price > price:
-            continue
-        if direction == "short" and lv.price < price:
-            continue
-
-        dist = abs(lv.price - price)
-        if dist > tol:
-            continue
-
-        has_candle = _is_rejection_candle(df.iloc[-1], direction) or _is_engulfing(
-            df, direction
-        )
-        if not has_candle:
-            continue
-
-        matched = ["A1", "A2", "A3"]
-        reasons = [
-            f"тренд {ind.trend} (голосов {ind.vote_sum:+d})",
-            f"отбой от уровня {lv.price:.3f}",
-            "свеча-разворот",
-        ]
-
-        if _has_volume_confirmation(df):
-            matched.append("D3")
-            reasons.append("объём выше среднего")
-
-        score, strength = _compute_strength(matched)
-        if strength == "none":
-            continue
-
-        entry = price
-        stop, take = _compute_stops(
-            entry, direction, result.atr, day_range_atr=result.indicators.day_range_atr
-        )
-
-        signal = Signal(
-            direction=direction,
-            kind="trend_level",
-            strength=strength,
-            strength_score=score,
-            entry_price=entry,
-            stop_price=stop,
-            take_price=take,
-            matched_criteria=matched,
-            reasons=reasons,
-            level_price=lv.price,
-        )
-        signals.append(signal)
-
-    return signals
-
-
-# ============================================================
-# Подсчёт силы (без изменений)
-# ============================================================
-
-
-def _compute_strength(matched: list[str]) -> tuple[float, str]:
-    groups = {"A": [], "B": [], "C": [], "D": [], "E": []}
-    for c in matched:
-        g = c[0]
-        if g in groups:
-            groups[g].append(c)
-
-    effective = []
-    for g, items in groups.items():
-        limit = 3 if g == "A" else 2
-        effective.extend(items[:limit])
-
-    has_a = len(groups["A"]) > 0
-    has_c_or_d = len(groups["C"]) > 0 or len(groups["D"]) > 0
-    score = float(len(effective))
-
-    if not has_a or score < 1:
-        return 0.0, "none"
-    elif score == 1:
-        return score, "weak"
-    elif score == 2:
-        return score, "medium"
-    elif score >= 3 and has_c_or_d:
-        return score, "strong"
-    else:
-        return score, "medium"
-
-
-def _recalc_strength(score):
-    if score < 1.0:
-        return "none"
-    elif score < 2.0:
-        return "weak"
-    elif score < 3.0:
-        return "medium"
-    return "strong"
-
 
 # ============================================================
 # Агрегатор
@@ -847,11 +49,13 @@ def detect_signals(
     df: pd.DataFrame,
     now: datetime | None = None,
     skip_age_check: bool = False,
+    skip_filters: bool = False,
 ) -> list[Signal]:
     """
     Запускает детекторы, обогащает сигналы context/warnings/R:R,
-    дедуплицирует, сортирует.
+    применяет фильтры (реестр strategy.filters), штрафы, дедуплицирует.
     """
+    from strategy.filters import apply_filters
     from strategy.signal_history import get_recent_signal
 
     # --- Блокировка по свежести данных ---
@@ -868,47 +72,50 @@ def detect_signals(
                 age_min,
                 config.DATA_MAX_AGE_BLOCK,
             )
+            result.skipped_signals.append(
+                {
+                    "direction": "any",
+                    "kind": "data_age",
+                    "entry_price": 0.0,
+                    "strength_score": 0.0,
+                    "reason": f"data_age:{age_min}",
+                }
+            )
             return []
 
     all_signals = []
     all_signals.extend(detect_bounce(result, df))
-    all_signals.extend(detect_breakout(result, df))
+    if getattr(config, "BREAKOUT_MODE", "direct") == "retest":
+        all_signals.extend(detect_retest(result, df))
+    else:
+        all_signals.extend(detect_breakout(result, df))
     all_signals.extend(detect_trend_level(result, df))
 
-    # Получаем последний сигнал из истории (для cooldown)
-    recent = get_recent_signal(result.symbol, lookback_minutes=180)
+    recent = get_recent_signal(
+        result.symbol,
+        lookback_minutes=180,
+        now=result.timestamp,
+    )
 
     passed_signals: list[Signal] = []
 
     for s in all_signals:
-        # --- Фильтр: bullish / long ---
-        if (
-            config.PAPER_SKIP_BULLISH_LONG
-            and result.indicators.week_trend == "bullish"
-            and s.direction == "long"
-        ):
-            log.info("bullish / long заблокирован (фильтр)")
+        # --- 1. Реестр фильтров ---
+        blocked_by = apply_filters(s, result)
+        if blocked_by:
+            log.info("%s заблокирован (фильтр %s)", s.kind, blocked_by)
+            result.skipped_signals.append(
+                {
+                    "direction": s.direction,
+                    "kind": s.kind,
+                    "entry_price": s.entry_price,
+                    "strength_score": s.strength_score,
+                    "reason": f"filter:{blocked_by}",
+                }
+            )
             continue
 
-        # --- Фильтр: normal + breakout / trend_level ---
-        if (
-            config.PAPER_SKIP_NORMAL_BREAKOUT
-            and result.indicators.market_state == "normal"
-            and s.kind in ("breakout", "trend_level")
-        ):
-            log.info("normal + %s заблокирован (фильтр)", s.kind)
-            continue
-
-        # --- Фильтр: pullback + bounce (10 сделок, 1W/7L, −81.94 ₽) ---
-        if (
-            getattr(config, "PAPER_SKIP_PULLBACK_BOUNCE", False)
-            and result.indicators.market_state == "pullback"
-            and s.kind == "bounce"
-        ):
-            log.info("pullback + bounce заблокирован (фильтр)")
-            continue
-
-        # Найти уровень по level_price
+        # --- 2. Найти уровень по level_price ---
         level = None
         if s.level_price is not None:
             for lv in result.levels:
@@ -916,76 +123,32 @@ def detect_signals(
                     level = lv
                     break
 
+        # --- 3. Обогащение (context, warnings, R:R) ---
         _finalize_signal(s, result, df, level, recent, result.symbol)
 
-        # --- Штраф: EMA против direction ---
-        ema_against = (
-            s.direction == "long" and s.context.get("ema_alignment") == "bearish"
-        ) or (s.direction == "short" and s.context.get("ema_alignment") == "bullish")
-        if ema_against:
-            penalty = 1.0
-            s.strength_score = max(0.0, s.strength_score - penalty)
-            s.reasons.append(f"штраф EMA-конфликт: -{penalty}")
-            s.strength = _recalc_strength(s.strength_score)
-            if s.strength == "none":
-                continue
-
-        # --- Штраф: пила (противоположный сигнал < 30 мин) ---
-        recent_dir = s.context.get("recent_signal_direction")
-        recent_age = s.context.get("recent_signal_age_min")
-        if (
-            recent_dir
-            and recent_dir != s.direction
-            and recent_age is not None
-            and recent_age < 30
-        ):
-            penalty = 1.5
-            s.strength_score = max(0.0, s.strength_score - penalty)
-            s.reasons.append(
-                f"штраф пила: -{penalty} ({recent_age} мин назад {recent_dir})"
+        # --- 4. Штрафы (EMA, пила, late-chase) ---
+        reason = _apply_penalties(s, result, level, skip_filters=skip_filters)
+        if reason:
+            result.skipped_signals.append(
+                {
+                    "direction": s.direction,
+                    "kind": s.kind,
+                    "entry_price": s.entry_price,
+                    "strength_score": s.strength_score,
+                    "reason": reason,
+                }
             )
-            s.strength = _recalc_strength(s.strength_score)
-            if s.strength == "none":
-                continue
+            continue
 
+        # --- 5. RR invalid ---
         if getattr(s, "_rr_invalid", False):
             log.warning("Сигнал отброшен: RR не посчитан (%s)", s.kind)
             continue
 
-        # --- Штраф за late/chase ---
-        if (
-            level is not None
-            and level.distance_atr is not None
-            and level.distance_atr > 1.0
-        ):
-            penalty = 1.0
-            s.strength_score = max(0.0, s.strength_score - penalty)
-            s.reasons.append(
-                f"штраф late/chase: -{penalty} (distance={level.distance_atr:.1f} ATR)"
-            )
-            s.strength = _recalc_strength(s.strength_score)
-            if s.strength == "none":
-                continue
-
-        # --- Только прошедшие все фильтры ---
         passed_signals.append(s)
 
-    # Дедупликация — ТОЛЬКО по passed_signals
-    dedup_window = 0.5 * result.atr if result.atr > 0 else 0.0
-    best: list[Signal] = []
-    for s in sorted(passed_signals, key=lambda x: x.strength_score, reverse=True):
-        is_dup = False
-        for b in best:
-            if b.direction != s.direction:
-                continue
-            if abs(b.entry_price - s.entry_price) < dedup_window:
-                is_dup = True
-                break
-            if abs((b.level_price or 0) - (s.level_price or 0)) < dedup_window:
-                is_dup = True
-                break
-        if not is_dup:
-            best.append(s)
+    # --- Дедупликация ---
+    best = _deduplicate_signals(passed_signals, result.atr)
 
     log.info(
         "Сигналов: %d (из %d, прошло фильтры %d)",

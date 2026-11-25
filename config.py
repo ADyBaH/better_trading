@@ -1,4 +1,5 @@
 from core.instruments import get_instrument
+import os  # в начале файла, если нет
 
 __version__ = "0.11.0"
 
@@ -116,8 +117,8 @@ PENALTY_BREAKOUT_TRANSITION = 1.0  # для breakout при transition
 PENALTY_BOUNCE_TRANSITION = 0.5
 
 # --- Свежесть данных ---
-DATA_MAX_AGE_MIN = 5  # если последняя свеча старше — warning в сигнале
-DATA_MAX_AGE_BLOCK = 15  # блокировка — не создавать сигнал
+DATA_MAX_AGE_MIN = 20  # если последняя свеча старше — warning в сигнале
+DATA_MAX_AGE_BLOCK = 30  # T-01b: M15 закрытая всегда 15–30 мин + лаг ALOR
 
 # ============================================================
 # ДАННЫЕ
@@ -148,12 +149,15 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 # ============================================================
 PAPER_ENABLED = True
 
+# Лимит открытых paper-сделок: 0 — без лимита, 1 — не более одной.
+PAPER_MAX_OPEN = 0
+
 # Торговые часы для paper-tracking (отдельно от TRADING_HOURS).
 # Новые paper-сделки создаются только в этом окне (МСК).
 # Резолв открытых сделок работает всегда — иначе зависнут.
 PAPER_TRADING_HOURS = {
-    "start": "09:00",
-    "end": "18:00",
+    "start": os.environ.get("PAPER_START", "09:00"),
+    "end": os.environ.get("PAPER_END", "18:00"),
     "timezone": "Europe/Moscow",
 }
 
@@ -167,6 +171,15 @@ PAPER_DEDUP_PRICE_TOL_ATR = 0.25
 PAPER_DEDUP_MINUTES = 5  # жёсткое окно эха (не создавать дубль в пределах 15 мин)
 
 # ============================================================
+# ЭКСПЕРИМЕНТЫ (T-07: pre-registration)
+# ============================================================
+# ID текущего эксперимента (например, "EXP-20261122-01").
+# None — вне эксперимента (baseline).
+# Пишется в paper_trades.experiment_id и analysis_*.json.
+# Без pre-registration в EXPERIMENTS.md эксперимент не считается.
+EXPERIMENT_ID: str | None = os.environ.get("EXPERIMENT_ID")
+
+# ============================================================
 # ВИРТУАЛЬНЫЙ ДЕПОЗИТ (paper-tracking)
 # ============================================================
 VIRTUAL_DEPOSIT = 3000.0  # стартовый депозит, ₽
@@ -175,22 +188,88 @@ RISK_PER_TRADE_PCT = 0.01  # 1% риска на сделку
 # --- Фильтры (по статистике) ---
 # Y (feature/real-trading): bullish_long + normal_breakout — ON
 # F (experiment/aggressive-signals): все OFF (полигон)
-PAPER_SKIP_BULLISH_LONG = True          # −103 ₽ (replay 11/13.11) — полезен
-PAPER_SKIP_NORMAL_BREAKOUT = True       # −139.72 ₽ (paper_trades, n=17) — полезен
-PAPER_SKIP_BULLISH_SHORT = False        # +21.72 ₽ (paper_trades, n=8) — НЕ включать
-PAPER_SKIP_ADX_FLAT_BREAKOUT = False    # +50.28 ₽ (paper_trades, n=7) — НЕ включать
-PAPER_SKIP_PULLBACK_BOUNCE = True   # 10 сделок, 1W/7L, −81.94 ₽
+PAPER_SKIP_BULLISH_LONG = True  # −103 ₽ (replay 11/13.11) — полезен
+PAPER_SKIP_NORMAL_BREAKOUT = True  # −139.72 ₽ (paper_trades, n=17) — полезен
+PAPER_SKIP_BULLISH_SHORT = False  # +21.72 ₽ (paper_trades, n=8) — НЕ включать
+PAPER_SKIP_ADX_FLAT_BREAKOUT = False  # +50.28 ₽ (paper_trades, n=7) — НЕ включать
+PAPER_SKIP_PULLBACK_BOUNCE = True  # 10 сделок, 1W/7L, −81.94 ₽
+PAPER_SKIP_ADX_TREND = True  # 17 сделок, 1W/12L, −256.36 ₽
+PAPER_SKIP_BID_HEAVY = True  # 6 сделок, 0W/5L, −150.30 ₽
+
+# --- Breakout: статус (Задача 3, paper-stats 2026-11-19, n=37) ---
+# baseline: 10W/23L/1T, −71.54 ₽, exp −0.0 — не работает ни в одном разрезе.
+# kill-switch: True — breakout не создаётся вообще (эксперимент Y на 2 недели).
+PAPER_SKIP_BREAKOUT = False
+
+# Условный фильтр для breakout (взаимоисключающие варианты):
+#   "none" — без фильтра (как сейчас)
+#   "F1"   — ADX >= 25 (strong) только
+#   "F2"   — ADX < 20 (flat) только
+#   "F3"   — market_state == impulse только
+#   "F4"   — week_trend не противоречит direction (neutral пропускаем)
+BREAKOUT_FILTER = "none"
+
+# T-29: режим breakout — "direct" (пробой) или "retest" (ретест пробитого уровня)
+BREAKOUT_MODE = "direct"
+
+# T-29: параметры retest
+RETEST_TOLERANCE_ATR = 0.2  # цена вернулась к level ± 0.2 ATR
+RETEST_BOUNCE_ATR = 0.1  # отскок: close > level + 0.1 ATR
+RETEST_LOOKBACK_BARS = 5  # сколько свечей назад искать пробой
 
 # ============================================================
 # СОХРАНЕНИЕ СВЕЧЕЙ В JSON
 # ============================================================
 SAVE_CANDLES = True  # глобальный выключатель (вкл/выкл фичу)
-SAVE_CANDLES_ALWAYS = False  # ФЛАГ «ВСЕ СВЕЧИ»: True — писать каждый цикл (A)
+SAVE_CANDLES_ALWAYS = True  # ФЛАГ «ВСЕ СВЕЧИ»: True — писать каждый цикл (A)
 #                    False — только при сигналах (B)
 SAVE_CANDLES_MARK_SIGNALS = (
     True  # ставить has_signals/signals_count в снимке (B-маркер)
 )
 SAVE_CANDLES_TIMEFRAMES = ["M15", "H1", "H4"]  # какие ТФ сохранять
-SAVE_CANDLES_COUNT = 300  # сколько свечей брать
+SAVE_CANDLES_COUNT = 300
+# Разные count по ТФ (H4 нужно больше для EMA200: 200 + запас)
+SAVE_CANDLES_COUNT_BY_TF = {
+    "M15": 300,
+    "H1": 300,
+    "H4": 500,
+}
 SAVE_CANDLES_MAX_SNAPSHOTS = 300  # защита от разрастания
-VOLUME_RATIO_CAP = 5.0 # глобальный cap, чтобы выбросы (17–20x) не завышали score
+VOLUME_RATIO_CAP = 5.0  # глобальный cap, чтобы выбросы (17–20x) не завышали score
+
+# --- Адаптивный take: take = min(2.0×ATR, 0.6×day_range×ATR) ---
+ADAPTIVE_TAKE_ENABLED = True  # эксперимент; False = baseline (2.0×ATR)
+TAKE_DAY_RANGE_FRAC = 0.6  # доля дневного диапазона
+MIN_TAKE_ATR = 0.8  # защита от слишком близкого тейка (partial_day)
+
+
+# ============================================================
+# REAL-TRADING
+# ============================================================
+# Единственный источник истины для режима real-торговли.
+#   "mock" — ордера НЕ ставятся (по умолчанию, безопасно)
+#   "live" — реальные ордера (требует CONFIRM_LIVE=1 в env)
+REAL_TRADING_MODE = "mock"
+
+# Дополнительное подтверждение для live (защита от случайного переключения).
+# Устанавливается ТОЛЬКО через env: export CONFIRM_LIVE=1
+# В коде/config.py значение НЕ хардкодить.
+CONFIRM_LIVE_ENV_VAR = "CONFIRM_LIVE"
+
+# --- T-24: пессимистичный вход (market price) ---
+# True  → entry = market_price_at_open (фактическая рыночная цена на момент открытия)
+# False → entry = entry_price (close, старое поведение)
+# Fallback на entry_price, если market_price_at_open = None (старые сделки).
+PAPER_USE_MARKET_PRICE = True
+
+# T-26: раздельный сбор по ТФ.
+# Каждый ТФ обновляется только когда его бар закрылся (+5 сек на лаг ALOR).
+# Чтобы добавить M5 — добавить "M5": 5 в словарь.
+TF_REFRESH_MINUTES = {
+    "M15": 15,
+    "H1": 60,
+    "H4": 240,
+}
+
+# T-26: какие ТФ используются для сигналов (пока M15).
+SIGNAL_TIMEFRAMES = ["M15"]

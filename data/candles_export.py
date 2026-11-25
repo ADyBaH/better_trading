@@ -73,7 +73,9 @@ def append_candles_snapshot(
     saved_at = saved_at or datetime.now()
     path = _candles_path(symbol, timeframe, saved_at)
 
-    candles = candles_to_list(df, max_count=config.SAVE_CANDLES_COUNT)
+    count_by_tf = getattr(config, "SAVE_CANDLES_COUNT_BY_TF", {})
+    max_count = count_by_tf.get(timeframe, config.SAVE_CANDLES_COUNT)
+    candles = candles_to_list(df, max_count=max_count)
 
     # --- Читаем существующий файл ---
     data = None
@@ -165,9 +167,12 @@ def save_candles_snapshots(result, log=None) -> list[Path]:
 
     paths: list[Path] = []
 
+    count_by_tf = getattr(config, "SAVE_CANDLES_COUNT_BY_TF", {})
+
     for tf in config.SAVE_CANDLES_TIMEFRAMES:
+        count = count_by_tf.get(tf, config.SAVE_CANDLES_COUNT)
         try:
-            df_tf = get_candles_tf(tf, count=config.SAVE_CANDLES_COUNT)
+            df_tf = get_candles_tf(tf, count=count)
         except Exception as e:
             _log.warning("candles: не удалось получить %s: %s", tf, e)
             continue

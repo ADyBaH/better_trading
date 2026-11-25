@@ -120,6 +120,11 @@ class Signal:
     context: dict = field(default_factory=dict)
     market_state: str = "normal"
 
+    # --- Адаптивный take ---
+    take_source: str = "atr"  # atr / day_range
+    take_atr_value: Optional[float] = None
+    day_range_atr_at_open: Optional[float] = None
+
     def compute_rr(self, commission_round: float = 0.0) -> None:
         """
         Считает risk_reward и net_rr.
@@ -148,6 +153,10 @@ class Signal:
             d["risk_reward"] = round(self.risk_reward, 2)
         if self.net_rr is not None:
             d["net_rr"] = round(self.net_rr, 2)
+        if self.take_atr_value is not None:
+            d["take_atr_value"] = round(self.take_atr_value, 5)
+        if self.day_range_atr_at_open is not None:
+            d["day_range_atr_at_open"] = round(self.day_range_atr_at_open, 2)
         return d
 
 
@@ -164,6 +173,7 @@ class AnalysisResult:
     levels: list[Level]
     references: list[Level]
     signals: list[Signal] = field(default_factory=list)
+    skipped_signals: list[dict] = field(default_factory=list)
     order_book: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:

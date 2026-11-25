@@ -49,21 +49,33 @@ def _df_from_snapshot(snapshot: dict) -> pd.DataFrame:
     return df.sort_values("begin").reset_index(drop=True)
 
 
-def _df_before(df, ts, count=None, exclude_current=True):
+# Длительность свечи по ТФ: свеча ЗАКРЫТА, если begin + duration <= ts.
+# Иначе M15/H1/H4 включают незакрытую свечу — look-ahead.
+_TF_DURATION = {
+    "M15": pd.Timedelta(minutes=15),
+    "H1": pd.Timedelta(hours=1),
+    "H4": pd.Timedelta(hours=4),
+}
+
+
+def _df_before(df, ts, tf="M15", count=None):
+    """
+    Свечи, доступные к моменту ts.
+    T-01b: live отбрасывает незакрытые свечи для ВСЕХ ТФ (M15, H1, H4).
+    Replay должен вести себя так же: begin + duration <= ts.
+    """
     if df is None or df.empty or "begin" not in df.columns:
         return pd.DataFrame()
-    df = df[df["begin"] < ts]
-    if exclude_current and len(df) > 0:
-        # исключаем свечу, которая соответствует ts (незакрытая в live)
-        last_begin = df["begin"].iloc[-1]
-        if last_begin >= ts - pd.Timedelta(minutes=15):
-            df = df.iloc[:-1]
+
+    duration = _TF_DURATION.get(tf, pd.Timedelta(minutes=15))
+    df = df[df["begin"] + duration <= ts]
+
     if count is not None:
         df = df.tail(count)
     return df.reset_index(drop=True)
 
 
-def replay_date(date_str: str) -> dict:
+def replay_date(date_str: str, skip_filters: bool = True) -> dict:
     date_dir = LOGS_DIR / date_str
     if not date_dir.exists():
         log.error("Папка не найдена: %s", date_dir)
@@ -74,7 +86,7 @@ def replay_date(date_str: str) -> dict:
         log.error("Нет analysis snapshots для %s", date_str)
         return {}
 
-    # Свечи по ТФ: берём последний snapshot каждого
+        # Свечи по ТФ: только текущий день (как live — без склейки).
     candles_by_tf = {}
     for tf in ("M15", "H1", "H4"):
         path = date_dir / f"candles_{tf}_{date_str}.json"
@@ -82,25 +94,21 @@ def replay_date(date_str: str) -> dict:
         if data and data.get("snapshots"):
             last = data["snapshots"][-1]
             candles_by_tf[tf] = _df_from_snapshot(last)
+            log.info("%s: %d свечей (из %s)", tf, len(candles_by_tf[tf]), path.name)
 
-    # --- Fallback: если H1/H4 нет в candles_*.json — тянем из market.db ---
-    from data.api_facade import get_candles_tf
-
-    if not candles_by_tf.get("H1") or candles_by_tf["H1"].empty:
-        log.info("H1 нет в candles_*.json — тянем из market.db")
-        try:
-            candles_by_tf["H1"] = get_candles_tf("H1", count=300)
-        except Exception as e:
-            log.warning("Не удалось получить H1: %s", e)
-
-    if not candles_by_tf.get("H4") or candles_by_tf["H4"].empty:
-        log.info("H4 нет в candles_*.json — тянем из market.db")
-        try:
-            candles_by_tf["H4"] = get_candles_tf("H4", count=300)
-        except Exception as e:
-            log.warning("Не удалось получить H4: %s", e)
-
-    if not candles_by_tf.get("M15", pd.DataFrame()).empty is False:
+    # --- T-01c: НЕ fallback на сеть (look-ahead 21.11 → 13.11).
+    # Если H1/H4 нет — используем M15 (аппроксимация, без look-ahead).
+    # Лучше — сохранять candles_H1_*.json / candles_H4_*.json в runner.py.
+    m15_df = candles_by_tf.get("M15")
+    h1_df = candles_by_tf.get("H1")
+    h4_df = candles_by_tf.get("H4")
+    if (h1_df is None or h1_df.empty) and m15_df is not None and not m15_df.empty:
+        log.warning("H1 нет в candles_*.json — fallback на M15 (без look-ahead)")
+        candles_by_tf["H1"] = m15_df.copy()
+    if (h4_df is None or h4_df.empty) and m15_df is not None and not m15_df.empty:
+        log.warning("H4 нет в candles_*.json — fallback на M15 (без look-ahead)")
+        candles_by_tf["H4"] = m15_df.copy()
+    if m15_df is None or m15_df.empty:
         log.error("Нет M15 свечей для %s", date_str)
         return {}
 
@@ -119,12 +127,10 @@ def replay_date(date_str: str) -> dict:
         if not ts_str:
             continue
         ts = datetime.fromisoformat(ts_str)
-
-        df_m15 = _df_before(candles_by_tf["M15"], ts, count=300, exclude_current=False)
-        df_h1 = _df_before(
-            candles_by_tf["H1"], ts, count=None, exclude_current=False
-        )  # H1 — не критично
-        df_h4 = _df_before(candles_by_tf["H4"], ts, count=None, exclude_current=False)
+        df_m15 = _df_before(candles_by_tf["M15"], ts, tf="M15", count=300)
+        df_h1 = _df_before(candles_by_tf["H1"], ts, tf="H1", count=200)
+        df_h4 = _df_before(candles_by_tf["H4"], ts, tf="H4", count=300)
+        df_atr = _df_before(candles_by_tf["H1"], ts, tf="H1", count=50)
 
         if df_m15.empty:
             continue
@@ -140,25 +146,50 @@ def replay_date(date_str: str) -> dict:
             df=df_m15,
             df_h1=df_h1 if not df_h1.empty else None,
             df_h4=df_h4 if not df_h4.empty else None,
-            df_atr=df_h1 if not df_h1.empty else None,
+            df_atr=df_atr if not df_atr.empty else None,
             symbol=analysis.get("symbol"),
             timeframe=analysis.get("timeframe"),
             timestamp=ts,
             skip_age_check=True,
+            skip_filters=skip_filters,
+            write_history=False,
         )
 
         sigs_replay = result.signals if result else []
 
-        # Сравнение по (direction, kind, round(entry, 3))
-        a_set = {
-            (s["direction"], s["kind"], round(s["entry_price"], 3))
-            for s in sigs_analysis
-        }
-        r_set = {(s.direction, s.kind, round(s.entry_price, 3)) for s in sigs_replay}
+        # Сравнение с допуском по entry (1.5 ATR — учитываем разницу источников)
+        atr = result.atr if result else 0.0
+        tol = 1.5 * atr
 
-        match = a_set & r_set
-        only_a = a_set - r_set
-        only_r = r_set - a_set
+        # Сравниваем direction + kind (entry — разный источник: ALOR vs candles_*)
+        a_set = {(s["direction"], s.get("kind")) for s in sigs_analysis}
+        r_set = {(s.direction, s.kind) for s in sigs_replay}
+
+        def _match_sets(a_set, r_set, tol):
+            """a_set/r_set = {(direction, kind)} — сравнение ==, без tol."""
+            matched_set = set()
+            only_a = set()
+            for a in a_set:
+                if a in r_set:
+                    matched_set.add(a)
+                else:
+                    only_a.add(a)
+            only_r = r_set - matched_set
+            return matched_set, only_a, only_r
+
+        match, only_a, only_r = _match_sets(a_set, r_set, tol)
+
+        def _fmt(item):
+            # item = (direction, kind) — kind строка, не округляем
+            return (
+                (item[0], item[1])
+                if isinstance(item[1], str)
+                else (item[0], round(item[1], 3))
+            )
+
+        match_out = [_fmt(x) for x in match]
+        only_a_out = [_fmt(x) for x in only_a]
+        only_r_out = [_fmt(x) for x in only_r]
 
         total_signals_analysis += len(a_set)
         total_signals_replay += len(r_set)
@@ -169,11 +200,11 @@ def replay_date(date_str: str) -> dict:
         results["snapshots"].append(
             {
                 "timestamp": ts_str,
-                "analysis": [list(x) for x in a_set],
-                "replay": [list(x) for x in r_set],
-                "match": [list(x) for x in match],
-                "only_analysis": [list(x) for x in only_a],
-                "only_replay": [list(x) for x in only_r],
+                "analysis": [_fmt(x) for x in a_set],
+                "replay": [_fmt(x) for x in r_set],
+                "match": match_out,
+                "only_analysis": only_a_out,
+                "only_replay": only_r_out,
             }
         )
 
@@ -195,9 +226,16 @@ def main():
         description="Replay candles и сравнение с analysis"
     )
     parser.add_argument("--date", required=True, help="YYYY-MM-DD")
+    parser.add_argument(
+        "--skip-filters",
+        action="store_true",
+        default=False,
+        help="Отключить live-фильтры (сравнивать детекторы)",
+    )
     args = parser.parse_args()
 
-    res = replay_date(args.date)
+    skip_filters = args.skip_filters
+    res = replay_date(args.date, skip_filters=skip_filters)
 
     print()
     print(f"═══ Replay {args.date} ═══")

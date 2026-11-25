@@ -1,5 +1,277 @@
 # CHANGELOG
 
+## [0.18.1] — 2026-11-25
+
+### T-24b. Backfill MFE/MAE от market_price_at_open — ✅ закрыто
+
+- `scripts/backfill_mfe_mae.py`: флаги `--since/--until/--use-market-price`.
+- `_backfill_one(use_market_price=True)`: entry = `market_price_at_open`.
+- `mfe_source='backfill_market_price'` — новый маркер (отличать от `backfill`).
+- 21 сделка обновлена (11–23.11). Diff MFE/MAE: ±0.5–2.5 pts (разумный).
+- `optimize_stops.py`: `mfe_source IN (..., 'backfill_market_price')` (было 7, стало 28).
+
+### T-05b. `data_age > 60` при рестарте runner — ✅ закрыто
+
+- `trader/paper.py`: `save_skipped_signal` не пишет `data_age > 60` (рестарт runner).
+- `trader/paper_db.py`: `mark_skipped_runner_restart` (помечает старые как `runner_restart`).
+- `runner.py`: вызов при старте (идемпотентно).
+- 2 записи помечены (`data_age:5611`, `data_age:1203`).
+
+### T-28. Mean Reversion (разведочный) — ❌ опровергнута
+
+- `optimize_stops.py` на n=28 (после T-24b): **все PF < 0.5**.
+- Best: `stop=0.6, take=1.2` → PF=0.46, exp=−4.9.
+- Current (1.0, 2.0): PF=0.32, exp=−10.2.
+- Train/test: test ≥ train (не overfit, но и не сигнал).
+- **Решение:** `config.py` **не** менять. Проблема — в сигналах (breakout), не в стопах.
+
+### Исправлено
+
+- **`by_mfe_ratio` / `by_mae_ratio`**: `_entry_for_dist` (T-24b) — `r["market_price_at_open"]` вместо `r.get()` (sqlite3.Row не имеет `.get()`).
+  `unknown` 85 → 57 (корректно: 50 unavailable + 7 expired).
+
+## [0.18.0] — 2026-11-24
+
+### T-25. Синхронизация расписания `runner.py` с закрытием M15 — ✅ закрыто
+
+**Приоритет:** P0. **Оценка:** 0.2 д. **Зависит:** T-01b ✅.
+**Проблема:** После T-01b анализ идёт по закрытым M15. При фиксированном цикле раз в 5 мин (`INTERVAL_MIN = 5`) раннер может запускаться на 14-й минуте свечи, фиксируя сигнал с задержкой до 4–5 минут после закрытия бара.
+**Фикс:** выровнять старт цикла `runner.py` на `:00:05`, `:15:05`, `:30:05`, `:45:05` (через 5 сек после закрытия M15, чтобы ALOR успел отдать закрытый бар).
+**Приёмка:** в логах `runner.py` время анализа попадает в окно `+5..+15 сек` от кратного 15 минутам; `data_age` стабильно ~15 мин.
+
+### T-24. Пессимистичный вход (Slippage) — ✅ закрыто
+
+- `PAPER_USE_MARKET_PRICE=True`, `_resolve_entry_price()`, `--no-slippage`.
+- `paper_stats` читает `result_points` из БД → эффект на **новых** сделках.
+- 74 сделки с `market_price_at_open != close` (diff ±0.0005–0.0235).
+- Тесты: 5 в `test_virtual_pnl.py::TestMarketEntry`.
+- Backfill старых `result_points` — **отложен** (T-24b, если понадобится).
+
+## [0.18.0] — 2026-11-22
+
+**Релиз:** T-01b, T-01c, T-04, T-05, T-06, T-07, T-08 (infra), T-12, T-13, T-23 (infra), BUG-08…BUG-11, рефакторинг `analytics/`.
+
+### Добавлено
+
+- **T-04**: Bootstrap CI для PF/exp/winrate (`trader/bootstrap.py`).
+- **T-05**: `paper_skipped` (reason: filter, penalty, data_age) + `paper-skipped` CLI.
+- **T-06**: единый `trader/db.py` + `schema_versions` (4 таблицы).
+- **T-07**: pre-registration (`EXPERIMENT_ID`, миграция 29, `--experiment`).
+- **T-08**: ablation study (`scripts/ablation.py`). Infra, ждём n ≥ 100.
+- **T-12**: единый `REAL_TRADING_MODE` (`core/real_mode.py`), `CONFIRM_LIVE=1`.
+- **T-13**: `by_score` с bootstrap CI.
+- **T-23**: `by_day_range_atr` (infra).
+- **Рефакторинг**: пакет `trader/analytics/` (`group.py`, `paper.py`, `journal.py`).
+- **T-24**: пессимистичный вход в paper (`PAPER_USE_MARKET_PRICE`).
+  `_resolve_entry_price()` в `trader/paper.py`: entry = `market_price_at_open`
+  (фактическая рыночная цена), fallback на `entry_price` (close).
+  `virtual_pnl` получает новый entry → MFE/MAE пересчитываются от него.
+  `journal_cli.py paper-stats --no-slippage` — сравнение с close.
+  Тесты: `test_virtual_pnl.py::TestMarketEntry` (5).
+
+### Исправлено
+
+- **T-01b**: live без look-ahead M15/H1/H4/ATR.
+- **T-01c**: H4 в `candles_*.json` = 500.
+- **BUG-08**: `SAVE_CANDLES_COUNT` возвращён.
+- **BUG-09**: `DATA_MAX_AGE_BLOCK` 15 → 30.
+- **BUG-10**: `_is_duplicate` используется в `save_signal_as_paper`.
+- **BUG-11**: `trader/stats.py` удалён (re-export).
+
+### Изменено
+
+- `paper_stats` → `trader.analytics.paper`
+- `compute_stats` → `trader.analytics.journal`
+- `trader/paper.py` — только live-логика.
+
+### Известные ограничения
+
+- **Match rate 70%** — реалистичный порог. 100% недостижим без M1.
+- **T-08 результаты** — ждём n ≥ 100.
+- **T-23 проверка** — ждём n ≥ 20.
+- **T-02b** — ждём n ≥ 100.
+- **T-24**: старые сделки (до 2026-11-25) имеют `mfe_points`/`mae_points`
+  от `close`, а не от `market_price_at_open`. Backfill — отдельно (T-24b, отложено).
+
+## [0.17.0] — 2026-11-22
+
+> ⚠️ **Часть** **изменений** **из** `[0.17.0]` **вошла** **в** `[Unreleased]`
+> (миграции 17–29, `schema_versions`, `analytics/`, T-04…T-13).
+> **Актуальное** **состояние** — **в** `[Unreleased]`.
+
+### Добавлено
+
+### Добавлено
+
+- **Data Access Layer (DAO)** для бумажного трейдинга: вынос всех SQL-запросов, управления индексами и работы с таблицами в отдельный модуль `trader/paper_db.py`.
+- **Автоматическая система миграций**: внедрена поддержка `PRAGMA user_version` для контролируемого обновления схемы БД (добавление колонок) без потери данных.
+- **Динамическое сопоставление колонок**: реализация механизмов автоматического формирования запросов `INSERT` на основе фактической структуры таблицы в БД.
+- **Unit-тесты**: добавлены тесты для проверки целостности миграций, идемпотентности и корректности работы с базой данных.
+
+### Рефакторинг
+
+- **Разделение слоев paper-tracking:**
+  - Выделен слой доступа к данным `trader/paper_db.py` (SQL, миграции, сырые запросы).
+  - Логика обработки данных и расчеты PnL остались в `trader/paper.py`.
+  - **Результат:** Код стал чище, легче тестировать и проще расширять схему БД.
+
+## 2026-11-22 — DATA_MAX_AGE_BLOCK 15 → 30 (регресс T-01b)
+
+- **T-01b** отбрасывает незакрытую M15 → `data_age` считается от **закрытой** M15 (15–30 мин).
+- **`DATA_MAX_AGE_BLOCK = 15`** (было) — блокирует **всегда**.
+- **T-05** показал: `paper-skipped` → `data_age:28` (100%).
+- **Решение:** `DATA_MAX_AGE_BLOCK = 30` — восстанавливает работу, не ломает look-ahead.
+
+## [0.16.0] — 2026-11-20
+
+### Добавлено
+
+- **Filter Registry** (`strategy/filters/`) — все фильтры в одном месте.
+  - `base.py`: `Filter`, `FilterResult`, `register_filter`, `apply_filters`, `get_filters`.
+  - `trend.py`: `bullish_long`, `normal_breakout`, `bullish_short`.
+  - `adx.py`: `adx_trend`, `adx_flat_breakout`.
+  - `orderbook.py`: `bid_heavy`.
+  - `bounce.py`: `pullback_bounce`.
+  - `breakout.py`: kill-switch (`PAPER_SKIP_BREAKOUT`) + F1–F4 (`BREAKOUT_FILTER`) через `enabled_fn`.
+- **`strategy/signals.py`**: 7+ `if getattr(config, ...): continue` → `apply_filters(s, result)`.
+- **`scripts/verify_filters.py`**: `get_filters()` + PF/exp (больше не дублирует логику).
+- **`tests/test_signals.py`**: 12 кейсов F1–F4 + kill-switch (pytest).
+
+### Исправлено
+
+- `detect_signals` — **только** `apply_filters` (фильтры), штрафы EMA/пила/late-chase — **отдельно** (это не фильтры).
+- `get_recent_signal(..., now=None)` — `cutoff` и `age_min` от `now` (было `datetime.now()`).
+
+### Известные ограничения
+
+- `test_filters.py` — **TODO** (по одному тесту на фильтр).
+- `verify_filters.py` — `_filter_blocks` применяет **все** фильтры (включая `enabled=False`); `enabled_str` — только для вывода. **Не баг** (для анализа эффекта), но **надо** документировать.
+
+## [0.15.0] — 2026-11-20
+
+### Тесты
+
+- **Все** `check()`-**тесты** **переписаны** **на** **pytest** (15 **файлов**): `test_instruments` (17), `test_levels` (7), `test_indicators` (22), `test_current_price` (4), `test_notify` (5), `test_virtual_pnl` (8), `test_paper` (14), `test_paper_dedup` (9), `test_paper_resolve` (7), `test_paper_stats` (7), `test_paper_stats_extra` (4), `test_paper_export` (3), `test_real_trading` (5), `test_alor_trade` (4), `test_journal_integrity` (4, интеграционный).
+- **Интеграционные** **помечены** `@pytest.mark.integration`.
+- **`pyproject.toml`** — `[tool.pytest.ini_options]`.
+- **`README.md`** — раздел «Тесты».
+
+### Исправлено
+
+- `_compute_stops` **возвращает** 3 **значения** (stop, take, meta) — **тесты** **обновлены**.
+- `trader/paper.py` — `_columns`/`_placeholders` **согласованы** (SQL syntax).
+
+### Известные ограничения
+
+- `test_signals.py` — **не** **переписан** **на** **pytest** (**после** **рефактора** `signals.py`).
+- `test_mfe_backfill.py` — **не** **переписан**.
+
+## [0.14.0] — 2026-11-20
+
+### Добавлено
+
+- **Адаптивный take** (Задача 1): `take = min(2.0×ATR, 0.6×day_range_atr×ATR)`, не меньше `0.8×ATR`.
+- **`ADAPTIVE_TAKE_ENABLED`**, **`TAKE_DAY_RANGE_FRAC=0.6`**, **`MIN_TAKE_ATR=0.8`** в `config.py`.
+- **`_compute_stops`** → 3 значения (stop, take, meta).
+- **`Signal.take_source`**, **`take_atr_value`**, **`day_range_atr_at_open`**.
+- **Миграция `paper_trades`**: `take_source`, `take_atr_value`, `day_range_atr_at_open`.
+- **`paper_stats`**: `by_take_source`.
+- **`scripts/backtest.py`**: `adaptive_take` (A/B: baseline vs adaptive).
+
+### Результат (11–19.11, n=23)
+
+- **baseline (take=2.0):** PF=0.44, exp=−8.1.
+- **adaptive take:** PF=0.44, exp=−8.1 — **идентично**.
+- **Причина:** `day_range_atr ~3.5` → `0.6 × 3.5 = 2.1 > 2.0` → адаптивный **не сработал**.
+
+### Решение
+
+- `ADAPTIVE_TAKE_ENABLED=True` — **оставить** (для низкой волатильности).
+- Гипотеза **не проверена** на высокой волатильности.
+
+### Известные ограничения
+
+- `by_take_source`: `unknown` у старых (80), новые — заполняются.
+- Адаптивный take **не срабатывает** при `day_range_atr > 3.33`.
+
+## [0.13.0] — 2026-11-20
+
+### Добавлено
+
+- **MFE/MAE + volume_ratio** (Задача 4): `volume_ratio_at_open`, `mfe_source`, `mae_source` в `paper_trades`.
+- **`by_volume_ratio`**, **`by_mae_ratio`** в `paper_stats`.
+- **`scripts/backfill_mfe_mae.py`**: backfill по `candles_*.json` (14 обновлено, 50 unavailable).
+- **`scripts/optimize_stops.py`** (Задача 5): сетка stop × take, train/test, PF/exp.
+- **`paper-stats`** — блок «Рекомендация stop/take» (read-only, `Confidence: low` при n<30).
+- **`tests/test_mfe_backfill.py`**: 12 проверок (PF/exp, grid, ambiguous).
+
+### Исправлено
+
+- `journal_cli.py`: `Vol` после `Size` в `paper-trades --wide` (было сдвиг).
+- `_calc_pf_exp`: timeout = loss (PF и exp согласованы).
+
+### Результаты (n=14, 11–19.11)
+
+- **MFE < 0.3**: 11L (все loss, −298 ₽) — тейк 2.0 ATR далёк.
+- **MAE ≥ 1.0**: 9L (все loss, −246 ₽) — стоп 1.0 ATR узок.
+- **`optimize_stops.py`**: все комбинации PF < 1, train/test нестабильны.
+
+### Решение
+
+- `STOP_ATR_MULT=1.0`, `TAKE_ATR_MULT=2.0` — **НЕ менять** до n ≥ 30 (оверфит).
+
+### Известные ограничения
+
+- `n=14` — мало (нужно 30+).
+- `mfe_source=unavailable` у 50 (до 11.11, нет `candles_*.json`).
+- `volume_ratio_at_open` — `unknown` у старых, новые — заполняются.
+
+## [0.12.0] — 2026-11-19
+
+### Добавлено
+
+- **`PAPER_SKIP_BREAKOUT`** (kill-switch): `True` — `breakout` не создаётся вообще.
+- **`BREAKOUT_FILTER`** (enum): `"none" | "F1" | "F2" | "F3" | "F4"` — условные фильтры для breakout.
+  - F1: ADX ≥ 25 (strong) только.
+  - F2: ADX < 20 (flat) только.
+  - F3: `market_state == "impulse"` только.
+  - F4: `week_trend` не противоречит `direction` (neutral пропускаем).
+- **`strategy/signals.py`**: `_breakout_passes_filter()` + блоки в `detect_signals`.
+- **`core/analyzer.py`**: `market_state = "impulse"` (impulse_atr > 2.0, retrace < 0.2 × impulse).
+- **`core/analyzer.py`**: `analyze_from_df(write_history=True)` — `False` для backtest/replay.
+- **`scripts/backtest.py`**: честный replay paper-логики (без look-ahead, `df.iloc[:t+1]`).
+  - `_load_candles`: из `candles_*.json` (склейка snapshots, дедуп), fallback `get_candles_tf`.
+  - `--compare`: `current_config` vs `baseline` vs `skip_breakout` vs F1–F4.
+  - `run_backtest(skip_filters=True)` — изолированные варианты.
+- **`scripts/verify_filters.py`**: F1–F4 безусловно, `compute_trade_result` (с комиссией), PF/exp.
+- **`tests/test_signals.py`**: 12 кейсов на F1–F4 + kill-switch.
+
+### Исправлено
+
+- **`get_recent_signal(..., now=None)`**: `cutoff` и `age_min` от `now` (было `datetime.now()`).
+  Чинит: match rate 0% в `verify_candles.py` (пила на реальной истории), ложный штраф «пила» в тестах.
+- **`detect_signals`**: передаёт `now=result.timestamp` в `get_recent_signal`.
+
+### Статистика (backtest 11–19.11, 7 дней)
+
+| Вариант           | n   | W   | L   | T   | Rub        | PF       | Exp      |
+| ----------------- | --- | --- | --- | --- | ---------- | -------- | -------- |
+| baseline          | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     |
+| **skip_breakout** | 17  | 5   | 10  | 2   | **−84.02** | **0.73** | **−3.3** |
+| F1 ADX≥25         | 21  | 5   | 12  | 4   | −161.16    | 0.51     | −6.9     |
+| F2 ADX<20         | 18  | 5   | 11  | 2   | −103.68    | 0.67     | −4.2     |
+| F3 impulse        | 18  | 5   | 10  | 3   | −87.08     | 0.73     | −3.3     |
+| F4 week_trend     | 23  | 5   | 14  | 4   | −201.88    | 0.44     | −8.1     |
+| current_config    | 15  | 4   | 10  | 1   | −89.70     | 0.62     | −4.2     |
+
+**Вывод:** `skip_breakout` — лучший (PF 0.73). F1–F4 не доказаны (n=15–23, мало).
+
+### Известные ограничения
+
+- **n=15–23** — мало для статистики. Нужно 30+ сделок и replay-гейт (match rate ≥ 70%).
+- **`verify_candles.py` match rate 0%** — replay применяет фильтры Y к историческим сигналам (фикс отдельно).
+- **`candles_*.json` есть только с 11.11** — backtest возможен на 11–19.11.
+
 ## [0.9.0] — 2026-10-29
 
 ### Добавлено
@@ -120,3 +392,63 @@
 - **Replay match rate 10%** — look-ahead M15 (закрытая свеча vs незакрытая в live). Точный replay невозможен без M1.
 - **`partial_day_at_open`** — не проверен на новых сделках (runner блокировал по `data_age=14`).
 - **`DATA_MAX_AGE_BLOCK = 15`** — ALOR иногда отдаёт 14 мин.
+
+## [Unreleased]
+
+### Добавлено
+
+- **T-04**: Bootstrap CI для PF/exp/winrate (`trader/bootstrap.py`).
+  `paper_stats` возвращает `pf_ci`, `exp_ci`, `winrate_ci`. `journal_cli.py paper-stats` выводит `[lo, hi]`.
+- **T-05**: `paper_skipped` (reason: filter, penalty, data_age) + `paper-skipped` CLI.
+  `trader/paper_db.py`: `insert_skipped`, `get_skipped_stats`. `trader/paper.py`: `save_skipped_signal`.
+- **T-06**: единый `trader/db.py` + `schema_versions` (версия на каждую таблицу).
+  Миграции для `paper_trades` (29), `paper_skipped` (1), `trades` (1), `candles` (1).
+  `PRAGMA user_version` больше не источник истины.
+- **T-07**: pre-registration. `EXPERIMENT_ID` (env), миграция 29 (`experiment_id` в `paper_trades`),
+  `--experiment` в `paper-stats`. Шаблон + пилот `EXP-20261122-05` в `EXPERIMENTS.md`.
+- **T-08**: ablation study (`scripts/ablation.py`). Unpaired bootstrap, CI, пересечения.
+  Infra готова, результаты — ждём n ≥ 100.
+- **T-12**: единый `REAL_TRADING_MODE` (`core/real_mode.py`).
+  `is_mock()` / `is_live()` / `check_real_mode()`. Live требует `CONFIRM_LIVE=1` (env).
+- **T-13**: `by_score` с bootstrap CI (`pf_ci`, `exp_ci`, `winrate_ci`).
+- **T-23**: `by_day_range_atr` (бакеты `<2.5`, `2.5-3.33`, `>3.33`). Infra готова, проверка — n ≥ 20.
+- **Рефакторинг**: пакет `trader/analytics/` (`group.py`, `paper.py`, `journal.py`, `__init__.py`).
+  `trader/stats.py` — удалён (re-export), один путь — `trader.analytics`.
+
+### Исправлено
+
+- **T-01b**: live без look-ahead M15/H1/H4/ATR — `_drop_unclosed` в `analyze()`,
+  `_enrich_levels(now=ts)`, `_df_before` без `exclude_current`.
+- **T-01c**: H4 в `candles_*.json` = 500 — `SAVE_CANDLES_COUNT_BY_TF`, `candles_export` использует count по ТФ.
+- **BUG-08**: `SAVE_CANDLES_COUNT` удалён — возвращён как fallback.
+- **BUG-09**: `DATA_MAX_AGE_BLOCK` 15 → 30 (регресс T-01b: `data_age` от закрытой M15 = 15–30 мин).
+- **BUG-10**: `_is_duplicate` не использовался (копипаст в `save_signal_as_paper`).
+- **BUG-11**: `trader/stats.py` re-export удалён, один путь — `trader.analytics`.
+- **P0**: новая БД (на чистой машине) получала неполную схему `paper_trades`
+  → `save_signal_as_paper` падал на `trend_at_open`. Миграции 17–28.
+- **P0**: `paper_stats` игнорировал `symbol` / `since` / `known_only` — фильтры не
+  доходили до SQL. Теперь `filters` → `db.get_stats_raw()`.
+- **P0**: `MockIndicator` в `tests/test_paper_dedup.py` и `tests/test_paper_resolve.py`
+  — добавлен `day_range_atr_at_open`.
+- **P0**: `test_migration_version_increment` — привязан к `MIGRATIONS[-1][0]`
+  (было хардкод `16`).
+- **Replay look-ahead (T-01, частично)**:
+  - `core/analyzer.py`: `result.timestamp = timestamp` (не `datetime.now()`).
+  - `scripts/verify_candles.py`: `_df_before` — H1/H4 `begin + duration <= ts`.
+  - `scripts/backtest.py`: H1/H4 `begin + duration <= bar_ts`; M15 — `[:t+1]`.
+  - `tests/test_no_lookahead.py`: 2 теста.
+
+### Изменено
+
+- `paper_stats` → `trader.analytics.paper`
+- `compute_stats` → `trader.analytics.journal`
+- Bucket-функции → `trader.analytics.group`
+- `trader/paper_db.py`, `trader/journal.py`, `data/storage_sqlite.py` — делегируют миграции в `trader/db.py`.
+- `trader/paper.py` — только live-логика (`save_signal_as_paper`, `resolve_open_trades`, `virtual_pnl`, `format_*`).
+
+### Известные ограничения
+
+- **Match rate 70%** — реалистичный порог. 100% недостижим без M1 (ALOR WebSocket переотдаёт M15/H1 с промежуточным close).
+- `candles_H4_2026-11-17/18/19/20.json` — 300 H4 (до T-01c). Новые дни — 491+.
+- **T-08 результаты** — ждём n ≥ 100 (сейчас n=18, все CI включают 0).
+- **T-23 проверка** — ждём n ≥ 20 с `day_range_atr_at_open` (сейчас 1).

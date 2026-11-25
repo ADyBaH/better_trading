@@ -21,3 +21,5 @@ Thumbs.db
 
 experiments/
 local_config.py
+
+.coverage

@@ -24,6 +24,35 @@ import config
 
 log = get_logger(__name__)
 
+# T-26: кэш свечей по ТФ (в памяти процесса)
+_candles_cache: dict[str, "pd.DataFrame"] = {}
+_last_fetch: dict[str, "datetime"] = {}
+
+
+def _tf_due(tf: str, now: datetime) -> bool:
+    """T-26: пора ли обновлять ТФ (закрылся ли бар + 5 сек)."""
+    if not getattr(config, "TF_CACHE_ENABLED", True):
+        return True
+    interval = getattr(config, "TF_REFRESH_MINUTES", {}).get(tf)
+    if not interval:
+        return True  # ТФ не в списке — тянем всегда (безопасный fallback)
+    last = _last_fetch.get(tf)
+    if last is None:
+        return True
+    return (now - last).total_seconds() >= interval * 60 - 5
+
+
+def _get_cached(tf: str, count: int, now: datetime) -> "pd.DataFrame":
+    """T-26: тянем свечи только если ТФ закрылся, иначе — кэш."""
+    if _tf_due(tf, now):
+        df = get_candles_tf(tf, count=count)
+        _candles_cache[tf] = df
+        _last_fetch[tf] = now
+        log.info("T-26: обновлён %s (count=%d)", tf, count)
+    else:
+        log.debug("T-26: %s из кэша (последнее обновление %s)", tf, _last_fetch[tf])
+    return _candles_cache.get(tf)
+
 
 # ============================================================
 # Индикаторы
@@ -92,8 +121,8 @@ def _build_indicator_snapshot(
 
     # --- Недельный тренд (H4) ---
     if df_h4 is None:
-        from data.api_facade import get_candles_tf
-        df_h4 = get_candles_tf("H4", count=300)
+        # T-26: fallback через кэш (не тянем сеть, если df_h4 не передан)
+        df_h4 = _get_cached("H4", 300, datetime.now())
     week_ctx = get_week_trend(df_h4)
     # from data.api_facade import get_candles_tf
 
@@ -136,8 +165,13 @@ def _build_indicator_snapshot(
             trough = window["low"].min()
             retrace = (current_price - trough) / atr
 
+        # pullback: откат 0.2..0.7 × impulse (как было)
         if impulse_atr > 1.2 and 0.2 < retrace < impulse_atr * 0.7:
             market_state = "pullback"
+        # impulse: сильный импульс (>= 2.0 ATR) и почти нет отката (< 0.2)
+        # пороги из ROADMAP п.18.1: impulse > 2.0, откат < 0.2 × impulse
+        elif impulse_atr > 2.0 and retrace < 0.2 * impulse_atr:
+            market_state = "impulse"
 
     # --- Volume ratio: последняя свеча / среднее за VOLUME_LOOKBACK ---
     volume_ratio = 1.0
@@ -210,14 +244,16 @@ def _dict_to_level(d: dict, source: str = "structural") -> Level:
 # ============================================================
 
 
-def _enrich_levels(levels: list[Level], current_price: float, atr: float) -> None:
+def _enrich_levels(
+    levels: list[Level], current_price: float, atr: float, now: datetime | None = None
+) -> None:
     """
     Заполняет вычисляемые поля уровней:
         distance_atr   — |price - current| / atr
         age_days       — сколько дней с last_seen
         strength_score — weight × confirmed × tf_count × age_factor
     """
-    now = datetime.now()
+    now = now or datetime.now()
 
     for lv in levels:
         # distance_atr
@@ -277,6 +313,8 @@ def analyze_from_df(
     order_book: dict | None = None,
     timestamp: datetime | None = None,
     skip_age_check: bool = False,
+    skip_filters: bool = False,
+    write_history: bool = True,
 ) -> AnalysisResult | None:
     """
     Собирает AnalysisResult из готовых DataFrame. Без сети.
@@ -287,6 +325,12 @@ def analyze_from_df(
     df_atr   — H1 — для ATR. Если None, используется df_h1.
 
     Возвращает AnalysisResult или None, если данных нет.
+
+    write_history — писать ли сигналы в signals_history.json.
+        True (по умолчанию) — для live/runner (cooldown, «пила»).
+        False — для backtest/replay: иначе исторические сигналы
+        засоряют live-историю (пишутся с datetime.now(), а не
+        с result.timestamp) и ломают cooldown в раннере.
     """
     import pandas as pd
 
@@ -340,18 +384,23 @@ def analyze_from_df(
     )
     references = [_dict_to_level(r, "reference") for r in raw_refs]
 
+    # T-01b: ts нужен для _enrich_levels (age_days от ts, а не от now).
+    ts = timestamp or datetime.now()
+
     # 5. Пересечения + обогащение
     _attach_tags(structural, references, tolerance)
-    _enrich_levels(structural, current_price, atr)
-    _enrich_levels(references, current_price, atr)
+    _enrich_levels(structural, current_price, atr, now=ts)
+    _enrich_levels(references, current_price, atr, now=ts)
 
     # 6. Индикаторы
     indicators = _build_indicator_snapshot(df, current_price, atr, df_h4=df_h4_use)
 
+    ts = timestamp or datetime.now()
+
     # 7. AnalysisResult
     result = AnalysisResult(
         symbol=symbol,
-        timestamp=datetime.now(),
+        timestamp=ts,
         current_price=current_price,
         atr=atr,
         timeframe=timeframe,
@@ -365,35 +414,78 @@ def analyze_from_df(
     # 8. Сигналы
     from strategy.signal_history import append_signals
 
-    ts = timestamp or datetime.now()
-    
-    signals = detect_signals(result, df, now=ts, skip_age_check=skip_age_check)
+    # --- skip_filters: временно отключаем фильтры (для replay) ---
+    _saved_filters = {}
+    if skip_filters:
+        for k in (
+            "PAPER_SKIP_BULLISH_LONG",
+            "PAPER_SKIP_NORMAL_BREAKOUT",
+            "PAPER_SKIP_BULLISH_SHORT",
+            "PAPER_SKIP_ADX_FLAT_BREAKOUT",
+            "PAPER_SKIP_ADX_TREND",
+            "PAPER_SKIP_BID_HEAVY",
+            "PAPER_SKIP_BREAKOUT",
+        ):
+            if hasattr(config, k):
+                _saved_filters[k] = getattr(config, k)
+                setattr(config, k, False)
+
+    try:
+        signals = detect_signals(
+            result,
+            df,
+            now=ts,
+            skip_age_check=skip_age_check,
+            skip_filters=skip_filters,
+        )
+    finally:
+        for k, v in _saved_filters.items():
+            setattr(config, k, v)
+
     result.signals = signals
-    append_signals(signals, symbol)
+    if write_history:
+        append_signals(signals, symbol)
 
     return result
 
 
+def _drop_unclosed(
+    df: pd.DataFrame | None, tf: str, now: datetime
+) -> pd.DataFrame | None:
+    """
+    T-01b: оставить только ЗАКРЫТЫЕ свечи (begin + duration <= now).
+
+    Live (ALOR) отдаёт текущую незакрытую свечу — это look-ahead.
+    Для согласования с replay (verify_candles.py, backtest.py) отбрасываем её.
+    """
+    if df is None or df.empty:
+        return df
+    tf_min = {"M5": 5, "M15": 15, "H1": 60, "H4": 240}.get(tf, 60)
+    delta = pd.Timedelta(minutes=tf_min)
+    return df[df["begin"] + delta <= now].reset_index(drop=True)
+
+
 def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
-    """
-    Обёртка: тянет данные из сети (api_facade) и вызывает analyze_from_df.
-    Backward-compatible.
-    """
+    """Обёртка: тянет данные из сети (api_facade) и вызывает analyze_from_df."""
+    from core.time_utils import now_msk
+
     symbol = symbol or config.SYMBOL
     timeframe = timeframe or config.DEFAULT_TIMEFRAME
 
-    # 1. M15
-    df = get_candles_tf(timeframe, count=300)
-    if df.empty:
-        log.error("Нет данных для %s %s", symbol, timeframe)
+    _now = now_msk()
+
+    # 1. M15 — только закрытые (T-01b)
+    df = _drop_unclosed(_get_cached(timeframe, 300, _now), timeframe, _now)
+    if df is None or df.empty:
+        log.error("Нет данных для %s %s (или все свечи незакрыты)", symbol, timeframe)
         return None
 
-    # Логируем лаг данных (наблюдаемость)
+    # Логируем лаг (наблюдаемость)
     try:
         last_begin = df["begin"].iloc[-1]
         if hasattr(last_begin, "to_pydatetime"):
             last_begin = last_begin.to_pydatetime()
-        data_age_min = int((datetime.now() - last_begin).total_seconds() / 60)
+        data_age_min = int((_now - last_begin).total_seconds() / 60)
         log.info(
             "data_age=%d min (последняя свеча %s)",
             data_age_min,
@@ -402,10 +494,10 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
     except Exception as e:
         log.debug("data_age не посчитан: %s", e)
 
-    # 2. H1, H4, ATR
-    df_h1 = get_candles_tf("H1", count=200)
-    df_h4 = get_candles_tf("H4", count=300)
-    df_atr = get_candles_tf(config.ATR_TF, count=50)
+    # 2. H1, H4, ATR — тоже только закрытые (T-01b)
+    df_h1 = _drop_unclosed(_get_cached("H1", 200, _now), "H1", _now)
+    df_h4 = _drop_unclosed(_get_cached("H4", 300, _now), "H4", _now)
+    df_atr = _drop_unclosed(_get_cached(config.ATR_TF, 200, _now), config.ATR_TF, _now)
 
     # 3. order_book (если ALOR)
     order_book = {}

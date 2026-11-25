@@ -1,10 +1,11 @@
 """Проверка known_only + min_n + expectancy в paper_stats."""
+
 import itertools
 import sqlite3
 from datetime import datetime
 
-from trader.paper import init_paper_table, paper_stats
-
+from trader.paper import init_paper_table
+from trader.analytics import paper_stats
 
 _counter = itertools.count()
 

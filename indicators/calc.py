@@ -8,6 +8,8 @@ import pandas_ta as ta
 
 import config
 from core.logger import get_logger
+from indicators.vote import vote, vote_raw
+from core.time_utils import is_partial_day
 
 log = get_logger(__name__)
 
@@ -208,11 +210,7 @@ def get_trend_context(
                 day_atr_base = atr
 
                 # partial_day: сейчас < 18:00 МСК (день не завершён)
-                from datetime import datetime
-
-                now = datetime.now()
-                hour_msk = (now.utctimetuple().tm_hour + 3) % 24
-                partial_day = hour_msk < 18
+                partial_day = is_partial_day()
         except Exception as e:
             log.debug("Не удалось посчитать day_change: %s", e)
 
@@ -260,6 +258,15 @@ def get_trend_context(
     }
 
 
+def _tri(up: str, down: str, value: str) -> bool | None:
+    """True → up, False → down, None → неизвестно (воздержался)."""
+    if value == up:
+        return True
+    if value == down:
+        return False
+    return None
+
+
 def get_main_trend(trend_context: dict) -> dict:
     """
     Голосование 4 источников → главный тренд.
@@ -274,33 +281,26 @@ def get_main_trend(trend_context: dict) -> dict:
     structure = trend_context.get("structure")
     price_dir = trend_context.get("price_direction")
 
-    votes = {
-        "ema": 1 if ema == "up" else (-1 if ema == "down" else 0),
-        "day": 1 if day == "bullish" else (-1 if day == "bearish" else 0),
-        "structure": (
-            1 if structure == "bullish" else (-1 if structure == "bearish" else 0)
-        ),
-        "price_direction": (
-            1 if price_dir == "up" else (-1 if price_dir == "down" else 0)
-        ),
-    }
-    vote_sum = sum(votes.values())
-
-    if vote_sum >= 3:
-        trend = "strong_up"
-    elif vote_sum == 2:
-        trend = "up"
-    elif vote_sum == -2:
-        trend = "down"
-    elif vote_sum <= -3:
-        trend = "strong_down"
-    else:
-        trend = "transition"
+    result = vote(
+        conditions=[
+            ("ema", _tri("up", "down", ema)),
+            ("day", _tri("bullish", "bearish", day)),
+            ("structure", _tri("bullish", "bearish", structure)),
+            ("price_direction", _tri("up", "down", price_dir)),
+        ],
+        thresholds=[
+            (">=", 3, "strong_up"),
+            (">=", 2, "up"),
+            ("<=", -3, "strong_down"),
+            ("<=", -2, "down"),
+        ],
+        default="transition",
+    )
 
     return {
-        "trend": trend,
-        "vote_sum": vote_sum,
-        "vote_breakdown": votes,
+        "trend": result.label,
+        "vote_sum": int(result.total),
+        "vote_breakdown": {k: int(v) for k, v in result.breakdown.items()},
     }
 
 
@@ -329,24 +329,17 @@ def get_week_trend(df_h4) -> dict:
     if pd.isna(last["ema50"]) or pd.isna(last["ema200"]) or pd.isna(last["atr"]):
         return empty
 
-    votes = 0
-    if last["ema50"] > last["ema200"]:
-        votes += 1
-    else:
-        votes -= 1
-
     week_close_5d = df["close"].iloc[-30]
     week_open_5d = df["open"].iloc[-30]
 
-    if last["close"] > week_close_5d:
-        votes += 1
-    else:
-        votes -= 1
-
-    if last["close"] > week_open_5d:
-        votes += 1
-    else:
-        votes -= 1
+    result = vote_raw(
+        conditions=[
+            ("ema50_200", last["ema50"] > last["ema200"]),
+            ("close_5d", last["close"] > week_close_5d),
+            ("open_5d", last["close"] > week_open_5d),
+        ],
+    )
+    votes = int(result.total)
 
     week_change_atr = 0.0
     if last["atr"] > 0:

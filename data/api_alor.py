@@ -1,15 +1,15 @@
 """ALOR WebSocket — получение свечей в реальном времени."""
 
-import asyncio
 import json
 import time
+import asyncio
+import logging
 import requests
+import websockets
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from core.logger import get_logger
 from local_config import ALOR_TOKEN
-
-log = get_logger(__name__)
 
 WS_URL = "wss://api.alor.ru/ws"
 OAUTH_URL = "https://oauth.alor.ru"
@@ -18,6 +18,50 @@ MSK = timezone(timedelta(hours=3))
 
 _access_token = None
 _token_expires_at = 0
+
+log = logging.getLogger(__name__)
+
+# BUG-12: retry с backoff для WS handshake
+_WS_RETRY_ATTEMPTS = 3
+_WS_RETRY_BACKOFF = (1, 2, 4)  # сек между попытками
+
+
+async def _connect_ws_with_retry(ws_url: str, open_timeout: int = 10):
+    """
+    BUG-12: подключение к ALOR WS с retry и backoff.
+    При таймауте handshake — повтор через 1, 2, 4 сек.
+    После 3 неудач — пробрасывает исключение.
+    """
+    last_exc = None
+    for attempt in range(_WS_RETRY_ATTEMPTS):
+        try:
+            ws = await websockets.connect(ws_url, open_timeout=open_timeout)
+            if attempt > 0:
+                log.warning("ALOR WS: подключение успешно с попытки %d", attempt + 1)
+            return ws
+        except (
+            asyncio.TimeoutError,
+            OSError,
+            websockets.exceptions.WebSocketException,
+        ) as e:
+            last_exc = e
+            if attempt < _WS_RETRY_ATTEMPTS - 1:
+                delay = _WS_RETRY_BACKOFF[attempt]
+                log.warning(
+                    "ALOR WS: попытка %d/%d не удалась (%s), повтор через %d сек",
+                    attempt + 1,
+                    _WS_RETRY_ATTEMPTS,
+                    type(e).__name__,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+            else:
+                log.error(
+                    "ALOR WS: все %d попыток не удались (%s)",
+                    _WS_RETRY_ATTEMPTS,
+                    type(e).__name__,
+                )
+    raise last_exc
 
 
 def _get_access_token() -> str:
@@ -52,7 +96,7 @@ async def _fetch_candles_ws(
     rows = []
 
     try:
-        async with websockets.connect(WS_URL, open_timeout=10) as ws:
+        async with await _connect_ws_with_retry(WS_URL, open_timeout=10) as ws:
             sub_msg = {
                 "opcode": "BarsGetAndSubscribe",
                 "guid": "sub-1",
@@ -135,7 +179,6 @@ def get_order_book_pressure_sync(symbol: str) -> dict:
 
 async def _get_order_book_pressure(symbol: str) -> dict:
     """Подключается к WS, получает стакан, считает перевес bid/ask."""
-    import websockets
 
     access = _get_access_token()
     sub_msg = {
@@ -150,7 +193,7 @@ async def _get_order_book_pressure(symbol: str) -> dict:
     }
 
     last_ob = None
-    async with websockets.connect(WS_URL, open_timeout=10) as ws:
+    async with await _connect_ws_with_retry(WS_URL, open_timeout=10) as ws:
         await ws.send(json.dumps(sub_msg))
         try:
             msg = await asyncio.wait_for(ws.recv(), timeout=3)
@@ -202,7 +245,7 @@ async def _get_current_price(symbol: str) -> dict:
 
     last_ob = None
     try:
-        async with websockets.connect(WS_URL, open_timeout=10) as ws:
+        async with await _connect_ws_with_retry(WS_URL, open_timeout=10) as ws:
             await ws.send(json.dumps(sub_msg))
             try:
                 msg = await asyncio.wait_for(ws.recv(), timeout=3)
