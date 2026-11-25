@@ -331,7 +331,7 @@ def save_signal_as_paper(
             "mae_source": "live",
             "take_source": sig.take_source,
             "take_atr_value": sig.take_atr_value,
-            "day_range_atr_at_open": result.indicators.day_range_atr_at_open,
+            "day_range_atr_at_open": sig.day_range_atr_at_open,
             "experiment_id": config.EXPERIMENT_ID,
         }
 
