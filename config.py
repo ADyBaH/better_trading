@@ -150,7 +150,7 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 PAPER_ENABLED = True
 
 # Лимит открытых paper-сделок: 0 — без лимита, 1 — не более одной.
-PAPER_MAX_OPEN = 1
+PAPER_MAX_OPEN = 0
 
 # Торговые часы для paper-tracking (отдельно от TRADING_HOURS).
 # Новые paper-сделки создаются только в этом окне (МСК).

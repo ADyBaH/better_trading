@@ -351,3 +351,20 @@ mfe_points=+23 (high 12.299), mae_points=1 (low 12.275), volume_ratio=1.15.
 **Стратегия статистически неотличима от breakeven** — не мержить, не включать live.
 
 **Следующий шаг:** runner на 2–3 дня (накопление n), потом T-08 (n ≥ 100) + T-02b + T-23.
+
+## 2026-11-24 — paper-skipped (T-05): 60 записей
+
+**Y (n=60 skipped):**
+
+- `filter:normal_breakout` — 27 (45%)
+- `filter:adx_trend` — 21 (35%)
+- `penalty:ema_conflict` — 6 (10%)
+- `penalty:late_chase` — 3 (5%)
+- `data_age:*` — 3 (5%)
+
+**По kind:** breakout 33 (55%), bounce 15 (25%), trend_level 9 (15%).
+**По direction:** long 39 (65%), short 18 (30%).
+
+**Вывод:** 80% сигналов режут 2 фильтра (`normal_breakout` + `adx_trend`).
+`breakout` — 55% заблокированных (он же убыточен: -120 ₽).
+**T-08** (ablation, n ≥ 100) — покажет, значимы ли эти фильтры (CI).
