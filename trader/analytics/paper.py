@@ -137,6 +137,14 @@ def paper_stats(
         rows, lambda r: _day_range_atr_bucket(r["day_range_atr_at_open"])
     )
 
+    def _entry_for_dist(r) -> float:
+        """T-24b: entry = market_price_at_open (если есть), иначе entry_price."""
+        try:
+            mp = r["market_price_at_open"]
+        except (IndexError, KeyError):
+            mp = None
+        return mp if mp is not None else r["entry_price"]
+
     # by_mae_ratio / by_mfe_ratio — специальные (нужен inst)
     def _mae_ratio_key(r):
         mae = r["mae_points"]
@@ -144,7 +152,8 @@ def paper_stats(
             return "unknown"
         try:
             inst = get_instrument(r["symbol"])
-            stop_dist = abs(r["entry_price"] - r["stop_price"]) / inst.price_step
+            entry_for_dist = _entry_for_dist(r)
+            stop_dist = abs(entry_for_dist - r["stop_price"]) / inst.price_step
         except Exception:
             return "unknown"
         if stop_dist <= 0:
@@ -157,7 +166,8 @@ def paper_stats(
             return "unknown"
         try:
             inst = get_instrument(r["symbol"])
-            take_dist = abs(r["take_price"] - r["entry_price"]) / inst.price_step
+            entry_for_dist = _entry_for_dist(r)
+            take_dist = abs(r["take_price"] - entry_for_dist) / inst.price_step
         except Exception:
             return "unknown"
         if take_dist <= 0:

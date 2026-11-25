@@ -24,6 +24,35 @@ import config
 
 log = get_logger(__name__)
 
+# T-26: кэш свечей по ТФ (в памяти процесса)
+_candles_cache: dict[str, "pd.DataFrame"] = {}
+_last_fetch: dict[str, "datetime"] = {}
+
+
+def _tf_due(tf: str, now: datetime) -> bool:
+    """T-26: пора ли обновлять ТФ (закрылся ли бар + 5 сек)."""
+    if not getattr(config, "TF_CACHE_ENABLED", True):
+        return True
+    interval = getattr(config, "TF_REFRESH_MINUTES", {}).get(tf)
+    if not interval:
+        return True  # ТФ не в списке — тянем всегда (безопасный fallback)
+    last = _last_fetch.get(tf)
+    if last is None:
+        return True
+    return (now - last).total_seconds() >= interval * 60 - 5
+
+
+def _get_cached(tf: str, count: int, now: datetime) -> "pd.DataFrame":
+    """T-26: тянем свечи только если ТФ закрылся, иначе — кэш."""
+    if _tf_due(tf, now):
+        df = get_candles_tf(tf, count=count)
+        _candles_cache[tf] = df
+        _last_fetch[tf] = now
+        log.info("T-26: обновлён %s (count=%d)", tf, count)
+    else:
+        log.debug("T-26: %s из кэша (последнее обновление %s)", tf, _last_fetch[tf])
+    return _candles_cache.get(tf)
+
 
 # ============================================================
 # Индикаторы
@@ -92,9 +121,8 @@ def _build_indicator_snapshot(
 
     # --- Недельный тренд (H4) ---
     if df_h4 is None:
-        from data.api_facade import get_candles_tf
-
-        df_h4 = get_candles_tf("H4", count=300)
+        # T-26: fallback через кэш (не тянем сеть, если df_h4 не передан)
+        df_h4 = _get_cached("H4", 300, datetime.now())
     week_ctx = get_week_trend(df_h4)
     # from data.api_facade import get_candles_tf
 
@@ -447,7 +475,7 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
     _now = now_msk()
 
     # 1. M15 — только закрытые (T-01b)
-    df = _drop_unclosed(get_candles_tf(timeframe, count=300), timeframe, _now)
+    df = _drop_unclosed(_get_cached(timeframe, 300, _now), timeframe, _now)
     if df is None or df.empty:
         log.error("Нет данных для %s %s (или все свечи незакрыты)", symbol, timeframe)
         return None
@@ -467,11 +495,9 @@ def analyze(symbol: str = None, timeframe: str = None) -> AnalysisResult | None:
         log.debug("data_age не посчитан: %s", e)
 
     # 2. H1, H4, ATR — тоже только закрытые (T-01b)
-    df_h1 = _drop_unclosed(get_candles_tf("H1", count=200), "H1", _now)
-    df_h4 = _drop_unclosed(get_candles_tf("H4", count=300), "H4", _now)
-    df_atr = _drop_unclosed(
-        get_candles_tf(config.ATR_TF, count=50), config.ATR_TF, _now
-    )
+    df_h1 = _drop_unclosed(_get_cached("H1", 200, _now), "H1", _now)
+    df_h4 = _drop_unclosed(_get_cached("H4", 300, _now), "H4", _now)
+    df_atr = _drop_unclosed(_get_cached(config.ATR_TF, 200, _now), config.ATR_TF, _now)
 
     # 3. order_book (если ALOR)
     order_book = {}

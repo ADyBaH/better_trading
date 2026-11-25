@@ -132,3 +132,64 @@ class TestEdgeCases:
     def test_no_data(self):
         r = virtual_pnl(pd.DataFrame(), "long", 12.500, 12.470, 12.530)
         assert r["result"] == "no_data"
+
+
+# ============================================================
+# T-24: вход по market_price_at_open
+# ============================================================
+
+
+class TestMarketEntry:
+    """T-24: _resolve_entry_price + virtual_pnl от нового entry."""
+
+    def test_uses_market_price_when_present(self, monkeypatch):
+        import config
+        from trader.paper import _resolve_entry_price
+
+        monkeypatch.setattr(config, "PAPER_USE_MARKET_PRICE", True)
+        trade = {"entry_price": 12.400, "market_price_at_open": 12.410}
+        assert _resolve_entry_price(trade) == 12.410
+
+    def test_fallback_to_close_when_missing(self, monkeypatch):
+        import config
+        from trader.paper import _resolve_entry_price
+
+        monkeypatch.setattr(config, "PAPER_USE_MARKET_PRICE", True)
+        trade = {"entry_price": 12.400, "market_price_at_open": None}
+        assert _resolve_entry_price(trade) == 12.400
+
+    def test_flag_disabled_uses_close(self, monkeypatch):
+        import config
+        from trader.paper import _resolve_entry_price
+
+        monkeypatch.setattr(config, "PAPER_USE_MARKET_PRICE", False)
+        trade = {"entry_price": 12.400, "market_price_at_open": 12.410}
+        assert _resolve_entry_price(trade) == 12.400
+
+    def test_mfe_mae_from_market_entry(self, make_candles):
+        """MFE/MAE считаются от нового entry (market), а не от close."""
+        df = make_candles(
+            [
+                (12.520, 12.400, 12.500),  # high 12.520, low 12.400
+            ]
+        )
+        # long, entry=12.410 (market), take=12.530, stop=12.380
+        r = virtual_pnl(df, "long", 12.410, 12.380, 12.530)
+        # MFE = (12.520 - 12.410) / 0.001 = 110
+        # MAE = (12.410 - 12.400) / 0.001 = 10
+        assert r["mfe_points"] == 110.0
+        assert r["mae_points"] == 10.0
+
+    def test_pnl_differs_with_and_without_market(self, make_candles):
+        """PnL с market entry ≠ PnL с close entry (при разных ценах)."""
+        df = make_candles(
+            [
+                (12.520, 12.400, 12.500),
+            ]
+        )
+        # close entry=12.400, market entry=12.410
+        r_close = virtual_pnl(df, "long", 12.400, 12.380, 12.530)
+        r_market = virtual_pnl(df, "long", 12.410, 12.380, 12.530)
+        assert r_close["mfe_points"] == 120.0  # (12.520-12.400)
+        assert r_market["mfe_points"] == 110.0  # (12.520-12.410)
+        assert r_close["mfe_points"] != r_market["mfe_points"]

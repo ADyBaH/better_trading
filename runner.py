@@ -11,7 +11,7 @@
 
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import config
@@ -20,7 +20,6 @@ from core.analyzer import analyze
 from ui.render_console import render_console_to_string
 from ui.render_json import render_json
 
-INTERVAL_MIN = 5
 LOGS_DIR = Path(config.LOG_PATH).parent
 
 
@@ -122,6 +121,22 @@ def run_once(log) -> bool:
             try:
                 with connect_journal() as conn:
                     init_paper_table(conn)
+
+                    # T-05b: пометить старые data_age > 60 как runner_restart.
+                    # Идемпотентно: повторный вызов вернёт 0.
+                    try:
+                        from trader.paper_db import mark_skipped_runner_restart
+
+                        n_restart = mark_skipped_runner_restart(
+                            conn, min_age_minutes=60
+                        )
+                        if n_restart:
+                            log.info(
+                                "T-05b: помечено %s skipped как runner_restart (data_age > 60)",
+                                n_restart,
+                            )
+                    except Exception as e:
+                        log.exception("mark_skipped_runner_restart упал: %s", e)
 
                     max_id_before = conn.execute(
                         "SELECT COALESCE(MAX(id), 0) FROM paper_trades"
@@ -280,8 +295,8 @@ def main():
     setup_logging()
     log = get_logger(__name__)
 
-    log.info("=== runner стартует (интервал %d мин) ===", INTERVAL_MIN)
-    print(f"\nРаннер запущен. Интервал: {INTERVAL_MIN} мин.")
+    log.info("=== runner стартует (T-25: по закрытию M15, :00/:15/:30/:45 + 5 сек) ===")
+    print("\nРаннер запущен. Цикл: каждые 15 мин (по закрытию M15).")
     print(f"Логи: {LOGS_DIR}/YYYY-MM-DD/")
     print(f"Остановка: Ctrl+C\n")
 
@@ -294,11 +309,27 @@ def main():
 
             run_once(log)
 
-            next_run = datetime.now().timestamp() + INTERVAL_MIN * 60
-            print(
-                f"  Следующий запуск ~{datetime.fromtimestamp(next_run).strftime('%H:%M:%S')}"
+            # T-25: выравнивание на закрытие M15 (+5 сек на лаг ALOR)
+            now = datetime.now()
+            next_quarter = (now.minute // 15 + 1) * 15  # 15, 30, 45, 60
+            if next_quarter >= 60:
+                next_run = now.replace(minute=0, second=5, microsecond=0) + timedelta(
+                    hours=1
+                )
+            else:
+                next_run = now.replace(minute=next_quarter, second=5, microsecond=0)
+
+            wait_sec = (next_run - now).total_seconds()
+            log.info(
+                "T-25: следующий запуск в %s (через %.0f сек)",
+                next_run.strftime("%H:%M:%S"),
+                wait_sec,
             )
-            while datetime.now().timestamp() < next_run:
+            print(
+                f"  Следующий запуск ~{next_run.strftime('%H:%M:%S')} (через {wait_sec:.0f} сек)"
+            )
+
+            while datetime.now() < next_run:
                 time.sleep(1)
 
     except KeyboardInterrupt:

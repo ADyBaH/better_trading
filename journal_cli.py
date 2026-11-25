@@ -388,6 +388,12 @@ def cmd_paper_stats(args) -> int:
 
     with journal.connect_journal() as conn:
         init_paper_table(conn)
+        
+        if getattr(args, "no_slippage", False):
+            import config
+            config.PAPER_USE_MARKET_PRICE = False
+            print("⚠️  --no-slippage: entry = close (сравнение, не пессимистично)\n")
+
         s = paper_stats(
             conn,
             since=args.since,
@@ -879,6 +885,11 @@ def main() -> int:
         "--known-only",
         action="store_true",
         help="Убрать unknown в week_trend/market_state/RSI/ATR (чистые разрезы)",
+    )
+    p_paper.add_argument(
+        "--no-slippage",
+        action="store_true",
+        help="T-24: считать PnL по close (без market_price_at_open) — для сравнения",
     )
     p_paper.add_argument(
         "--min-n",

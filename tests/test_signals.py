@@ -330,3 +330,243 @@ def test_kill_switch_breakout(monkeypatch, make_candles, make_result):
     signals = detect_signals(result, df, skip_age_check=True)
     kinds = [s.kind for s in signals]
     assert "breakout" not in kinds
+
+
+# --- T-29: detect_retest ---
+
+from strategy.signals import detect_retest  # или strategy.detectors
+
+
+def _make_level(price=12.500):
+    return Level(price=price, type="structural", weight=2)
+
+
+def _retest_df(make_candles, rows):
+    """rows: список (o,h,l,c,v); последняя свеча — ретест/отскок."""
+    return make_candles(rows)
+
+
+def test_retest_long_passes(make_candles, make_result):
+    # 6 свечей: 3 нейтр. + пробой + ретест/отскок (last)
+    # buffer=0.0045 → пробой close>12.5045; tol=0.006 → low<=12.506; bounce=0.003 → close>12.503
+    rows = [
+        (12.500, 12.502, 12.498, 12.500, 100),  # нейтр.
+        (12.500, 12.502, 12.498, 12.501, 100),  # нейтр.
+        (12.501, 12.503, 12.499, 12.500, 100),  # нейтр.
+        (
+            12.500,
+            12.506,
+            12.498,
+            12.505,
+            100,
+        ),  # ещё нейтр. (close 12.505 < 12.5045? нет — 12.505 > 12.5045 → пробой!)
+        (12.505, 12.512, 12.504, 12.510, 120),  # пробой
+        (12.510, 12.512, 12.503, 12.505, 110),  # ретест+отскок
+    ]
+    df = make_candles(rows)
+    res = make_result(
+        levels=[_make_level()],
+        trend="up",
+        adx=30.0,
+        day_trend="bullish",
+        current_price=12.505,
+    )
+    sigs = detect_retest(res, df)
+    assert len(sigs) == 1
+    assert sigs[0].direction == "long"
+    assert sigs[0].kind == "retest"
+
+
+def test_retest_long_no_retest(make_candles, make_result):
+    # пробой есть, но low не коснулся level+tol (low 12.508 > 12.506)
+    rows = [
+        (12.500, 12.506, 12.498, 12.505, 100),
+        (12.505, 12.512, 12.504, 12.510, 120),
+        (12.510, 12.514, 12.508, 12.512, 110),
+    ]
+    res = make_result(
+        levels=[_make_level()],
+        trend="up",
+        adx=30.0,
+        day_trend="bullish",
+        current_price=12.512,
+    )
+    assert detect_retest(res, make_candles(rows)) == []
+
+
+def test_retest_long_no_bounce(make_candles, make_result):
+    # ретест есть, но close 12.502 < level+bounce (12.503)
+    rows = [
+        (12.500, 12.506, 12.498, 12.505, 100),
+        (12.505, 12.512, 12.504, 12.510, 120),
+        (12.510, 12.512, 12.501, 12.502, 110),
+    ]
+    res = make_result(
+        levels=[_make_level()],
+        trend="up",
+        adx=30.0,
+        day_trend="bullish",
+        current_price=12.502,
+    )
+    assert detect_retest(res, make_candles(rows)) == []
+
+
+def test_retest_short_passes(make_candles, make_result):
+    # buffer=0.0045 → пробой close<12.4955; tol=0.006 → high>=12.494; bounce=0.003 → close<12.497
+    rows = [
+        (12.500, 12.502, 12.498, 12.500, 100),
+        (12.500, 12.502, 12.498, 12.501, 100),
+        (12.501, 12.503, 12.499, 12.500, 100),
+        (12.500, 12.502, 12.498, 12.500, 100),  # нейтр.
+        (12.495, 12.496, 12.488, 12.490, 120),  # пробой вниз (12.490 < 12.4955)
+        (
+            12.490,
+            12.497,
+            12.489,
+            12.495,
+            110,
+        ),  # ретест (high 12.497 >= 12.494) + отскок (close 12.495 < 12.497)
+    ]
+    res = make_result(
+        levels=[_make_level()],
+        trend="down",
+        adx=30.0,
+        day_trend="bearish",
+        current_price=12.495,
+    )
+    sigs = detect_retest(res, make_candles(rows))
+    assert len(sigs) == 1
+    assert sigs[0].direction == "short"
+    assert sigs[0].kind == "retest"
+
+
+def test_retest_short_no_retest(make_candles, make_result):
+    rows = [
+        (12.500, 12.502, 12.494, 12.495, 100),
+        (12.495, 12.496, 12.488, 12.490, 120),
+        (12.490, 12.492, 12.485, 12.487, 110),  # high 12.492 < 12.494
+    ]
+    res = make_result(
+        levels=[_make_level()],
+        trend="down",
+        adx=30.0,
+        day_trend="bearish",
+        current_price=12.487,
+    )
+    assert detect_retest(res, make_candles(rows)) == []
+
+
+def test_retest_no_breakout(make_candles, make_result):
+    # ни пробоя вверх, ни вниз в lookback
+    rows = [
+        (12.500, 12.502, 12.498, 12.500, 100),
+        (12.500, 12.502, 12.498, 12.501, 120),
+        (12.501, 12.503, 12.499, 12.500, 110),
+    ]
+    res = make_result(
+        levels=[_make_level()],
+        trend="up",
+        adx=30.0,
+        day_trend="bullish",
+        current_price=12.500,
+    )
+    assert detect_retest(res, make_candles(rows)) == []
+
+
+def test_retest_lookback_too_short(make_candles, make_result):
+    rows = [(12.500, 12.502, 12.498, 12.500, 100)]  # 1 свеча < lookback+1
+    res = make_result(
+        levels=[_make_level()],
+        trend="up",
+        adx=30.0,
+        day_trend="bullish",
+        current_price=12.500,
+    )
+    assert detect_retest(res, make_candles(rows)) == []
+
+
+def test_retest_kind_is_retest(make_candles, make_result):
+    rows = [
+        (12.500, 12.502, 12.498, 12.500, 100),
+        (12.500, 12.502, 12.498, 12.501, 100),
+        (12.501, 12.503, 12.499, 12.500, 100),
+        (12.500, 12.502, 12.498, 12.500, 100),  # нейтр.
+        (12.505, 12.512, 12.504, 12.510, 120),  # пробой
+        (12.510, 12.512, 12.503, 12.505, 110),  # ретест+отскок
+    ]
+    res = make_result(
+        levels=[_make_level()],
+        trend="up",
+        adx=30.0,
+        day_trend="bullish",
+        current_price=12.505,
+    )
+    sigs = detect_retest(res, make_candles(rows))
+    assert sigs and all(s.kind == "retest" for s in sigs)
+    assert "A1_retest" in sigs[0].matched_criteria
+
+
+def test_retest_respects_direction_filter(make_candles, make_result):
+    # trend="down" → long запрещён _is_direction_allowed
+    rows = [
+        (12.500, 12.506, 12.498, 12.505, 100),
+        (12.505, 12.512, 12.504, 12.510, 120),
+        (12.510, 12.512, 12.503, 12.505, 110),
+    ]
+    res = make_result(
+        levels=[_make_level()],
+        trend="down",
+        adx=30.0,
+        day_trend="bearish",
+        current_price=12.505,
+    )
+    assert detect_retest(res, make_candles(rows)) == []
+
+
+def test_retest_transition_penalty(make_candles, make_result):
+    # transition + bullish day → long разрешён, но со штрафом; strength может упасть
+    rows = [
+        (12.500, 12.506, 12.498, 12.505, 100),
+        (12.505, 12.512, 12.504, 12.510, 120),
+        (12.510, 12.512, 12.503, 12.505, 110),
+    ]
+    res = make_result(
+        levels=[_make_level()],
+        trend="transition",
+        adx=10.0,
+        day_trend="bullish",
+        current_price=12.505,
+    )
+    sigs = detect_retest(res, make_candles(rows))
+    # либо пусто (штраф убил strength), либо strength ослаблен — проверяем инвариант:
+    for s in sigs:
+        assert s.strength_score < 3.0 or s.strength in ("weak", "medium")
+
+
+def test_retest_no_atr(make_candles, make_result):
+    rows = [
+        (12.500, 12.506, 12.498, 12.505, 100),
+        (12.505, 12.512, 12.504, 12.510, 120),
+        (12.510, 12.512, 12.503, 12.505, 110),
+    ]
+    res = make_result(
+        levels=[_make_level()],
+        trend="up",
+        adx=30.0,
+        day_trend="bullish",
+        current_price=12.505,
+    )
+    res.atr = 0.0
+    assert detect_retest(res, make_candles(rows)) == []
+
+
+def test_retest_empty_df(make_candles, make_result):
+    df = make_candles([])
+    res = make_result(
+        levels=[_make_level()],
+        trend="up",
+        adx=30.0,
+        day_trend="bullish",
+        current_price=12.500,
+    )
+    assert detect_retest(res, df) == []

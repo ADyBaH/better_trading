@@ -59,7 +59,7 @@ def _load_candles_for_date(date_str: str, tf: str = "M15") -> pd.DataFrame:
     return df
 
 
-def _backfill_one(trade: dict, inst) -> dict | None:
+def _backfill_one(trade: dict, inst, use_market_price: bool = False) -> dict | None:
     """
     Возвращает dict с mfe_points/mae_points/mfe_source/mae_source или None.
     """
@@ -99,38 +99,72 @@ def _backfill_one(trade: dict, inst) -> dict | None:
     if df_future.empty:
         return {"mfe_source": "unavailable", "mae_source": "unavailable"}
 
+    # T-24b: entry = market_price_at_open (фактическая цена), если флаг и есть
+    entry = trade["entry_price"]
+    if use_market_price and trade.get("market_price_at_open") is not None:
+        entry = trade["market_price_at_open"]
+
     pnl = virtual_pnl(
         df_future,
         trade["direction"],
-        trade["entry_price"],
+        entry,
         trade["stop_price"],
         trade["take_price"],
         max_bars=config.PAPER_TIMEOUT_BARS,
         price_step=inst.price_step,
     )
 
+    # T-24b: маркер источника, чтобы paper-stats мог отличать
+    src = "backfill"
+    if use_market_price and trade.get("market_price_at_open") is not None:
+        if abs(trade["market_price_at_open"] - trade["entry_price"]) > 0.0001:
+            src = "backfill_market_price"
     return {
         "mfe_points": pnl["mfe_points"],
         "mae_points": pnl["mae_points"],
-        "mfe_source": "backfill",
-        "mae_source": "backfill",
+        "mfe_source": src,
+        "mae_source": src,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Backfill MFE/MAE")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--since", default=None, help="YYYY-MM-DD (включительно)")
+    parser.add_argument("--until", default=None, help="YYYY-MM-DD (включительно)")
+    parser.add_argument(
+        "--use-market-price",
+        action="store_true",
+        help="T-24b: entry = market_price_at_open (не entry_price/close)",
+    )
     args = parser.parse_args()
     setup_logging()
 
     with connect_journal() as conn:
         init_paper_table(conn)
-        rows = conn.execute("""
-            SELECT * FROM paper_trades
-            WHERE mfe_points IS NULL
-              AND result IN ('win', 'loss', 'timeout')
-              AND (mfe_source IS NULL OR mfe_source != 'live')
-            """).fetchall()
+        where = [
+            "result IN ('win', 'loss', 'timeout')",
+            "(mfe_source IS NULL OR mfe_source != 'live')",
+        ]
+        params = []
+
+        if args.use_market_price:
+            # T-24b: пересчитать ВСЕ с market_price != entry, не только no_mfe
+            where.append("market_price_at_open IS NOT NULL")
+            where.append("abs(market_price_at_open - entry_price) > 0.0001")
+        else:
+            # старое поведение: только сделки без MFE
+            where.append("mfe_points IS NULL")
+
+        if args.since:
+            where.append("date(created_at) >= ?")
+            params.append(args.since)
+        if args.until:
+            where.append("date(created_at) <= ?")
+            params.append(args.until)
+
+        sql = "SELECT * FROM paper_trades WHERE " + " AND ".join(where)
+        rows = conn.execute(sql, params).fetchall()
 
         if not rows:
             print("Нет сделок для backfill.")
@@ -143,25 +177,40 @@ def main():
         unavailable = 0
         for row in rows:
             trade = dict(row)
-            res = _backfill_one(trade, inst)
+            res = _backfill_one(trade, inst, use_market_price=args.use_market_price)
             if res is None:
                 continue
 
             if res["mfe_source"] == "unavailable":
                 unavailable += 1
-                if not args.dry_run:
+                if args.dry_run:
+                    print(f"  #{trade['id']} {trade['created_at'][:10]}: unavailable")
+                else:
                     conn.execute(
                         "UPDATE paper_trades SET mfe_source='unavailable', mae_source='unavailable' WHERE id=?",
                         (trade["id"],),
                     )
             else:
                 updated += 1
-                if not args.dry_run:
+                if args.dry_run:
+                    print(
+                        f"  #{trade['id']} {trade['created_at'][:10]}: "
+                        f"mfe {trade['mfe_points']}→{res['mfe_points']} "
+                        f"mae {trade['mae_points']}→{res['mae_points']} "
+                        f"src={res['mfe_source']}"
+                    )
+                else:
                     conn.execute(
                         """UPDATE paper_trades
-                           SET mfe_points=?, mae_points=?, mfe_source='backfill', mae_source='backfill'
+                           SET mfe_points=?, mae_points=?, mfe_source=?, mae_source=?
                            WHERE id=?""",
-                        (res["mfe_points"], res["mae_points"], trade["id"]),
+                        (
+                            res["mfe_points"],
+                            res["mae_points"],
+                            res["mfe_source"],
+                            res["mae_source"],
+                            trade["id"],
+                        ),
                     )
 
         if not args.dry_run:

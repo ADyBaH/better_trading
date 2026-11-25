@@ -1,5 +1,52 @@
 # CHANGELOG
 
+## [0.18.1] — 2026-11-25
+
+### T-24b. Backfill MFE/MAE от market_price_at_open — ✅ закрыто
+
+- `scripts/backfill_mfe_mae.py`: флаги `--since/--until/--use-market-price`.
+- `_backfill_one(use_market_price=True)`: entry = `market_price_at_open`.
+- `mfe_source='backfill_market_price'` — новый маркер (отличать от `backfill`).
+- 21 сделка обновлена (11–23.11). Diff MFE/MAE: ±0.5–2.5 pts (разумный).
+- `optimize_stops.py`: `mfe_source IN (..., 'backfill_market_price')` (было 7, стало 28).
+
+### T-05b. `data_age > 60` при рестарте runner — ✅ закрыто
+
+- `trader/paper.py`: `save_skipped_signal` не пишет `data_age > 60` (рестарт runner).
+- `trader/paper_db.py`: `mark_skipped_runner_restart` (помечает старые как `runner_restart`).
+- `runner.py`: вызов при старте (идемпотентно).
+- 2 записи помечены (`data_age:5611`, `data_age:1203`).
+
+### T-28. Mean Reversion (разведочный) — ❌ опровергнута
+
+- `optimize_stops.py` на n=28 (после T-24b): **все PF < 0.5**.
+- Best: `stop=0.6, take=1.2` → PF=0.46, exp=−4.9.
+- Current (1.0, 2.0): PF=0.32, exp=−10.2.
+- Train/test: test ≥ train (не overfit, но и не сигнал).
+- **Решение:** `config.py` **не** менять. Проблема — в сигналах (breakout), не в стопах.
+
+### Исправлено
+
+- **`by_mfe_ratio` / `by_mae_ratio`**: `_entry_for_dist` (T-24b) — `r["market_price_at_open"]` вместо `r.get()` (sqlite3.Row не имеет `.get()`).
+  `unknown` 85 → 57 (корректно: 50 unavailable + 7 expired).
+
+## [0.18.0] — 2026-11-24
+
+### T-25. Синхронизация расписания `runner.py` с закрытием M15 — ✅ закрыто
+
+**Приоритет:** P0. **Оценка:** 0.2 д. **Зависит:** T-01b ✅.
+**Проблема:** После T-01b анализ идёт по закрытым M15. При фиксированном цикле раз в 5 мин (`INTERVAL_MIN = 5`) раннер может запускаться на 14-й минуте свечи, фиксируя сигнал с задержкой до 4–5 минут после закрытия бара.
+**Фикс:** выровнять старт цикла `runner.py` на `:00:05`, `:15:05`, `:30:05`, `:45:05` (через 5 сек после закрытия M15, чтобы ALOR успел отдать закрытый бар).
+**Приёмка:** в логах `runner.py` время анализа попадает в окно `+5..+15 сек` от кратного 15 минутам; `data_age` стабильно ~15 мин.
+
+### T-24. Пессимистичный вход (Slippage) — ✅ закрыто
+
+- `PAPER_USE_MARKET_PRICE=True`, `_resolve_entry_price()`, `--no-slippage`.
+- `paper_stats` читает `result_points` из БД → эффект на **новых** сделках.
+- 74 сделки с `market_price_at_open != close` (diff ±0.0005–0.0235).
+- Тесты: 5 в `test_virtual_pnl.py::TestMarketEntry`.
+- Backfill старых `result_points` — **отложен** (T-24b, если понадобится).
+
 ## [0.18.0] — 2026-11-22
 
 **Релиз:** T-01b, T-01c, T-04, T-05, T-06, T-07, T-08 (infra), T-12, T-13, T-23 (infra), BUG-08…BUG-11, рефакторинг `analytics/`.
@@ -15,6 +62,12 @@
 - **T-13**: `by_score` с bootstrap CI.
 - **T-23**: `by_day_range_atr` (infra).
 - **Рефакторинг**: пакет `trader/analytics/` (`group.py`, `paper.py`, `journal.py`).
+- **T-24**: пессимистичный вход в paper (`PAPER_USE_MARKET_PRICE`).
+  `_resolve_entry_price()` в `trader/paper.py`: entry = `market_price_at_open`
+  (фактическая рыночная цена), fallback на `entry_price` (close).
+  `virtual_pnl` получает новый entry → MFE/MAE пересчитываются от него.
+  `journal_cli.py paper-stats --no-slippage` — сравнение с close.
+  Тесты: `test_virtual_pnl.py::TestMarketEntry` (5).
 
 ### Исправлено
 
@@ -37,6 +90,8 @@
 - **T-08 результаты** — ждём n ≥ 100.
 - **T-23 проверка** — ждём n ≥ 20.
 - **T-02b** — ждём n ≥ 100.
+- **T-24**: старые сделки (до 2026-11-25) имеют `mfe_points`/`mae_points`
+  от `close`, а не от `market_price_at_open`. Backfill — отдельно (T-24b, отложено).
 
 ## [0.17.0] — 2026-11-22
 

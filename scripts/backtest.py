@@ -166,6 +166,7 @@ def run_backtest(
     skip_breakout: bool = False,
     skip_filters: bool = False,
     adaptive_take: bool | None = None,
+    retest_mode=False,
 ) -> dict:
     """
     Прогоняет detect_signals по барам последовательно (без look-ahead).
@@ -207,6 +208,10 @@ def run_backtest(
             "ADAPTIVE_TAKE_ENABLED", getattr(config, "ADAPTIVE_TAKE_ENABLED", False)
         )
         config.ADAPTIVE_TAKE_ENABLED = adaptive_take
+
+    saved_breakout_mode = getattr(config, "BREAKOUT_MODE", "direct")
+    if retest_mode:
+        config.BREAKOUT_MODE = "retest"
     try:
         # Начинаем с n_impulse=12 + запас для индикаторов
         start_idx = max(250, 12 + 50)
@@ -308,6 +313,7 @@ def run_backtest(
 
     result = _aggregate(trades)
     result["_trades"] = trades
+    config.BREAKOUT_MODE = saved_breakout_mode
     return result
 
 
@@ -373,18 +379,18 @@ def main():
 
     if args.compare:
         variants = [
-            # (name, filter_name, skip_breakout, skip_filters, adaptive_take)
-            ("current_config", None, False, False, None),
-            ("baseline (take=2.0)", None, False, True, False),
-            ("adaptive take", None, False, True, True),
-            ("skip_breakout", None, True, True, None),
-            ("F1 ADX>=25", "F1", False, True, None),
-            ("F2 ADX<20", "F2", False, True, None),
-            ("F3 impulse", "F3", False, True, None),
-            ("F4 week_trend", "F4", False, True, None),
+            ("current_config", None, False, False, None, False),
+            ("baseline (take=2.0)", None, False, True, False, False),
+            ("adaptive take", None, False, True, True, False),
+            ("skip_breakout", None, True, True, None, False),
+            ("F1 ADX>=25", "F1", False, True, None, False),
+            ("F2 ADX<20", "F2", False, True, None, False),
+            ("F3 impulse", "F3", False, True, None, False),
+            ("F4 week_trend", "F4", False, True, None, False),
+            ("retest", None, False, True, None, True),
         ]
         rows = []
-        for name, flt, skip, skip_f, ad_take in variants:
+        for name, flt, skip, skip_f, ad_take, retest_m in variants:
             res = run_backtest(
                 df_m15,
                 df_h1,
@@ -394,6 +400,7 @@ def main():
                 skip_breakout=skip,
                 skip_filters=skip_f,
                 adaptive_take=ad_take,
+                retest_mode=retest_m,
             )
             rows.append((name, res))
 

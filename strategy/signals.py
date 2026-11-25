@@ -28,6 +28,7 @@ from strategy.stops import _compute_stops
 from strategy.finalize import _finalize_signal
 from strategy.direction import _is_direction_allowed
 from strategy.detectors import (
+    detect_retest,
     detect_bounce,
     detect_breakout,
     detect_trend_level,
@@ -84,7 +85,10 @@ def detect_signals(
 
     all_signals = []
     all_signals.extend(detect_bounce(result, df))
-    all_signals.extend(detect_breakout(result, df))
+    if getattr(config, "BREAKOUT_MODE", "direct") == "retest":
+        all_signals.extend(detect_retest(result, df))
+    else:
+        all_signals.extend(detect_breakout(result, df))
     all_signals.extend(detect_trend_level(result, df))
 
     recent = get_recent_signal(

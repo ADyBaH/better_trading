@@ -61,6 +61,19 @@ def _is_in_paper_hours(dt: datetime) -> bool:
     return time(start_h, start_m) <= t < time(end_h, end_m)
 
 
+def _resolve_entry_price(trade: dict) -> float:
+    """
+    T-24: вход по фактической рыночной цене.
+
+    True  → market_price_at_open (если есть)
+    False → entry_price (close)
+    Fallback на entry_price, если market_price_at_open = None.
+    """
+    if not getattr(config, "PAPER_USE_MARKET_PRICE", False):
+        return trade["entry_price"]
+    return trade.get("market_price_at_open") or trade["entry_price"]
+
+
 def virtual_pnl(
     df_future,
     direction: str,
@@ -362,6 +375,23 @@ def save_skipped_signal(
 
     created = 0
     for s in skipped:
+        reason = s.get("reason", "unknown")
+
+        # T-05b: не писать skipped с data_age > 60 — это рестарт runner,
+        # а не рыночный лаг (DATA_MAX_AGE_BLOCK=30, ALOR-лаг ~15–28 мин).
+        if reason.startswith("data_age:"):
+            try:
+                age = int(reason.split(":", 1)[1])
+            except (ValueError, IndexError):
+                age = 0
+            if age > 60:
+                log.warning(
+                    "skip data_age=%s (>60) — похоже на рестарт runner, "
+                    "не пишем в paper_skipped",
+                    age,
+                )
+                continue
+
         sid = _signal_id_from_dict(s, result.symbol, result.timestamp)
         data = {
             "signal_id": sid,
@@ -370,7 +400,7 @@ def save_skipped_signal(
             "kind": s.get("kind", "unknown"),
             "entry_price": s.get("entry_price", 0.0),
             "strength_score": s.get("strength_score"),
-            "reason": s.get("reason", "unknown"),
+            "reason": reason,
             "context": None,
             "created_at": result.timestamp.isoformat(),
         }
@@ -511,11 +541,11 @@ def resolve_open_trades(
         # Только свечи строго после created_at
         # (свеча, в которой открыт сигнал, не участвует — это «нулевой» бар)
         df_future = df_m15[df_m15["begin"] > created_at].copy()
-
+        entry = _resolve_entry_price(trade)
         pnl = virtual_pnl(
             df_future,
             trade["direction"],
-            trade["entry_price"],
+            entry,
             trade["stop_price"],
             trade["take_price"],
             max_bars=config.PAPER_TIMEOUT_BARS,

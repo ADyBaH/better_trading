@@ -481,3 +481,26 @@ def get_skipped_stats(
         "by_kind": by_kind,
         "by_direction": by_direction,
     }
+
+
+def mark_skipped_runner_restart(
+    conn: sqlite3.Connection, min_age_minutes: int = 60
+) -> int:
+    """
+    T-05b: помечает skipped с data_age > min_age как runner_restart.
+    Это не рыночный лаг, а простой runner (ночь, выходные, рестарт).
+    Возвращает число обновлённых записей.
+    """
+    try:
+        cur = conn.execute(
+            """UPDATE paper_skipped
+               SET reason = 'runner_restart:' || substr(reason, 10)
+               WHERE reason LIKE 'data_age:%'
+                 AND CAST(substr(reason, 10) AS INTEGER) > ?""",
+            (min_age_minutes,),
+        )
+        conn.commit()
+        return cur.rowcount
+    except Exception as e:
+        log.error("mark_skipped_runner_restart error: %s", e)
+        return 0

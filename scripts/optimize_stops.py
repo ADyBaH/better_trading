@@ -131,7 +131,7 @@ def main():
             SELECT * FROM paper_trades
             WHERE mfe_points IS NOT NULL AND mae_points IS NOT NULL
               AND result IN ('win', 'loss', 'timeout')
-              AND mfe_source IN ('live', 'backfill')
+              AND mfe_source IN ('live', 'backfill', 'backfill_market_price')
             ORDER BY created_at
             """).fetchall()
 

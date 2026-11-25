@@ -209,6 +209,14 @@ PAPER_SKIP_BREAKOUT = False
 #   "F4"   — week_trend не противоречит direction (neutral пропускаем)
 BREAKOUT_FILTER = "none"
 
+# T-29: режим breakout — "direct" (пробой) или "retest" (ретест пробитого уровня)
+BREAKOUT_MODE = "direct"
+
+# T-29: параметры retest
+RETEST_TOLERANCE_ATR = 0.2  # цена вернулась к level ± 0.2 ATR
+RETEST_BOUNCE_ATR = 0.1  # отскок: close > level + 0.1 ATR
+RETEST_LOOKBACK_BARS = 5  # сколько свечей назад искать пробой
+
 # ============================================================
 # СОХРАНЕНИЕ СВЕЧЕЙ В JSON
 # ============================================================
@@ -247,3 +255,21 @@ REAL_TRADING_MODE = "mock"
 # Устанавливается ТОЛЬКО через env: export CONFIRM_LIVE=1
 # В коде/config.py значение НЕ хардкодить.
 CONFIRM_LIVE_ENV_VAR = "CONFIRM_LIVE"
+
+# --- T-24: пессимистичный вход (market price) ---
+# True  → entry = market_price_at_open (фактическая рыночная цена на момент открытия)
+# False → entry = entry_price (close, старое поведение)
+# Fallback на entry_price, если market_price_at_open = None (старые сделки).
+PAPER_USE_MARKET_PRICE = True
+
+# T-26: раздельный сбор по ТФ.
+# Каждый ТФ обновляется только когда его бар закрылся (+5 сек на лаг ALOR).
+# Чтобы добавить M5 — добавить "M5": 5 в словарь.
+TF_REFRESH_MINUTES = {
+    "M15": 15,
+    "H1": 60,
+    "H4": 240,
+}
+
+# T-26: какие ТФ используются для сигналов (пока M15).
+SIGNAL_TIMEFRAMES = ["M15"]
